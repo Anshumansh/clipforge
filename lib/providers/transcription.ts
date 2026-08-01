@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { renderAudioExtract } from "@/lib/remotion-render";
 
@@ -93,10 +94,11 @@ async function transcribeAudioFile(audioPath: string): Promise<Transcript | null
  * Whisper (OpenAI, then Groq's free-tier Whisper as a fallback). Returns null in mock
  * mode, on failure, or if the audio is too large for the API — callers should fall
  * back to duration-based logic. */
-export async function transcribeVideo(sourcePath: string, durationSec: number, workDir: string): Promise<Transcript | null> {
+export async function transcribeVideo(sourcePath: string, durationSec: number): Promise<Transcript | null> {
   if (getWhisperConfigs().length === 0) return null;
 
-  const audioPath = path.join(workDir, "audio-extract.mp3");
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "clipforge-transcribe-"));
+  const audioPath = path.join(tempDir, "audio-extract.mp3");
 
   try {
     await renderAudioExtract({ sourcePath, durationInSeconds: durationSec }, audioPath);
@@ -107,6 +109,6 @@ export async function transcribeVideo(sourcePath: string, durationSec: number, w
     console.error("[transcription] extractAudio/transcribe pipeline threw:", err instanceof Error ? err.message : err);
     return null;
   } finally {
-    await fs.rm(audioPath, { force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
 }

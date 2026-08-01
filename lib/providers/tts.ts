@@ -1,8 +1,10 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { parseBuffer } from "music-metadata";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { withTimeout } from "@/lib/with-timeout";
+import { uploadBuffer } from "@/lib/storage";
 import type { VoiceoverResult, WordTiming } from "./types";
 
 const WORDS_PER_SECOND = 2.5;
@@ -51,12 +53,7 @@ function mockVoiceover(script: string): VoiceoverResult {
   };
 }
 
-async function synthesizeWithOpenAI(
-  script: string,
-  publicDestDir: string,
-  publicUrlPrefix: string,
-  voice: string
-): Promise<VoiceoverResult> {
+async function synthesizeWithOpenAI(script: string, mediaKeyPrefix: string, voice: string): Promise<VoiceoverResult> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY not set");
 
@@ -73,14 +70,13 @@ async function synthesizeWithOpenAI(
   if (!res.ok) throw new Error(`OpenAI TTS failed: ${res.status}`);
 
   const buffer = Buffer.from(await res.arrayBuffer());
-  await fs.mkdir(publicDestDir, { recursive: true });
-  await fs.writeFile(path.join(publicDestDir, "voiceover.mp3"), buffer);
+  const audioUrl = await uploadBuffer(buffer, `${mediaKeyPrefix}/voiceover.mp3`, "audio/mpeg");
 
   const metadata = await parseBuffer(buffer, "audio/mpeg");
   const durationSec = metadata.format.duration ?? script.split(/\s+/).length / WORDS_PER_SECOND;
 
   return {
-    audioUrl: `${publicUrlPrefix}/voiceover.mp3`,
+    audioUrl,
     durationSec,
     words: estimateWordTimings(script, durationSec),
     mocked: false,
@@ -89,55 +85,47 @@ async function synthesizeWithOpenAI(
 
 /** Free, no-signup voiceover using Microsoft Edge's neural TTS voices (the engine behind
  * Edge's "Read Aloud"). Unofficial API, but widely used and reliable in practice. */
-async function synthesizeWithEdge(
-  script: string,
-  publicDestDir: string,
-  publicUrlPrefix: string,
-  voice: string
-): Promise<VoiceoverResult> {
-  await fs.mkdir(publicDestDir, { recursive: true });
+async function synthesizeWithEdge(script: string, mediaKeyPrefix: string, voice: string): Promise<VoiceoverResult> {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "clipforge-tts-"));
 
   const tts = new MsEdgeTTS();
   try {
     await tts.setMetadata(mapToEdgeVoice(voice), OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
-    const { audioFilePath } = await tts.toFile(publicDestDir, script);
+    const { audioFilePath } = await tts.toFile(tempDir, script);
 
-    const finalPath = path.join(publicDestDir, "voiceover.mp3");
-    if (path.resolve(audioFilePath) !== path.resolve(finalPath)) {
-      await fs.rename(audioFilePath, finalPath);
-    }
+    const buffer = await fs.readFile(audioFilePath);
+    const audioUrl = await uploadBuffer(buffer, `${mediaKeyPrefix}/voiceover.mp3`, "audio/mpeg");
 
-    const buffer = await fs.readFile(finalPath);
     const metadata = await parseBuffer(buffer, "audio/mpeg");
     const durationSec = metadata.format.duration ?? script.split(/\s+/).length / WORDS_PER_SECOND;
 
     return {
-      audioUrl: `${publicUrlPrefix}/voiceover.mp3`,
+      audioUrl,
       durationSec,
       words: estimateWordTimings(script, durationSec),
       mocked: false,
     };
   } finally {
     tts.close();
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
 }
 
 export async function synthesizeVoiceover(
   script: string,
-  publicDestDir: string,
-  publicUrlPrefix: string,
+  mediaKeyPrefix: string,
   voice = "alloy"
 ): Promise<VoiceoverResult> {
   if (process.env.OPENAI_API_KEY) {
     try {
-      return await withTimeout(synthesizeWithOpenAI(script, publicDestDir, publicUrlPrefix, voice), PROVIDER_TIMEOUT_MS, "OpenAI TTS");
+      return await withTimeout(synthesizeWithOpenAI(script, mediaKeyPrefix, voice), PROVIDER_TIMEOUT_MS, "OpenAI TTS");
     } catch (err) {
       console.error("[tts] OpenAI TTS failed, falling back:", err instanceof Error ? err.message : err);
     }
   }
 
   try {
-    return await withTimeout(synthesizeWithEdge(script, publicDestDir, publicUrlPrefix, voice), PROVIDER_TIMEOUT_MS, "Edge TTS");
+    return await withTimeout(synthesizeWithEdge(script, mediaKeyPrefix, voice), PROVIDER_TIMEOUT_MS, "Edge TTS");
   } catch (err) {
     console.error("[tts] Edge TTS failed, falling back to mock:", err instanceof Error ? err.message : err);
     return mockVoiceover(script);

@@ -1,11 +1,11 @@
 import path from "node:path";
-import fs from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { chargeCredits, CREDITS_PER_VIDEO, InsufficientCreditsError } from "@/lib/credits";
 import { enqueueJob } from "@/lib/jobs/queue";
+import { uploadBuffer } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -56,14 +56,9 @@ export async function POST(req: Request) {
     },
   });
 
-  const destDir = path.join(process.cwd(), "public", "media", userId, project.id);
-  await fs.mkdir(destDir, { recursive: true });
   const ext = extensionFor(file);
-  const destFile = path.join(destDir, `source.${ext}`);
   const buffer = Buffer.from(await file.arrayBuffer());
-  await fs.writeFile(destFile, buffer);
-
-  const sourcePath = `media/${userId}/${project.id}/source.${ext}`;
+  const sourcePath = await uploadBuffer(buffer, `media/${userId}/${project.id}/source.${ext}`, file.type || "video/mp4");
 
   await db.project.update({
     where: { id: project.id },

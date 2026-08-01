@@ -1,8 +1,9 @@
 import React from "react";
-import { AbsoluteFill, OffthreadVideo, staticFile, useVideoConfig } from "remotion";
+import { AbsoluteFill, OffthreadVideo, useVideoConfig } from "remotion";
+import { resolveSource } from "./resolve-source";
 
 export interface RepurposeClipProps {
-  sourcePath: string; // path relative to /public, e.g. "media/u1/p1/source.mp4"
+  sourcePath: string; // absolute URL (remote storage) or path relative to /public (local dev)
   startSec: number;
   endSec: number;
   title: string;
@@ -15,7 +16,7 @@ export function RepurposeClip({ sourcePath, startSec, endSec, title }: Repurpose
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
       <AbsoluteFill style={{ overflow: "hidden" }}>
         <OffthreadVideo
-          src={staticFile(sourcePath)}
+          src={resolveSource(sourcePath)}
           trimBefore={Math.round(startSec * fps)}
           trimAfter={Math.round(endSec * fps)}
           style={{

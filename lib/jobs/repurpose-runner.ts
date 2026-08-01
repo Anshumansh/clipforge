@@ -1,4 +1,3 @@
-import path from "node:path";
 import { db } from "@/lib/db";
 import { renderRepurposeClip } from "@/lib/remotion-render";
 import { transcribeVideo } from "@/lib/providers/transcription";
@@ -55,11 +54,10 @@ export async function runRepurposeJob(jobId: string) {
     await db.project.update({ where: { id: project.id }, data: { status: "processing" } });
 
     const input = JSON.parse(project.input) as { durationSec: number; sourcePath: string; topic: string };
-    const publicDestDir = path.join(process.cwd(), "public", "media", project.userId, project.id);
-    const publicUrlPrefix = `/media/${project.userId}/${project.id}`;
+    const mediaKeyPrefix = `media/${project.userId}/${project.id}`;
 
     await setJobProgress(jobId, 10, "Transcribing audio…");
-    const transcript = await transcribeVideo(input.sourcePath, input.durationSec, publicDestDir);
+    const transcript = await transcribeVideo(input.sourcePath, input.durationSec);
 
     let highlights: HighlightClip[] | null = null;
     if (transcript) {
@@ -97,24 +95,20 @@ export async function runRepurposeJob(jobId: string) {
     for (const clip of clips) {
       await db.clip.update({ where: { id: clip.id }, data: { status: "processing" } });
       try {
-        const outputPath = path.join(publicDestDir, `clip-${clip.id}.mp4`);
-        await renderRepurposeClip(
+        const videoUrl = await renderRepurposeClip(
           {
             sourcePath: input.sourcePath,
             startSec: clip.startSec,
             endSec: clip.endSec,
             title: clip.title,
           },
-          outputPath,
+          `${mediaKeyPrefix}/clip-${clip.id}.mp4`,
           (percent) => {
             const overallPercent = 25 + ((completed + percent / 100) / clips.length) * 70;
             void setJobProgress(jobId, Math.round(overallPercent));
           }
         );
-        await db.clip.update({
-          where: { id: clip.id },
-          data: { status: "ready", videoUrl: `${publicUrlPrefix}/clip-${clip.id}.mp4` },
-        });
+        await db.clip.update({ where: { id: clip.id }, data: { status: "ready", videoUrl } });
       } catch {
         await db.clip.update({ where: { id: clip.id }, data: { status: "failed" } });
       }

@@ -6,10 +6,10 @@ import {
   OffthreadVideo,
   Sequence,
   interpolate,
-  staticFile,
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
+import { resolveSource } from "./resolve-source";
 import type { BrollScene, WordTiming } from "@/lib/providers/types";
 
 export interface ScriptVideoProps {
@@ -206,7 +206,7 @@ export function ScriptVideo({ words, scenes, audioUrl, durationInSeconds, ctaTex
           <CtaCard text={ctaText} />
         </Sequence>
       )}
-      {audioUrl && <Audio src={audioUrl.startsWith("http") ? audioUrl : staticFile(audioUrl.replace(/^\//, ""))} />}
+      {audioUrl && <Audio src={resolveSource(audioUrl)} />}
     </AbsoluteFill>
   );
 }

@@ -1,8 +1,9 @@
 import React from "react";
-import { AbsoluteFill, OffthreadVideo, staticFile } from "remotion";
+import { AbsoluteFill, OffthreadVideo } from "remotion";
+import { resolveSource } from "./resolve-source";
 
 export interface AudioExtractProps {
-  sourcePath: string; // path relative to /public
+  sourcePath: string; // absolute URL (remote storage) or path relative to /public (local dev)
   durationInSeconds: number;
 }
 
@@ -12,7 +13,7 @@ export interface AudioExtractProps {
 export function AudioExtract({ sourcePath }: AudioExtractProps) {
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
-      <OffthreadVideo src={staticFile(sourcePath)} />
+      <OffthreadVideo src={resolveSource(sourcePath)} />
     </AbsoluteFill>
   );
 }

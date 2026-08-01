@@ -1,5 +1,3 @@
-import path from "node:path";
-import fs from "node:fs/promises";
 import { db } from "@/lib/db";
 import { generateAdScript } from "@/lib/providers/script";
 import { synthesizeVoiceover } from "@/lib/providers/tts";
@@ -24,6 +22,7 @@ export async function runUgcJob(jobId: string) {
       ctaText: string;
       voice?: string;
     };
+    const mediaKeyPrefix = `media/${project.userId}/${project.id}`;
 
     await setJobProgress(jobId, 10, "Writing ad script…");
     const scriptResult = await generateAdScript(input.productName, input.sellingPoints);
@@ -31,12 +30,8 @@ export async function runUgcJob(jobId: string) {
     await setJobProgress(jobId, 30, "Selecting b-roll…");
     const scenes = await pickBrollScenes(scriptResult.sceneKeywords);
 
-    const publicDestDir = path.join(process.cwd(), "public", "media", project.userId, project.id);
-    const publicUrlPrefix = `/media/${project.userId}/${project.id}`;
-    await fs.mkdir(publicDestDir, { recursive: true });
-
     await setJobProgress(jobId, 45, "Generating voiceover…");
-    const voiceover = await synthesizeVoiceover(scriptResult.script, publicDestDir, publicUrlPrefix, input.voice);
+    const voiceover = await synthesizeVoiceover(scriptResult.script, mediaKeyPrefix, input.voice);
 
     await db.project.update({
       where: { id: project.id },
@@ -49,8 +44,7 @@ export async function runUgcJob(jobId: string) {
     });
 
     await setJobProgress(jobId, 60, "Rendering ad video…");
-    const outputPath = path.join(publicDestDir, "final.mp4");
-    await renderScriptVideo(
+    const videoUrl = await renderScriptVideo(
       {
         words: voiceover.words,
         scenes,
@@ -58,13 +52,11 @@ export async function runUgcJob(jobId: string) {
         durationInSeconds: voiceover.durationSec + 2,
         ctaText: input.ctaText || `Get ${input.productName} today`,
       },
-      outputPath,
+      `${mediaKeyPrefix}/final.mp4`,
       (percent) => {
         void setJobProgress(jobId, 60 + Math.round(percent * 0.35));
       }
     );
-
-    const videoUrl = `${publicUrlPrefix}/final.mp4`;
 
     await db.project.update({ where: { id: project.id }, data: { status: "ready", videoUrl } });
     await db.job.update({ where: { id: jobId }, data: { status: "done", progress: 100, log: "Done" } });
