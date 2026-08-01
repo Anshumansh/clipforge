@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                     String    @id @default(cuid())
+  name                   String?
+  email                  String    @unique
+  passwordHash           String
+  credits                Int       @default(50)
+  plan                   String    @default("free")
+  stripeCustomerId       String?   @unique
+  stripeSubscriptionId   String?   @unique
+  stripePriceId          String?
+  stripeCurrentPeriodEnd DateTime?
+  createdAt              DateTime  @default(now())
+  projects               Project[]
+  jobs                   Job[]
+}
+
+// A project is one piece of content the user is generating:
+// script-to-video, repurpose (long-form -> clips), or ugc/avatar ad.
+model Project {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String   // "script" | "repurpose" | "ugc"
+  title       String
+  status      String   @default("draft") // draft | queued | processing | ready | failed
+  input       String   // JSON blob of wizard input
+  script      String?
+  captionsJson String? // JSON word-timing captions
+  voiceoverUrl String?
+  videoUrl    String?
+  thumbnailUrl String?
+  errorMessage String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  jobs        Job[]
+  clips       Clip[]
+}
+
+// Sub-clips produced by the "repurpose" flow from one long-form upload.
+model Clip {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title      String
+  startSec   Float
+  endSec     Float
+  score      Float    @default(0)
+  videoUrl   String?
+  status     String   @default("pending") // pending | processing | ready | failed
+  createdAt  DateTime @default(now())
+}
+
+model Job {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type       String   // "render" | "analyze"
+  status     String   @default("queued") // queued | processing | done | failed
+  progress   Int      @default(0)
+  log        String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
