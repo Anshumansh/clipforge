@@ -15,23 +15,22 @@ none of it can be done on your behalf.
 
 ## 2. Create object storage (Cloudflare R2 — free tier, no card for the free tier)
 
-Rendered videos need somewhere that isn't your laptop's disk.
+Rendered videos need somewhere that isn't your laptop's disk. The bucket stays
+**private** — the app serves media through its own `/api/media` route using
+short-lived presigned URLs, so there's no public-access bucket setting to hunt
+for in Cloudflare's UI.
 
 1. Go to https://dash.cloudflare.com, sign up, go to **R2 Object Storage**.
-2. Create a bucket (e.g. `clipforge-media`).
-3. In the bucket settings, enable **public access** — either the free `r2.dev`
-   subdomain Cloudflare gives you, or a custom domain if you have one. Copy that
-   public URL — this is `STORAGE_PUBLIC_URL`.
-4. Go to **R2 → Manage API Tokens → Create API Token**. Give it read/write
+2. Create a bucket (e.g. `clipforge-media`) → `STORAGE_BUCKET`.
+3. Go to **R2 → Manage API Tokens → Create API Token**. Give it read/write
    permission scoped to your bucket. You'll get:
    - Access Key ID → `STORAGE_ACCESS_KEY_ID`
    - Secret Access Key → `STORAGE_SECRET_ACCESS_KEY`
-5. The endpoint is `https://<your-account-id>.r2.cloudflarestorage.com` — your
-   account ID is visible in the Cloudflare dashboard URL or the R2 overview page.
-   This is `STORAGE_ENDPOINT`.
-6. Bucket name from step 2 → `STORAGE_BUCKET`.
+4. The endpoint is `https://<your-account-id>.r2.cloudflarestorage.com` — your
+   account ID is visible in the Cloudflare dashboard sidebar or the R2 overview
+   page. This is `STORAGE_ENDPOINT`.
 
-Send me these 4 values (or set them in `.env`) and I'll wire them up too.
+Send me these 3 values (or set them in `.env`) and I'll wire them up too.
 
 ## 3. Push the code to GitHub
 
@@ -77,7 +76,6 @@ real persistent container instead.
    STORAGE_ENDPOINT=<from step 2>
    STORAGE_ACCESS_KEY_ID=<from step 2>
    STORAGE_SECRET_ACCESS_KEY=<from step 2>
-   STORAGE_PUBLIC_URL=<from step 2>
    ```
 
 5. Deploy. Railway will build the Docker image (takes a few minutes the first
