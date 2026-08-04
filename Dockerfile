@@ -11,6 +11,12 @@ RUN npm ci
 # ---------- builder ----------
 FROM base AS builder
 WORKDIR /app
+
+# Prisma needs OpenSSL present to detect the right query engine target at
+# generate time — without it, detection silently fails and falls back to a
+# broken default that doesn't match what's actually available at runtime.
+RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
@@ -50,6 +56,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrandr2 \
     wget \
     xdg-utils \
+    openssl \
   && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
