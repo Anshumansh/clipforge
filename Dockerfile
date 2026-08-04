@@ -72,6 +72,12 @@ COPY --from=builder /app/public ./public
 # time), so the raw source needs to exist alongside the running server.
 COPY --from=builder /app/remotion ./remotion
 
+# Next's dependency tracer only follows static imports, so it misses the
+# platform-specific compositor binary package Remotion loads dynamically at
+# runtime (e.g. @remotion/compositor-linux-x64-gnu) — copy the whole scope
+# explicitly rather than guess which subpackages matter.
+COPY --from=builder /app/node_modules/@remotion ./node_modules/@remotion
+
 # Prisma's generated client + schema (for `prisma migrate deploy` on release).
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
