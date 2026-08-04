@@ -1,5 +1,8 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // "native" covers local dev; "debian-openssl-3.0.x" covers the Docker image
+  // (Debian Bookworm ships OpenSSL 3.0, not the 1.1.x Prisma defaults to).
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
