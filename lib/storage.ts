@@ -6,6 +6,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 interface S3Config {
   bucket: string;
   endpoint: string;
+  region: string;
   accessKeyId: string;
   secretAccessKey: string;
 }
@@ -15,9 +16,12 @@ function getS3Config(): S3Config | null {
   const endpoint = process.env.STORAGE_ENDPOINT;
   const accessKeyId = process.env.STORAGE_ACCESS_KEY_ID;
   const secretAccessKey = process.env.STORAGE_SECRET_ACCESS_KEY;
+  // R2 accepts the literal string "auto" for SigV4 region; other S3-compatible
+  // providers (e.g. Backblaze B2) require their real region code here instead.
+  const region = process.env.STORAGE_REGION || "auto";
 
   if (bucket && endpoint && accessKeyId && secretAccessKey) {
-    return { bucket, endpoint, accessKeyId, secretAccessKey };
+    return { bucket, endpoint, region, accessKeyId, secretAccessKey };
   }
   return null;
 }
@@ -27,10 +31,10 @@ let cachedClient: S3Client | null = null;
 function getS3Client(config: S3Config): S3Client {
   if (!cachedClient) {
     cachedClient = new S3Client({
-      region: "auto",
+      region: config.region,
       endpoint: config.endpoint,
-      // R2's TLS setup doesn't play well with the SDK's default virtual-hosted-style
-      // addressing (bucket.endpoint) — path-style (endpoint/bucket) avoids handshake failures.
+      // Path-style (endpoint/bucket) avoids virtual-hosted-style addressing quirks
+      // across different S3-compatible providers.
       forcePathStyle: true,
       credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
     });
