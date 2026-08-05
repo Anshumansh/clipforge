@@ -1,6 +1,9 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        NEXTAUTH_URL: ${NEXTAUTH_URL}
     image: clipforge:latest
     env_file: .env
     expose:

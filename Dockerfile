@@ -20,6 +20,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# .env isn't copied into the build context (see .dockerignore), so
+# statically-rendered pages need the real site URL passed explicitly —
+# otherwise metadataBase (and things derived from it, like the og:image URL)
+# gets baked in as the localhost fallback.
+ARG NEXTAUTH_URL
+ENV NEXTAUTH_URL=${NEXTAUTH_URL}
+
 RUN npx prisma generate
 RUN npm run build
 
