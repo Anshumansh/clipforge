@@ -24,6 +24,7 @@ model User {
   createdAt              DateTime  @default(now())
   projects               Project[]
   jobs                   Job[]
+  passwordResetTokens    PasswordResetToken[]
 }
 
 // A project is one piece of content the user is generating:
@@ -60,6 +61,18 @@ model Clip {
   videoUrl   String?
   status     String   @default("pending") // pending | processing | ready | failed
   createdAt  DateTime @default(now())
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model Job {

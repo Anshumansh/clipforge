@@ -2,6 +2,7 @@ import type { AuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const authOptions: AuthOptions = {
   session: { strategy: "jwt" },
@@ -17,6 +18,11 @@ export const authOptions: AuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
+
+        // Keyed by email (not IP — NextAuth's internal req here doesn't reliably
+        // carry proxy headers) to slow down credential-stuffing against one account.
+        const { ok } = rateLimit(`login:${credentials.email.toLowerCase()}`, 10, 10 * 60 * 1000);
+        if (!ok) throw new Error("Too many login attempts. Try again in a few minutes.");
 
         const user = await db.user.findUnique({
           where: { email: credentials.email.toLowerCase() },

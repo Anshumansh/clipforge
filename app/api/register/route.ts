@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 
 const schema = z.object({
   name: z.string().min(1).max(80),
@@ -10,6 +11,11 @@ const schema = z.object({
 });
 
 export async function POST(req: Request) {
+  const { ok } = rateLimit(`register:${getClientIp(req)}`, 10, 10 * 60 * 1000);
+  if (!ok) {
+    return NextResponse.json({ error: "Too many attempts. Try again in a few minutes." }, { status: 429 });
+  }
+
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) {

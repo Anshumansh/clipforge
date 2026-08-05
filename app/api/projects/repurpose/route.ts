@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { chargeCredits, CREDITS_PER_VIDEO, InsufficientCreditsError } from "@/lib/credits";
 import { enqueueJob } from "@/lib/jobs/queue";
 import { uploadBuffer } from "@/lib/storage";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -22,6 +23,9 @@ export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { ok } = rateLimit(`generate:${userId}`, 5, 60 * 1000);
+  if (!ok) return NextResponse.json({ error: "Too many requests. Slow down and try again shortly." }, { status: 429 });
 
   const form = await req.formData().catch(() => null);
   if (!form) return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
