@@ -305,16 +305,54 @@ platform as the real test.
 
 ---
 
-## 15. Voice cloning — not built
+## 15. Voice cloning (Business plan)
 
-The one item from the original feature list genuinely not shippable for free: real voice
-cloning needs a trained model. Options if this becomes a priority:
-- **Self-hosted, free**: Coqui XTTS-v2 (open source) — but it's a Python/PyTorch model;
-  running it well needs either a GPU or tolerating slow CPU inference, and adds a whole
-  new service to a VPS that's already tight at 2 concurrent renders (see §12).
-- **Paid API** (e.g. ElevenLabs): fast, simple integration, real per-use cost, needs a new
-  account.
-No implementation attempted — would need a decision on which tradeoff to take first.
+Self-hosted, free, no API account needed. Uses Coqui TTS's **YourTTS** model (open
+source, zero-shot voice cloning from a single short reference clip) — chosen over
+XTTS-v2 specifically because it's lighter and meaningfully faster on CPU-only inference,
+which matters on a 4-vCPU box with no GPU.
+
+**How it runs**: `voice-clone/clone.py` is a plain script — given a reference audio file,
+target text, and an output path, it loads YourTTS and synthesizes speech in the reference
+voice. `lib/providers/voice-clone.ts` invokes it as a **subprocess** (`execFile("python3",
+[...])`, args passed as an array — never shell-interpolated, so arbitrary script text
+can't be interpreted as shell syntax) from within `lib/jobs/script-runner.ts`, only when
+the user uploaded a reference sample in the Script-to-Video wizard. Torch/torchaudio
+(pinned to `2.1.0`/`2.1.0` — unpinned installs resolve mismatched ABI versions and crash
+with `undefined symbol: aoti_torch_abi_version`), `TTS==0.22.0`, and the YourTTS model
+weights are baked directly into the app's own Docker image (see `Dockerfile`), ordered
+before the app source `COPY` so the layer is cached across deploys that don't touch it.
+
+**Why a subprocess and not a separate container**: an earlier version ran this as its own
+Docker image, invoked from the app container via `docker run --rm` against the VPS's
+Docker socket. That needs the host socket bind-mounted into the app container — a real
+container-escape exposure (anyone who gets RCE in the app gets root on the host) — plus
+cross-container bind-mount path translation (paths in `-v` flags issued through a mounted
+socket resolve against the *host* filesystem, not the calling container's, since the
+daemon that resolves them is the host's). Baking the same recipe into the app image and
+running it as a plain subprocess avoids both problems entirely, at the cost of a larger
+image (~4-5GB heavier).
+
+**Resource cost (measured directly, `docker stats` during a real inference run)**:
+peak ~1.04GB RAM, up to ~300% CPU, ~1.3-6s actual synthesis time (real-time factor
+0.2-1.0 depending on text length) plus ~15-20s model load — total wall time per request
+is ~20-30s. This is well under a video render's ~3.3GB peak (§12). Because cloning only
+ever runs *before* the render step within the same job (sequentially, not concurrently —
+see `script-runner.ts`), and that job already occupies one of the `MAX_CONCURRENT_RENDERS
+= 2` queue slots, the worst case across the whole VPS is still bounded by the existing
+tested ceiling (2 concurrent heavy jobs) — no separate concurrency limit was needed for
+this feature specifically.
+
+**Gating & fallback**: gated to the Business plan (`canUseVoiceClone()` in `lib/plans.ts`)
+given the resource cost per request. If cloning fails for any reason (bad sample, subprocess
+timeout, transient error), `script-runner.ts` catches it and falls back to the normal Edge
+TTS voiceover rather than failing the whole render.
+
+**Verified**: real end-to-end inference on the VPS (reference clip → cloned output.wav,
+audibly in the reference voice) and the resource measurement above. **Not yet verified**:
+triggering it from the actual deployed app UI after this integration (upload a sample in
+the Script-to-Video wizard, confirm the final rendered video uses the cloned voice), and
+running it concurrently with an active video render under real load.
 
 ---
 
