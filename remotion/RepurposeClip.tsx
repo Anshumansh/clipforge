@@ -1,7 +1,16 @@
 import React from "react";
-import { AbsoluteFill, OffthreadVideo, useVideoConfig } from "remotion";
+import { AbsoluteFill, OffthreadVideo, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 import { resolveSource } from "./resolve-source";
 import type { AspectRatio } from "@/lib/aspect-ratio";
+
+// Kept as a plain local type (not imported from lib/providers/subject-tracking)
+// so this file never pulls that module's TensorFlow.js dependency graph into
+// Remotion's own bundler — analysis runs ahead of time in the job runner, this
+// component only ever sees the small resulting keyframe list.
+interface PanKeyframe {
+  t: number;
+  xPercent: number;
+}
 
 export interface RepurposeClipProps {
   sourcePath: string; // absolute URL (remote storage) or path relative to /public (local dev)
@@ -10,10 +19,32 @@ export interface RepurposeClipProps {
   title: string;
   /** Resolved to actual pixel dimensions in Root.tsx's calculateMetadata. */
   aspectRatio?: AspectRatio;
+  /** Smoothed horizontal face-pan path from lib/providers/subject-tracking.ts,
+   * one sample per second. Falls back to a static center crop when absent
+   * (analysis found no face, or the source video is being repurposed without it). */
+  panKeyframes?: PanKeyframe[];
 }
 
-export function RepurposeClip({ sourcePath, startSec, endSec, title }: RepurposeClipProps) {
+function usePanObjectPosition(panKeyframes: PanKeyframe[] | undefined) {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  if (!panKeyframes || panKeyframes.length === 0) return "center";
+  // interpolate() requires at least 2 points in the range.
+  if (panKeyframes.length === 1) return `${panKeyframes[0].xPercent}% center`;
+
+  const t = frame / fps;
+  const xPercent = interpolate(
+    t,
+    panKeyframes.map((k) => k.t),
+    panKeyframes.map((k) => k.xPercent),
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
+  );
+  return `${xPercent}% center`;
+}
+
+export function RepurposeClip({ sourcePath, startSec, endSec, title, panKeyframes }: RepurposeClipProps) {
   const { fps, width } = useVideoConfig();
+  const objectPosition = usePanObjectPosition(panKeyframes);
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
@@ -26,7 +57,7 @@ export function RepurposeClip({ sourcePath, startSec, endSec, title }: Repurpose
             width: "100%",
             height: "100%",
             objectFit: "cover",
-            objectPosition: "center",
+            objectPosition,
           }}
         />
       </AbsoluteFill>

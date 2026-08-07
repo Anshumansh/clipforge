@@ -87,6 +87,13 @@ COPY --from=builder /app/lib ./lib
 # explicitly rather than guess which subpackages matter.
 COPY --from=builder /app/node_modules/@remotion ./node_modules/@remotion
 
+# Subject-tracking's face detection stack (TensorFlow.js WASM + BlazeFace +
+# jpeg-js) — externalized from the webpack bundle in next.config.js, so it
+# needs to exist on disk for Node's own require() at runtime, same as @remotion.
+COPY --from=builder /app/node_modules/@tensorflow ./node_modules/@tensorflow
+COPY --from=builder /app/node_modules/@tensorflow-models ./node_modules/@tensorflow-models
+COPY --from=builder /app/node_modules/jpeg-js ./node_modules/jpeg-js
+
 # Prisma's generated client + schema (for `prisma migrate deploy` on release).
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma

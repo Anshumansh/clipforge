@@ -3,6 +3,7 @@ import { renderRepurposeClip } from "@/lib/remotion-render";
 import { transcribeVideo } from "@/lib/providers/transcription";
 import { planHighlightsFromTranscript, type HighlightClip } from "@/lib/providers/highlights";
 import { chatJSON } from "@/lib/providers/llm";
+import { analyzeSubjectPan } from "@/lib/providers/subject-tracking";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 
 async function setJobProgress(jobId: string, progress: number, log?: string) {
@@ -105,6 +106,12 @@ export async function runRepurposeJob(jobId: string) {
     for (const clip of clips) {
       await db.clip.update({ where: { id: clip.id }, data: { status: "processing" } });
       try {
+        await setJobProgress(jobId, Math.round(25 + (completed / clips.length) * 70), "Tracking subject…");
+        const panKeyframes = await analyzeSubjectPan(input.sourcePath, clip.startSec, clip.endSec).catch((err) => {
+          console.error("[repurpose] subject tracking failed, using center crop:", err instanceof Error ? err.message : err);
+          return null;
+        });
+
         const videoUrl = await renderRepurposeClip(
           {
             sourcePath: input.sourcePath,
@@ -112,6 +119,7 @@ export async function runRepurposeJob(jobId: string) {
             endSec: clip.endSec,
             title: clip.title,
             aspectRatio: input.aspectRatio,
+            panKeyframes: panKeyframes ?? undefined,
           },
           `${mediaKeyPrefix}/clip-${clip.id}.mp4`,
           (percent) => {
