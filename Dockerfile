@@ -76,8 +76,10 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
 # Remotion bundles its composition source at render time (not at Next.js build
-# time), so the raw source needs to exist alongside the running server.
+# time), so the raw source needs to exist alongside the running server —
+# including lib/, since remotion/*.tsx imports shared code from there.
 COPY --from=builder /app/remotion ./remotion
+COPY --from=builder /app/lib ./lib
 
 # Next's dependency tracer only follows static imports, so it misses the
 # platform-specific compositor binary package Remotion loads dynamically at
