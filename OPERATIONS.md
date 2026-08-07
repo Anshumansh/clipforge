@@ -159,8 +159,12 @@ these by generating a new key on the provider's dashboard and updating `.env` + 
 
 ## 8. Payments — Stripe
 
-- **Dashboard:** https://dashboard.stripe.com (currently in **test mode** — no real money
-  moves yet)
+- **Dashboard:** https://dashboard.stripe.com — **live mode is active**; real payments
+  are accepted.
+- **Plans:** Free ($0, 50 credits) / Hobby ($19.99/mo, 300 credits) / Creator ($26.88/mo,
+  600 credits) / Business ($44.99/mo, 2,500 credits). Defined in `lib/plans.ts`, with the
+  Stripe price IDs in `.env`. Multi-format export (§ pricing page) is gated to Business
+  via `lib/aspect-ratio.ts`'s `canUseAspectRatio`.
 - **What's wired up:** checkout (`/api/stripe/checkout`), billing portal
   (`/api/stripe/portal`), and a webhook (`/api/stripe/webhook`) that listens for
   `checkout.session.completed`, `invoice.paid`, `customer.subscription.updated`, and
@@ -168,14 +172,13 @@ these by generating a new key on the provider's dashboard and updating `.env` + 
 - **Webhook endpoint:** registered directly via the Stripe API, pointed at
   `https://forgecut.app/api/stripe/webhook`. View/edit it under **Developers → Webhooks**
   in the Stripe dashboard.
-- **To go live (start accepting real payments):**
-  1. Complete Stripe's business verification (Dashboard → Activate account) — requires
-     real business details, bank account.
-  2. Switch the dashboard from Test to Live mode, create live-mode versions of the
-     Creator/Business prices, and register a **new** live-mode webhook endpoint
-     (test-mode and live-mode keys/webhooks are entirely separate).
-  3. Replace `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_CREATOR`,
-     `STRIPE_PRICE_BUSINESS` in `.env` with the live-mode values, redeploy.
+- **Changing a price:** Stripe prices are immutable once created. Create a new Price
+  object on the existing Product, archive the old one (`active=false`), update the
+  matching `STRIPE_PRICE_*` env var, redeploy. See git history around 2026-08-07 for the
+  exact API calls used to restructure pricing, including the two live-mode gotchas hit
+  along the way: (1) a new-account default called "Managed Payments" requires every
+  product to have a `tax_code` set, and (2) it requires a Stripe API version of
+  `2025-03-31.basil` or later — this app is pinned to a newer one in `lib/stripe.ts`.
 - **Credentials:** `STRIPE_*` in `.env`. Rotating the secret key: Stripe dashboard →
   Developers → API keys → roll key.
 
@@ -196,31 +199,72 @@ these by generating a new key on the provider's dashboard and updating `.env` + 
 
 ---
 
-## 10. Source control — GitHub
+## 10. Source control & deploys — GitHub Actions
 
 - **Repo:** https://github.com/Anshumansh/clipforge (private)
-- All deploys are `git pull` + `docker compose up -d --build` on the VPS — there's no CI
-  pipeline yet. Pushing to `main` does **not** auto-deploy; you deploy manually via SSH
-  (see §2).
+- **Every push to `main` auto-deploys** via `.github/workflows/deploy.yml` — GitHub
+  Actions SSHes into the VPS and runs `git reset --hard origin/main` +
+  `docker compose up -d --build`. Check a deploy's status: `gh run list --limit 1`.
+- Manual deploy still works as a fallback (see §2) if you ever need it.
+- Secrets used by the workflow (`VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`) live in the repo's
+  GitHub Actions secrets, not in this file.
 
 ---
 
-## 11. Things that are NOT set up yet (known gaps)
+## 11. Automated backups
 
-- **Stripe live mode** — currently test mode only; no real payments possible. See §8.
+- `scripts/backup-db.sh` dumps the production Postgres database (`pg_dump`, gzipped) and
+  uploads it to the `clipforge-media` B2 bucket under `backups/`. Runs daily at 3am UTC
+  via cron on the VPS; logs to `/var/log/clipforge-backup.log`.
+- Retention: 30 days, pruned by the script itself (B2's own lifecycle-rule API rejected
+  the standard config, so pruning is handled in-script instead of via a bucket rule).
+- Media files (rendered videos) are not separately backed up — B2 itself is the durable
+  store for those.
+- To restore: download the relevant `backups/db-<timestamp>.sql.gz`, `gunzip`, and
+  `psql "$DATABASE_URL" < backup.sql` against a fresh/target database.
+
+---
+
+## 12. Capacity & concurrency
+
+- **Render queue** (`lib/jobs/queue.ts`): capped at **2 concurrent renders**. Measured in
+  production — a single render peaks around **3.3GB RAM and ~360% CPU** (of 4 cores)
+  because it runs a real headless-Chrome instance plus ffmpeg encoding. Two concurrent
+  renders (~6.6GB) leaves enough headroom for the app/DB/Caddy on this VPS's 7.6GB; a
+  third risked OOM. Requests beyond the cap wait in a FIFO queue and show their position
+  ("Waiting in queue — N ahead of you") instead of failing or piling up.
+- **Load tested**: 100 truly concurrent requests to the homepage all returned 200 with no
+  degradation (latency was consistently ~1.7s from a distant test location — that's
+  network RTT + TLS handshake to the VPS, not server processing time, which measured
+  ~340ms). Also verified 4 concurrent generation requests correctly capped at 2 active
+  renders with the other 2 queued and completing in order.
+- **This is in-memory** — both the rate limiter and this render queue reset on deploy and
+  only coordinate within one process. Fine for the current single-VPS setup; if you ever
+  run more than one app instance, both need to move to something shared (e.g. Redis).
+- **If you need real concurrent-render capacity beyond 2** (not just queueing safely):
+  that requires horizontal scaling — either a second render worker/VPS or a serverless
+  rendering service (e.g. Remotion Lambda) — which is a real infrastructure cost decision,
+  not something to silently change.
+
+---
+
+## 13. Things that are NOT set up yet (known gaps)
+
 - **Error monitoring** (e.g. Sentry) — not configured. Errors are only visible via
   `docker logs clipforge-app-1` on the VPS.
-- **Backups** — Neon (DB) and Backblaze B2 (storage) both have their own durability, but
-  there's no separate automated backup/export process configured.
-- **CI/CD** — deploys are manual (SSH in, `git pull`, rebuild). No automatic deploy on
-  push to `main`.
-- **Multi-instance scaling** — rate limiting and the render job queue are both in-memory
-  in the single app container. This is fine for one server; if you ever run more than one
-  app instance, both would need to move to something shared (e.g. Redis).
+- **Smart subject tracking for Repurpose crops** — currently a fixed center-crop when
+  reframing horizontal source video to vertical/other ratios. A real version needs either
+  a face-detection model (adds real CPU load per render, on a VPS already tight at 2
+  concurrent renders — see §12) or a cloud vision API (new account + per-request cost).
+  Deliberately not shipped as a fake/heuristic version.
+- **Auto-post & scheduling to TikTok/Reels/YouTube Shorts** — each platform requires its
+  own developer app + OAuth review (days to weeks), not something buildable without those
+  approvals in hand.
+- **Voice cloning** — needs a paid third-party API (e.g. ElevenLabs) and a new account.
 
 ---
 
-## 12. Cost summary (current, test-mode Stripe)
+## 14. Cost summary (live Stripe since 2026-08-07)
 
 | Item | Cost |
 |---|---|
@@ -232,4 +276,4 @@ these by generating a new key on the provider's dashboard and updating `.env` + 
 | Pexels | $0 (free tier) |
 | Resend | $0 (free tier, until >3,000 emails/month) |
 | OpenAI | Pay-as-you-go — the only real variable cost; check usage regularly |
-| Stripe | 2.9% + $0.30 per transaction, only once live mode is active |
+| Stripe | 2.9% + $0.30 per transaction (live mode active) |
