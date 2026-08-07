@@ -181,6 +181,12 @@ these by generating a new key on the provider's dashboard and updating `.env` + 
   `2025-03-31.basil` or later — this app is pinned to a newer one in `lib/stripe.ts`.
 - **Credentials:** `STRIPE_*` in `.env`. Rotating the secret key: Stripe dashboard →
   Developers → API keys → roll key.
+- **Past incident:** after restructuring from 2 tiers to the current Hobby/Creator/Business
+  3-tier setup, `.env` on the VPS was never updated with the new price IDs — checkout
+  silently 500'd for Creator and Business (both pointed at now-archived prices) until
+  caught by a live test. If checkout ever breaks with a Stripe `resource_missing` error on
+  `price`, check that every `STRIPE_PRICE_*` in `.env` actually points to an **active**
+  price (`stripe prices retrieve <id>` or the dashboard) — not just that the var is set.
 
 ---
 
@@ -248,23 +254,71 @@ these by generating a new key on the provider's dashboard and updating `.env` + 
 
 ---
 
-## 13. Things that are NOT set up yet (known gaps)
+## 13. Smart subject tracking (Repurpose)
 
-- **Error monitoring** (e.g. Sentry) — not configured. Errors are only visible via
-  `docker logs clipforge-app-1` on the VPS.
-- **Smart subject tracking for Repurpose crops** — currently a fixed center-crop when
-  reframing horizontal source video to vertical/other ratios. A real version needs either
-  a face-detection model (adds real CPU load per render, on a VPS already tight at 2
-  concurrent renders — see §12) or a cloud vision API (new account + per-request cost).
-  Deliberately not shipped as a fake/heuristic version.
-- **Auto-post & scheduling to TikTok/Reels/YouTube Shorts** — each platform requires its
-  own developer app + OAuth review (days to weeks), not something buildable without those
-  approvals in hand.
-- **Voice cloning** — needs a paid third-party API (e.g. ElevenLabs) and a new account.
+Free and fully local — no paid API. Faces are detected via BlazeFace running on
+TensorFlow.js's WASM backend (no native bindings, no GPU). One frame per second is
+sampled from the source video (not every render frame) to build a smoothed horizontal
+pan path; falls back to a plain center-crop if no face is found. Runs as a preprocessing
+step before each clip renders — see `lib/providers/subject-tracking.ts`.
+
+Two things worth knowing if this ever breaks:
+- Remotion's bundled ffmpeg is a minimal build with **no network protocol support** (no
+  openssl/gnutls) — it can only read local files. The source video is downloaded once per
+  job (not once per clip) before analysis; if this step starts failing, check that the
+  download (`prepareLocalSource`) still works against whatever storage backend is active.
+- That same ffmpeg build also has no `fps` filter compiled in — frame sampling uses `-r`
+  (output rate) instead of `-vf fps=...`.
 
 ---
 
-## 14. Cost summary (live Stripe since 2026-08-07)
+## 14. Social auto-posting (YouTube / TikTok / Instagram)
+
+Code-complete scaffolding — OAuth connect flow, encrypted token storage
+(`ENCRYPTION_KEY`), per-platform publish logic, and a scheduling system (cron-triggered
+every 5 minutes via `scripts/process-scheduled-posts.sh`, secured with `CRON_SECRET`).
+Users connect accounts at **/dashboard/settings** and publish from any finished project.
+
+**Not yet live** — each platform needs its own registered developer app, which only you
+can create (needs your business/identity info, not something delegable):
+
+- **YouTube**: Google Cloud Console → new project → enable "YouTube Data API v3" →
+  OAuth consent screen → OAuth 2.0 Client ID (Web application) → add
+  `https://forgecut.app/api/social/callback/youtube` as an authorized redirect URI. Set
+  `YOUTUBE_CLIENT_ID` / `YOUTUBE_CLIENT_SECRET`.
+- **TikTok**: [developers.tiktok.com](https://developers.tiktok.com) → create an app →
+  add the "Content Posting API" product (this specific scope needs TikTok's review, unlike
+  basic login) → redirect URI
+  `https://forgecut.app/api/social/callback/tiktok`. Set `TIKTOK_CLIENT_KEY` /
+  `TIKTOK_CLIENT_SECRET`.
+- **Instagram**: via Meta for Developers → create an app → add "Instagram Graph API" →
+  requires the Instagram account to be a Business/Creator account linked to a Facebook
+  Page → redirect URI `https://forgecut.app/api/social/callback/instagram`. Set
+  `META_APP_ID` / `META_APP_SECRET`.
+
+Add whichever env vars you complete to `.env` and redeploy — each platform lights up
+independently (the settings page shows "Not set up on this server yet" for any platform
+missing its env vars, "Connect" once configured). None of the actual OAuth exchange or
+publish calls have been tested live (no way to, without a registered app) — they're built
+to each platform's current official docs, but treat the first real connection attempt per
+platform as the real test.
+
+---
+
+## 15. Voice cloning — not built
+
+The one item from the original feature list genuinely not shippable for free: real voice
+cloning needs a trained model. Options if this becomes a priority:
+- **Self-hosted, free**: Coqui XTTS-v2 (open source) — but it's a Python/PyTorch model;
+  running it well needs either a GPU or tolerating slow CPU inference, and adds a whole
+  new service to a VPS that's already tight at 2 concurrent renders (see §12).
+- **Paid API** (e.g. ElevenLabs): fast, simple integration, real per-use cost, needs a new
+  account.
+No implementation attempted — would need a decision on which tradeoff to take first.
+
+---
+
+## 16. Cost summary (live Stripe since 2026-08-07)
 
 | Item | Cost |
 |---|---|
