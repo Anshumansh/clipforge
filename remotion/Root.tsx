@@ -3,7 +3,7 @@ import { Composition } from "remotion";
 import { ScriptVideo, type ScriptVideoProps } from "./ScriptVideo";
 import { RepurposeClip, type RepurposeClipProps } from "./RepurposeClip";
 import { AudioExtract, type AudioExtractProps } from "./AudioExtract";
-import { ASPECT_RATIO_DIMENSIONS } from "@/lib/aspect-ratio";
+import { ASPECT_RATIO_DIMENSIONS } from "../lib/aspect-ratio";
 
 const FPS = 30;
 
