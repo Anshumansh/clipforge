@@ -25,6 +25,8 @@ model User {
   projects               Project[]
   jobs                   Job[]
   passwordResetTokens    PasswordResetToken[]
+  socialAccounts         SocialAccount[]
+  socialPosts            SocialPost[]
 }
 
 // A project is one piece of content the user is generating:
@@ -73,6 +75,49 @@ model PasswordResetToken {
   createdAt DateTime @default(now())
 
   @@index([userId])
+}
+
+// One connected creator/business account on an external platform. Tokens are
+// encrypted at rest (see lib/crypto.ts) — the DB should never hold a usable
+// token in plain text.
+model SocialAccount {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform       String    // "youtube" | "tiktok" | "instagram"
+  platformUserId String    // the account's ID on that platform
+  handle         String?   // display name/username, for UI
+  accessTokenEnc String    // encrypted
+  refreshTokenEnc String?  // encrypted
+  expiresAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  posts          SocialPost[]
+
+  @@unique([userId, platform])
+}
+
+// A single publish of one rendered video to one connected account. Not
+// formally related to Project/Clip (a post only needs the final video URL),
+// which keeps this decoupled from the generation pipeline's own lifecycle.
+model SocialPost {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  socialAccountId String
+  socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  projectId       String?
+  clipId          String?
+  videoUrl        String
+  caption         String
+  status          String    @default("scheduled") // scheduled | posting | posted | failed
+  scheduledAt     DateTime  @default(now())
+  postedAt        DateTime?
+  platformPostId  String?   // the resulting post's ID/URL once published
+  errorMessage    String?
+  createdAt       DateTime  @default(now())
+
+  @@index([status, scheduledAt])
 }
 
 model Job {

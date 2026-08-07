@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AlertTriangle, Download } from "lucide-react";
+import { PublishButton } from "@/components/publish-button";
 
 interface Clip {
   id: string;
@@ -41,7 +42,19 @@ function scoreTone(score: number) {
   return "border-muted-foreground/30 bg-muted text-muted-foreground";
 }
 
-function VideoCard({ title, url, score }: { title: string; url: string; score?: number }) {
+function VideoCard({
+  title,
+  url,
+  score,
+  projectId,
+  clipId,
+}: {
+  title: string;
+  url: string;
+  score?: number;
+  projectId?: string;
+  clipId?: string;
+}) {
   return (
     <Card>
       <CardContent className="p-4">
@@ -61,6 +74,9 @@ function VideoCard({ title, url, score }: { title: string; url: string; score?: 
           <a href={url} download className="shrink-0 text-primary hover:opacity-80" title="Download">
             <Download className="h-4 w-4" />
           </a>
+        </div>
+        <div className="mt-3">
+          <PublishButton videoUrl={url} projectId={projectId} clipId={clipId} />
         </div>
       </CardContent>
     </Card>
@@ -122,14 +138,21 @@ export function ProjectStatus({ initial }: { initial: ProjectData }) {
 
       {data.status === "ready" && data.type !== "repurpose" && data.videoUrl && (
         <div className="flex justify-center">
-          <VideoCard title={data.title} url={data.videoUrl} />
+          <VideoCard title={data.title} url={data.videoUrl} projectId={data.id} />
         </div>
       )}
 
       {data.type === "repurpose" && readyClips.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2">
           {readyClips.map((clip) => (
-            <VideoCard key={clip.id} title={clip.title} url={clip.videoUrl!} score={clip.score} />
+            <VideoCard
+              key={clip.id}
+              title={clip.title}
+              url={clip.videoUrl!}
+              score={clip.score}
+              projectId={data.id}
+              clipId={clip.id}
+            />
           ))}
         </div>
       )}

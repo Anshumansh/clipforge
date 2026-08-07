@@ -7,13 +7,14 @@ import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Coins, CreditCard, LayoutGrid, LogOut, Menu, Scissors, Sparkles, UserRound, Wand2, X } from "lucide-react";
+import { Coins, CreditCard, LayoutGrid, LogOut, Menu, Scissors, Share2, Sparkles, UserRound, Wand2, X } from "lucide-react";
 
 const links = [
   { href: "/dashboard", label: "Projects", icon: LayoutGrid, exact: true },
   { href: "/dashboard/new/script", label: "Script to video", icon: Wand2 },
   { href: "/dashboard/new/repurpose", label: "Repurpose", icon: Scissors },
   { href: "/dashboard/new/ugc", label: "UGC / Avatar ad", icon: UserRound },
+  { href: "/dashboard/settings", label: "Connected accounts", icon: Share2 },
   { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
 ];
 
