@@ -36,7 +36,8 @@ export async function POST(req: Request) {
       if (userId && planId && session.subscription) {
         const stripe = getStripe();
         const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
-        const priceId = subscription.items.data[0]?.price.id;
+        const item = subscription.items.data[0];
+        const priceId = item?.price.id;
         const plan = priceId ? getPlanByPriceId(priceId) : undefined;
 
         await db.user.update({
@@ -46,7 +47,7 @@ export async function POST(req: Request) {
             credits: plan?.monthlyCredits ?? undefined,
             stripeSubscriptionId: subscription.id,
             stripePriceId: priceId,
-            stripeCurrentPeriodEnd: new Date(subscription.current_period_end * 1000),
+            stripeCurrentPeriodEnd: item ? new Date(item.current_period_end * 1000) : undefined,
           },
         });
       }
@@ -57,7 +58,8 @@ export async function POST(req: Request) {
       const invoice = event.data.object as Stripe.Invoice;
       if (invoice.customer && invoice.billing_reason === "subscription_cycle") {
         const user = await findUserForCustomer(invoice.customer as string);
-        const priceId = invoice.lines.data[0]?.price?.id;
+        const price = invoice.lines.data[0]?.pricing?.price_details?.price;
+        const priceId = typeof price === "string" ? price : price?.id;
         const plan = priceId ? getPlanByPriceId(priceId) : undefined;
         if (user && plan) {
           await db.user.update({
@@ -72,7 +74,8 @@ export async function POST(req: Request) {
     case "customer.subscription.updated": {
       const subscription = event.data.object as Stripe.Subscription;
       const user = await findUserForCustomer(subscription.customer as string);
-      const priceId = subscription.items.data[0]?.price.id;
+      const item = subscription.items.data[0];
+      const priceId = item?.price.id;
       const plan = priceId ? getPlanByPriceId(priceId) : undefined;
       if (user) {
         await db.user.update({
@@ -80,7 +83,7 @@ export async function POST(req: Request) {
           data: {
             plan: plan?.id ?? user.plan,
             stripePriceId: priceId,
-            stripeCurrentPeriodEnd: new Date(subscription.current_period_end * 1000),
+            stripeCurrentPeriodEnd: item ? new Date(item.current_period_end * 1000) : undefined,
           },
         });
       }
