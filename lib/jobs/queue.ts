@@ -20,6 +20,34 @@ function runnerFor(type: JobType) {
   return type === "script" ? runScriptJob : type === "repurpose" ? runRepurposeJob : runUgcJob;
 }
 
+// The queue above is purely in-memory, so a deploy or crash mid-render orphans
+// whatever was "queued"/"processing" at that instant — nothing is left to ever
+// pick those jobs back up, and without this they'd spin in the UI forever. Since
+// this runs once at process start (before enqueueJob has been called at all),
+// anything already in one of these states in the DB is guaranteed to be from a
+// previous process, not this one — safe to fail them outright rather than guess
+// at resuming a render that's already gone.
+async function reconcileOrphanedJobs() {
+  const orphaned = await db.job.findMany({
+    where: { status: { in: ["queued", "processing"] } },
+    select: { id: true, projectId: true },
+  });
+  if (orphaned.length === 0) return;
+
+  const message = "Interrupted by a server restart — please try again.";
+  await db.job.updateMany({
+    where: { id: { in: orphaned.map((j) => j.id) } },
+    data: { status: "failed", log: message },
+  });
+  await db.project.updateMany({
+    where: { id: { in: orphaned.map((j) => j.projectId) } },
+    data: { status: "failed", errorMessage: message },
+  });
+  console.error(`[queue] reconciled ${orphaned.length} orphaned job(s) from a previous process`);
+}
+
+void reconcileOrphanedJobs().catch((err) => console.error("[queue] reconciliation failed:", err));
+
 async function setQueuePosition(jobId: string, position: number) {
   const label = position === 0 ? "Up next…" : `Waiting in queue — ${position} ahead of you…`;
   await db.job.update({ where: { id: jobId }, data: { log: label } }).catch(() => {});
