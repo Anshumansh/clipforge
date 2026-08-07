@@ -48,9 +48,31 @@ const steps = [
   { step: "03", title: "Export & post", description: "Download a vertical, platform-ready MP4 for TikTok, Reels, or Shorts." },
 ];
 
+const structuredData = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "Clipforge",
+  applicationCategory: "MultimediaApplication",
+  operatingSystem: "Web",
+  description:
+    "AI short-form video generator — turns a script, URL, or long-form upload into a captioned, voiced, edited vertical video for TikTok, Reels, and Shorts.",
+  offers: {
+    "@type": "AggregateOffer",
+    lowPrice: "0",
+    highPrice: "99",
+    priceCurrency: "USD",
+    offerCount: "3",
+  },
+};
+
 export default function LandingPage() {
   return (
     <div className="flex min-h-screen flex-col">
+      <script
+        type="application/ld+json"
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
       <SiteHeader />
       <main className="flex-1">
         <section className="hero-glow relative overflow-hidden px-6 pb-24 pt-24 text-center">
