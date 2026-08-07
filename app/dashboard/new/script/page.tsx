@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { AspectRatioPicker } from "@/components/aspect-ratio-picker";
 import { Wand2 } from "lucide-react";
 import type { AspectRatio } from "@/lib/aspect-ratio";
@@ -14,6 +15,7 @@ export default function NewScriptVideoPage() {
   const router = useRouter();
   const [topic, setTopic] = useState("");
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("9:16");
+  const [voiceSample, setVoiceSample] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,11 +24,12 @@ export default function NewScriptVideoPage() {
     setLoading(true);
     setError(null);
 
-    const res = await fetch("/api/projects/script", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic, aspectRatio }),
-    });
+    const form = new FormData();
+    form.set("topic", topic);
+    form.set("aspectRatio", aspectRatio);
+    if (voiceSample) form.set("voiceSample", voiceSample);
+
+    const res = await fetch("/api/projects/script", { method: "POST", body: form });
 
     const data = await res.json().catch(() => ({}));
     setLoading(false);
@@ -74,6 +77,19 @@ export default function NewScriptVideoPage() {
               <Label>Format</Label>
               <AspectRatioPicker value={aspectRatio} onChange={setAspectRatio} />
               <p className="text-xs text-muted-foreground">1:1 and 16:9 are a Business-plan feature.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="voiceSample">Clone your voice (optional)</Label>
+              <Input
+                id="voiceSample"
+                type="file"
+                accept="audio/*"
+                onChange={(e) => setVoiceSample(e.target.files?.[0] ?? null)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Upload a clean 10-30s voice sample and we'll narrate in that voice instead of a stock one. A
+                Business-plan feature.
+              </p>
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" disabled={loading} className="w-full">

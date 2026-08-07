@@ -73,6 +73,7 @@ const plans = [
       "UGC / avatar ad generation",
       "4K export",
       "Multi-format export (9:16, 1:1, 16:9)",
+      "AI voice cloning from a sample clip",
       "Team seats",
       "API access (soon)",
     ],

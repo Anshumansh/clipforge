@@ -24,7 +24,7 @@ function mapToEdgeVoice(voice?: string): string {
   return (voice && EDGE_VOICES[voice]) || "en-US-GuyNeural";
 }
 
-function estimateWordTimings(script: string, totalDurationSec: number): WordTiming[] {
+export function estimateWordTimings(script: string, totalDurationSec: number): WordTiming[] {
   const words = script.split(/\s+/).filter(Boolean);
   if (words.length === 0) return [];
 

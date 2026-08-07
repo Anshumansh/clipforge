@@ -37,3 +37,9 @@ export function getPlanById(id: string) {
 export function getPlanByPriceId(priceId: string) {
   return PLANS.find((p) => p.priceId === priceId);
 }
+
+/** Voice cloning is CPU/memory-heavy on the render VPS (see OPERATIONS.md) —
+ * reserved for the Business plan, same tier gate as multi-format export. */
+export function canUseVoiceClone(plan: string): boolean {
+  return plan === "business";
+}

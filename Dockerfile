@@ -66,6 +66,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openssl \
   && rm -rf /var/lib/apt/lists/*
 
+# Voice cloning runs as a plain Python subprocess (lib/providers/voice-clone.ts),
+# not a separate container — no Docker-in-Docker, no host socket exposure.
+# This layer is ordered before the app source COPY below so it's cached across
+# deploys that don't touch voice-clone/ or these dependency versions.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip libsndfile1 \
+  && rm -rf /var/lib/apt/lists/*
+
+# Pinned to a matched pair: unpinned installs resolved mismatched torch/
+# torchaudio ABI versions (torchaudio's compiled extension expected a symbol
+# that didn't exist in the torch build installed alongside it).
+RUN pip install --no-cache-dir --break-system-packages torch==2.1.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir --break-system-packages TTS==0.22.0
+
+COPY voice-clone/clone.py /app/voice-clone/clone.py
+
+# Bake the model weights into the image at build time so the first real
+# request doesn't have to download them.
+RUN python3 -c "from TTS.api import TTS; TTS('tts_models/multilingual/multi-dataset/your_tts', progress_bar=False, gpu=False)"
+
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0

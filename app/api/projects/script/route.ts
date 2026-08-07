@@ -1,18 +1,18 @@
+import path from "node:path";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { chargeCredits, CREDITS_PER_VIDEO, InsufficientCreditsError } from "@/lib/credits";
 import { enqueueJob } from "@/lib/jobs/queue";
+import { uploadBuffer } from "@/lib/storage";
 import { rateLimit } from "@/lib/rate-limit";
-import { ASPECT_RATIOS, canUseAspectRatio } from "@/lib/aspect-ratio";
+import { ASPECT_RATIOS, isAspectRatio, canUseAspectRatio, type AspectRatio } from "@/lib/aspect-ratio";
+import { canUseVoiceClone } from "@/lib/plans";
 
-const schema = z.object({
-  topic: z.string().min(3).max(4000),
-  voice: z.string().optional(),
-  aspectRatio: z.enum(ASPECT_RATIOS as [string, ...string[]]).optional(),
-});
+export const runtime = "nodejs";
+
+const MAX_VOICE_SAMPLE_BYTES = 15 * 1024 * 1024; // 15MB reference clip
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
@@ -22,12 +22,39 @@ export async function POST(req: Request) {
   const { ok } = rateLimit(`generate:${userId}`, 5, 60 * 1000);
   if (!ok) return NextResponse.json({ error: "Too many requests. Slow down and try again shortly." }, { status: 429 });
 
-  const parsed = schema.safeParse(await req.json().catch(() => null));
-  if (!parsed.success) return NextResponse.json({ error: "Invalid input" }, { status: 400 });
+  const form = await req.formData().catch(() => null);
+  if (!form) return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
+
+  const topic = String(form.get("topic") ?? "");
+  const voice = form.get("voice") ? String(form.get("voice")) : undefined;
+  const aspectRatioRaw = form.get("aspectRatio");
+  const aspectRatio: AspectRatio | undefined = isAspectRatio(aspectRatioRaw) ? aspectRatioRaw : undefined;
+  const voiceSample = form.get("voiceSample");
+
+  if (topic.length < 3 || topic.length > 4000) {
+    return NextResponse.json({ error: "Invalid input" }, { status: 400 });
+  }
+  if (aspectRatioRaw && !ASPECT_RATIOS.includes(aspectRatioRaw as AspectRatio)) {
+    return NextResponse.json({ error: "Invalid input" }, { status: 400 });
+  }
 
   const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
-  if (parsed.data.aspectRatio && !canUseAspectRatio(user.plan, parsed.data.aspectRatio as never)) {
+  if (aspectRatio && !canUseAspectRatio(user.plan, aspectRatio)) {
     return NextResponse.json({ error: "Multi-format export is a Business-plan feature" }, { status: 403 });
+  }
+
+  let voiceSampleFile: File | null = null;
+  if (voiceSample instanceof File && voiceSample.size > 0) {
+    if (!canUseVoiceClone(user.plan)) {
+      return NextResponse.json({ error: "Voice cloning is a Business-plan feature" }, { status: 403 });
+    }
+    if (!voiceSample.type.startsWith("audio/")) {
+      return NextResponse.json({ error: "Voice sample must be an audio file" }, { status: 400 });
+    }
+    if (voiceSample.size > MAX_VOICE_SAMPLE_BYTES) {
+      return NextResponse.json({ error: "Voice sample too large (max 15MB)" }, { status: 400 });
+    }
+    voiceSampleFile = voiceSample;
   }
 
   try {
@@ -43,10 +70,26 @@ export async function POST(req: Request) {
     data: {
       userId,
       type: "script",
-      title: parsed.data.topic.slice(0, 60),
+      title: topic.slice(0, 60),
       status: "queued",
-      input: JSON.stringify(parsed.data),
+      input: "{}",
     },
+  });
+
+  let voiceSampleUrl: string | undefined;
+  if (voiceSampleFile) {
+    const ext = path.extname(voiceSampleFile.name || "") || ".mp3";
+    const buffer = Buffer.from(await voiceSampleFile.arrayBuffer());
+    voiceSampleUrl = await uploadBuffer(
+      buffer,
+      `media/${userId}/${project.id}/voice-sample${ext}`,
+      voiceSampleFile.type || "audio/mpeg"
+    );
+  }
+
+  await db.project.update({
+    where: { id: project.id },
+    data: { input: JSON.stringify({ topic, voice, aspectRatio, voiceSampleUrl }) },
   });
 
   const job = await db.job.create({

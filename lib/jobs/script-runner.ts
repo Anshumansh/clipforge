@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { generateScript } from "@/lib/providers/script";
 import { synthesizeVoiceover } from "@/lib/providers/tts";
+import { cloneVoice } from "@/lib/providers/voice-clone";
 import { pickBrollScenes } from "@/lib/providers/broll";
 import { renderScriptVideo } from "@/lib/remotion-render";
 import type { AspectRatio } from "@/lib/aspect-ratio";
@@ -17,7 +18,12 @@ export async function runScriptJob(jobId: string) {
     await db.job.update({ where: { id: jobId }, data: { status: "processing", progress: 5 } });
     await db.project.update({ where: { id: project.id }, data: { status: "processing" } });
 
-    const input = JSON.parse(project.input) as { topic: string; voice?: string; aspectRatio?: AspectRatio };
+    const input = JSON.parse(project.input) as {
+      topic: string;
+      voice?: string;
+      aspectRatio?: AspectRatio;
+      voiceSampleUrl?: string;
+    };
     const mediaKeyPrefix = `media/${project.userId}/${project.id}`;
 
     await setJobProgress(jobId, 10, "Writing script…");
@@ -26,8 +32,16 @@ export async function runScriptJob(jobId: string) {
     await setJobProgress(jobId, 30, "Selecting b-roll…");
     const scenes = await pickBrollScenes(scriptResult.sceneKeywords);
 
-    await setJobProgress(jobId, 45, "Generating voiceover…");
-    const voiceover = await synthesizeVoiceover(scriptResult.script, mediaKeyPrefix, input.voice);
+    await setJobProgress(jobId, 45, input.voiceSampleUrl ? "Cloning your voice…" : "Generating voiceover…");
+    const voiceover = input.voiceSampleUrl
+      ? await cloneVoice(input.voiceSampleUrl, scriptResult.script, mediaKeyPrefix).catch((err) => {
+          console.error(
+            "[script-runner] voice cloning failed, falling back to default TTS:",
+            err instanceof Error ? err.message : err
+          );
+          return synthesizeVoiceover(scriptResult.script, mediaKeyPrefix, input.voice);
+        })
+      : await synthesizeVoiceover(scriptResult.script, mediaKeyPrefix, input.voice);
 
     await db.project.update({
       where: { id: project.id },
