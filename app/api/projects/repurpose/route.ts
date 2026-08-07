@@ -7,6 +7,7 @@ import { chargeCredits, CREDITS_PER_VIDEO, InsufficientCreditsError } from "@/li
 import { enqueueJob } from "@/lib/jobs/queue";
 import { uploadBuffer } from "@/lib/storage";
 import { rateLimit } from "@/lib/rate-limit";
+import { isAspectRatio, canUseAspectRatio, type AspectRatio } from "@/lib/aspect-ratio";
 
 export const runtime = "nodejs";
 
@@ -33,12 +34,19 @@ export async function POST(req: Request) {
   const file = form.get("file");
   const topic = String(form.get("topic") ?? "").slice(0, 200);
   const durationSec = Number(form.get("durationSec") ?? 0);
+  const aspectRatioRaw = form.get("aspectRatio");
+  const aspectRatio: AspectRatio | undefined = isAspectRatio(aspectRatioRaw) ? aspectRatioRaw : undefined;
 
   if (!(file instanceof File)) return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
   if (!file.type.startsWith("video/")) return NextResponse.json({ error: "File must be a video" }, { status: 400 });
   if (file.size > MAX_SIZE_BYTES) return NextResponse.json({ error: "File too large (max 300MB)" }, { status: 400 });
   if (!durationSec || durationSec < 10) {
     return NextResponse.json({ error: "Video must be at least 10 seconds" }, { status: 400 });
+  }
+
+  const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
+  if (aspectRatio && !canUseAspectRatio(user.plan, aspectRatio)) {
+    return NextResponse.json({ error: "Multi-format export is a Business-plan feature" }, { status: 403 });
   }
 
   try {
@@ -66,7 +74,7 @@ export async function POST(req: Request) {
 
   await db.project.update({
     where: { id: project.id },
-    data: { input: JSON.stringify({ durationSec, sourcePath, topic }) },
+    data: { input: JSON.stringify({ durationSec, sourcePath, topic, aspectRatio }) },
   });
 
   const job = await db.job.create({

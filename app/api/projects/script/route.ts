@@ -6,10 +6,12 @@ import { db } from "@/lib/db";
 import { chargeCredits, CREDITS_PER_VIDEO, InsufficientCreditsError } from "@/lib/credits";
 import { enqueueJob } from "@/lib/jobs/queue";
 import { rateLimit } from "@/lib/rate-limit";
+import { ASPECT_RATIOS, canUseAspectRatio } from "@/lib/aspect-ratio";
 
 const schema = z.object({
   topic: z.string().min(3).max(4000),
   voice: z.string().optional(),
+  aspectRatio: z.enum(ASPECT_RATIOS as [string, ...string[]]).optional(),
 });
 
 export async function POST(req: Request) {
@@ -22,6 +24,11 @@ export async function POST(req: Request) {
 
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid input" }, { status: 400 });
+
+  const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
+  if (parsed.data.aspectRatio && !canUseAspectRatio(user.plan, parsed.data.aspectRatio as never)) {
+    return NextResponse.json({ error: "Multi-format export is a Business-plan feature" }, { status: 403 });
+  }
 
   try {
     await chargeCredits(userId, CREDITS_PER_VIDEO);

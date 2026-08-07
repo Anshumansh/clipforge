@@ -11,7 +11,7 @@ import { CheckCircle2 } from "lucide-react";
 
 export const metadata: Metadata = { title: "Billing" };
 
-const planNames: Record<string, string> = { free: "Free", creator: "Creator", business: "Business" };
+const planNames: Record<string, string> = { free: "Free", hobby: "Hobby", creator: "Creator", business: "Business" };
 
 export default async function BillingPage({
   searchParams,

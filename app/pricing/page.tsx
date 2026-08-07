@@ -9,7 +9,7 @@ import { Check } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: "Simple, credit-based pricing for Clipforge — Free, Creator, and Business plans.",
+  description: "Simple, credit-based pricing for Clipforge — Free, Hobby, Creator, and Business plans.",
 };
 
 const plans = [
@@ -19,14 +19,36 @@ const plans = [
     price: "$0",
     credits: "50 credits / month",
     description: "Try the full pipeline before you commit.",
-    features: ["~5 short videos / month", "Auto captions & voiceover", "Watermarked exports", "720p export"],
+    features: [
+      "~5 short videos / month",
+      "Full pipeline — script, voiceover, captions, b-roll",
+      "Watermarked exports",
+      "720p export",
+      "No credit card required",
+    ],
     cta: "Start free",
+    highlighted: false,
+  },
+  {
+    name: "Hobby",
+    planId: "hobby" as const,
+    price: "$19.99",
+    credits: "300 credits / month",
+    description: "For casual creators just getting started.",
+    features: [
+      "~30 short videos / month",
+      "No watermark",
+      "1080p export",
+      "AI hook-score ranking on every clip",
+      "Standard render queue",
+    ],
+    cta: "Start Hobby plan",
     highlighted: false,
   },
   {
     name: "Creator",
     planId: "creator" as const,
-    price: "$29",
+    price: "$26.88",
     credits: "600 credits / month",
     description: "For creators posting daily shorts.",
     features: [
@@ -34,6 +56,7 @@ const plans = [
       "No watermark",
       "1080p export",
       "Repurpose long-form uploads",
+      "AI hook-score ranking on every clip",
       "Priority render queue",
     ],
     cta: "Start Creator plan",
@@ -42,13 +65,14 @@ const plans = [
   {
     name: "Business",
     planId: "business" as const,
-    price: "$99",
+    price: "$44.99",
     credits: "2,500 credits / month",
     description: "For agencies and brands running UGC ad campaigns.",
     features: [
       "~250 short videos / month",
       "UGC / avatar ad generation",
       "4K export",
+      "Multi-format export (9:16, 1:1, 16:9)",
       "Team seats",
       "API access (soon)",
     ],
@@ -68,7 +92,7 @@ export default function PricingPage() {
             One credit ≈ one minute of rendered video. Upgrade, downgrade, or cancel any time.
           </p>
         </div>
-        <div className="mx-auto mt-14 grid max-w-5xl gap-6 md:grid-cols-3">
+        <div className="mx-auto mt-14 grid max-w-6xl gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {plans.map((plan) => (
             <Card key={plan.name} className={plan.highlighted ? "border-primary shadow-lg shadow-primary/10" : ""}>
               <CardHeader>

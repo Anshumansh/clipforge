@@ -13,7 +13,7 @@ export default async function ProjectPage({ params }: { params: { id: string } }
   const user = await requireUser();
   const project = await db.project.findFirst({
     where: { id: params.id, userId: user.id },
-    include: { clips: { orderBy: { startSec: "asc" } }, jobs: { orderBy: { createdAt: "desc" }, take: 1 } },
+    include: { clips: { orderBy: { score: "desc" } }, jobs: { orderBy: { createdAt: "desc" }, take: 1 } },
   });
 
   if (!project) notFound();

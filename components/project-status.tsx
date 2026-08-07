@@ -13,6 +13,7 @@ interface Clip {
   endSec: number;
   status: string;
   videoUrl: string | null;
+  score: number;
 }
 
 interface ProjectData {
@@ -34,11 +35,27 @@ const statusVariant = {
   failed: "destructive",
 } as const;
 
-function VideoCard({ title, url }: { title: string; url: string }) {
+function scoreTone(score: number) {
+  if (score >= 75) return "border-emerald-500/40 bg-emerald-500/10 text-emerald-500";
+  if (score >= 50) return "border-amber-500/40 bg-amber-500/10 text-amber-500";
+  return "border-muted-foreground/30 bg-muted text-muted-foreground";
+}
+
+function VideoCard({ title, url, score }: { title: string; url: string; score?: number }) {
   return (
     <Card>
       <CardContent className="p-4">
-        <video src={url} controls className="mx-auto aspect-[9/16] w-full max-w-[280px] rounded-lg bg-black" />
+        <div className="relative">
+          <video src={url} controls className="mx-auto h-auto max-h-[480px] w-auto max-w-full rounded-lg bg-black" />
+          {typeof score === "number" && (
+            <span
+              className={`absolute right-2 top-2 rounded-full border px-2 py-0.5 text-xs font-semibold ${scoreTone(score)}`}
+              title="Predicted hook/share strength"
+            >
+              {score} Hook Score
+            </span>
+          )}
+        </div>
         <div className="mt-3 flex items-center justify-between gap-2">
           <p className="line-clamp-1 text-sm font-medium">{title}</p>
           <a href={url} download className="shrink-0 text-primary hover:opacity-80" title="Download">
@@ -112,7 +129,7 @@ export function ProjectStatus({ initial }: { initial: ProjectData }) {
       {data.type === "repurpose" && readyClips.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2">
           {readyClips.map((clip) => (
-            <VideoCard key={clip.id} title={clip.title} url={clip.videoUrl!} />
+            <VideoCard key={clip.id} title={clip.title} url={clip.videoUrl!} score={clip.score} />
           ))}
         </div>
       )}

@@ -10,7 +10,7 @@ export function SubscribeButton({
   children,
   variant,
 }: {
-  plan: "creator" | "business";
+  plan: "hobby" | "creator" | "business";
   children: React.ReactNode;
   variant?: "default" | "outline";
 }) {

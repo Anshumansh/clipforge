@@ -3,6 +3,7 @@ import { generateScript } from "@/lib/providers/script";
 import { synthesizeVoiceover } from "@/lib/providers/tts";
 import { pickBrollScenes } from "@/lib/providers/broll";
 import { renderScriptVideo } from "@/lib/remotion-render";
+import type { AspectRatio } from "@/lib/aspect-ratio";
 
 async function setJobProgress(jobId: string, progress: number, log?: string) {
   await db.job.update({ where: { id: jobId }, data: { progress, ...(log ? { log } : {}) } });
@@ -16,7 +17,7 @@ export async function runScriptJob(jobId: string) {
     await db.job.update({ where: { id: jobId }, data: { status: "processing", progress: 5 } });
     await db.project.update({ where: { id: project.id }, data: { status: "processing" } });
 
-    const input = JSON.parse(project.input) as { topic: string; voice?: string };
+    const input = JSON.parse(project.input) as { topic: string; voice?: string; aspectRatio?: AspectRatio };
     const mediaKeyPrefix = `media/${project.userId}/${project.id}`;
 
     await setJobProgress(jobId, 10, "Writing script…");
@@ -45,6 +46,7 @@ export async function runScriptJob(jobId: string) {
         scenes,
         audioUrl: voiceover.audioUrl,
         durationInSeconds: voiceover.durationSec,
+        aspectRatio: input.aspectRatio,
       },
       `${mediaKeyPrefix}/final.mp4`,
       (percent) => {

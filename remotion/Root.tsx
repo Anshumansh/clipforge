@@ -3,6 +3,7 @@ import { Composition } from "remotion";
 import { ScriptVideo, type ScriptVideoProps } from "./ScriptVideo";
 import { RepurposeClip, type RepurposeClipProps } from "./RepurposeClip";
 import { AudioExtract, type AudioExtractProps } from "./AudioExtract";
+import { ASPECT_RATIO_DIMENSIONS } from "@/lib/aspect-ratio";
 
 const FPS = 30;
 
@@ -36,7 +37,9 @@ const AnyComposition = Composition as unknown as React.FC<{
   width: number;
   height: number;
   defaultProps: Record<string, unknown>;
-  calculateMetadata: (options: { props: Record<string, unknown> }) => Promise<{ durationInFrames: number }>;
+  calculateMetadata: (options: {
+    props: Record<string, unknown>;
+  }) => Promise<{ durationInFrames: number; width?: number; height?: number }>;
 }>;
 
 export function Root() {
@@ -52,7 +55,8 @@ export function Root() {
         defaultProps={scriptDefaultProps as unknown as Record<string, unknown>}
         calculateMetadata={async ({ props }) => {
           const p = props as unknown as ScriptVideoProps;
-          return { durationInFrames: Math.max(Math.ceil(p.durationInSeconds * FPS), FPS) };
+          const dims = ASPECT_RATIO_DIMENSIONS[p.aspectRatio ?? "9:16"];
+          return { durationInFrames: Math.max(Math.ceil(p.durationInSeconds * FPS), FPS), ...dims };
         }}
       />
       <AnyComposition
@@ -65,7 +69,8 @@ export function Root() {
         defaultProps={repurposeDefaultProps as unknown as Record<string, unknown>}
         calculateMetadata={async ({ props }) => {
           const p = props as unknown as RepurposeClipProps;
-          return { durationInFrames: Math.max(Math.ceil((p.endSec - p.startSec) * FPS), FPS) };
+          const dims = ASPECT_RATIO_DIMENSIONS[p.aspectRatio ?? "9:16"];
+          return { durationInFrames: Math.max(Math.ceil((p.endSec - p.startSec) * FPS), FPS), ...dims };
         }}
       />
       <AnyComposition

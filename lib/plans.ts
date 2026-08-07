@@ -1,5 +1,5 @@
 export interface Plan {
-  id: "creator" | "business";
+  id: "hobby" | "creator" | "business";
   name: string;
   priceId: string | undefined;
   monthlyCredits: number;
@@ -8,18 +8,25 @@ export interface Plan {
 
 export const PLANS: Plan[] = [
   {
+    id: "hobby",
+    name: "Hobby",
+    priceId: process.env.STRIPE_PRICE_HOBBY,
+    monthlyCredits: 300,
+    priceLabel: "$19.99/mo",
+  },
+  {
     id: "creator",
     name: "Creator",
     priceId: process.env.STRIPE_PRICE_CREATOR,
     monthlyCredits: 600,
-    priceLabel: "$29/mo",
+    priceLabel: "$26.88/mo",
   },
   {
     id: "business",
     name: "Business",
     priceId: process.env.STRIPE_PRICE_BUSINESS,
     monthlyCredits: 2500,
-    priceLabel: "$99/mo",
+    priceLabel: "$44.99/mo",
   },
 ];
 

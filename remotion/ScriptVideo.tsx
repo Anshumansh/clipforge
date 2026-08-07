@@ -11,6 +11,7 @@ import {
 } from "remotion";
 import { resolveSource } from "./resolve-source";
 import type { BrollScene, WordTiming } from "@/lib/providers/types";
+import type { AspectRatio } from "@/lib/aspect-ratio";
 
 export interface ScriptVideoProps {
   words: WordTiming[];
@@ -18,6 +19,10 @@ export interface ScriptVideoProps {
   audioUrl: string | null;
   durationInSeconds: number;
   ctaText?: string;
+  /** Resolved to actual pixel dimensions in Root.tsx's calculateMetadata — this
+   * component reads the resulting size via useVideoConfig() rather than the raw
+   * ratio, so every aspect ratio shares one proportionally-scaled layout. */
+  aspectRatio?: AspectRatio;
 }
 
 function useCrossfadeOpacity(durationInFrames: number, fadeInFrames: number, fadeOutFrames: number) {
@@ -100,9 +105,11 @@ function BrollBackground({
   );
 }
 
+// Every measurement below is proportional to the 1080x1920 frame these values were
+// originally tuned for, so the same visual composition holds at 1:1 and 16:9 too.
 function Captions({ words }: { words: WordTiming[] }) {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { fps, width, height } = useVideoConfig();
   const t = frame / fps;
 
   const activeIndex = words.findIndex((w) => t >= w.start && t < w.end);
@@ -113,15 +120,15 @@ function Captions({ words }: { words: WordTiming[] }) {
   const visible = words.slice(start, start + windowSize + 1);
 
   return (
-    <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "center", paddingBottom: 220 }}>
+    <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "center", paddingBottom: height * 0.1146 }}>
       <div
         style={{
           display: "flex",
           flexWrap: "wrap",
           justifyContent: "center",
-          gap: "0 14px",
-          maxWidth: 880,
-          padding: "0 40px",
+          gap: `0 ${width * 0.013}px`,
+          maxWidth: width * 0.8148,
+          padding: `0 ${width * 0.037}px`,
         }}
       >
         {visible.map((w, i) => {
@@ -133,7 +140,7 @@ function Captions({ words }: { words: WordTiming[] }) {
               style={{
                 fontFamily: "Arial, Helvetica, sans-serif",
                 fontWeight: 800,
-                fontSize: 64,
+                fontSize: width * 0.0593,
                 lineHeight: 1.2,
                 color: isActive ? "#FFD400" : "#FFFFFF",
                 textShadow: "0 4px 18px rgba(0,0,0,0.65)",
@@ -150,18 +157,19 @@ function Captions({ words }: { words: WordTiming[] }) {
 }
 
 function CtaCard({ text }: { text: string }) {
+  const { width } = useVideoConfig();
   return (
     <AbsoluteFill style={{ justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.55)" }}>
       <div
         style={{
           fontFamily: "Arial, Helvetica, sans-serif",
           fontWeight: 900,
-          fontSize: 72,
+          fontSize: width * 0.0667,
           color: "#fff",
           textAlign: "center",
-          maxWidth: 800,
-          padding: "32px 48px",
-          borderRadius: 24,
+          maxWidth: width * 0.7407,
+          padding: `${width * 0.0296}px ${width * 0.0444}px`,
+          borderRadius: width * 0.0222,
           background: "linear-gradient(135deg, #7c3aed, #ec4899)",
         }}
       >

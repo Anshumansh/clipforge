@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { getStripe } from "@/lib/stripe";
 import { getPlanById } from "@/lib/plans";
 
-const schema = z.object({ plan: z.enum(["creator", "business"]) });
+const schema = z.object({ plan: z.enum(["hobby", "creator", "business"]) });
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);

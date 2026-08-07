@@ -7,13 +7,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { AspectRatioPicker } from "@/components/aspect-ratio-picker";
 import { UserRound } from "lucide-react";
+import type { AspectRatio } from "@/lib/aspect-ratio";
 
 export default function NewUgcAdPage() {
   const router = useRouter();
   const [productName, setProductName] = useState("");
   const [sellingPoints, setSellingPoints] = useState("");
   const [ctaText, setCtaText] = useState("");
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("9:16");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,7 +28,7 @@ export default function NewUgcAdPage() {
     const res = await fetch("/api/projects/ugc", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ productName, sellingPoints, ctaText }),
+      body: JSON.stringify({ productName, sellingPoints, ctaText, aspectRatio }),
     });
 
     const data = await res.json().catch(() => ({}));
@@ -83,6 +86,11 @@ export default function NewUgcAdPage() {
                 value={ctaText}
                 onChange={(e) => setCtaText(e.target.value)}
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Format</Label>
+              <AspectRatioPicker value={aspectRatio} onChange={setAspectRatio} />
+              <p className="text-xs text-muted-foreground">1:1 and 16:9 are a Business-plan feature.</p>
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" disabled={loading} className="w-full">

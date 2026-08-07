@@ -3,6 +3,7 @@ import { generateAdScript } from "@/lib/providers/script";
 import { synthesizeVoiceover } from "@/lib/providers/tts";
 import { pickBrollScenes } from "@/lib/providers/broll";
 import { renderScriptVideo } from "@/lib/remotion-render";
+import type { AspectRatio } from "@/lib/aspect-ratio";
 
 async function setJobProgress(jobId: string, progress: number, log?: string) {
   await db.job.update({ where: { id: jobId }, data: { progress, ...(log ? { log } : {}) } });
@@ -21,6 +22,7 @@ export async function runUgcJob(jobId: string) {
       sellingPoints: string;
       ctaText: string;
       voice?: string;
+      aspectRatio?: AspectRatio;
     };
     const mediaKeyPrefix = `media/${project.userId}/${project.id}`;
 
@@ -51,6 +53,7 @@ export async function runUgcJob(jobId: string) {
         audioUrl: voiceover.audioUrl,
         durationInSeconds: voiceover.durationSec + 2,
         ctaText: input.ctaText || `Get ${input.productName} today`,
+        aspectRatio: input.aspectRatio,
       },
       `${mediaKeyPrefix}/final.mp4`,
       (percent) => {

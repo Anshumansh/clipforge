@@ -3,6 +3,7 @@ import { renderRepurposeClip } from "@/lib/remotion-render";
 import { transcribeVideo } from "@/lib/providers/transcription";
 import { planHighlightsFromTranscript, type HighlightClip } from "@/lib/providers/highlights";
 import { chatJSON } from "@/lib/providers/llm";
+import type { AspectRatio } from "@/lib/aspect-ratio";
 
 async function setJobProgress(jobId: string, progress: number, log?: string) {
   await db.job.update({ where: { id: jobId }, data: { progress, ...(log ? { log } : {}) } });
@@ -13,14 +14,18 @@ function planSegmentsByDuration(durationSec: number): HighlightClip[] {
   const clipLength = Math.min(45, Math.max(15, durationSec / count - 2));
   const segments: HighlightClip[] = [];
 
+  // No transcript to judge these against — flat, neutral score rather than a fake
+  // ranking (this path only runs when transcription/highlight-planning is unavailable).
   for (let i = 0; i < count; i++) {
     const slot = durationSec / count;
     const start = i * slot + Math.max(0, (slot - clipLength) / 2);
     const end = Math.min(start + clipLength, durationSec - 0.2);
-    if (end - start >= 5) segments.push({ startSec: start, endSec: end, title: `Highlight ${i + 1}` });
+    if (end - start >= 5) segments.push({ startSec: start, endSec: end, title: `Highlight ${i + 1}`, score: 50 });
   }
 
-  return segments.length > 0 ? segments : [{ startSec: 0, endSec: Math.min(durationSec, 15), title: "Highlight 1" }];
+  return segments.length > 0
+    ? segments
+    : [{ startSec: 0, endSec: Math.min(durationSec, 15), title: "Highlight 1", score: 50 }];
 }
 
 async function generateTitlesForSegments(topic: string, count: number): Promise<string[]> {
@@ -53,7 +58,12 @@ export async function runRepurposeJob(jobId: string) {
     await db.job.update({ where: { id: jobId }, data: { status: "processing", progress: 5 } });
     await db.project.update({ where: { id: project.id }, data: { status: "processing" } });
 
-    const input = JSON.parse(project.input) as { durationSec: number; sourcePath: string; topic: string };
+    const input = JSON.parse(project.input) as {
+      durationSec: number;
+      sourcePath: string;
+      topic: string;
+      aspectRatio?: AspectRatio;
+    };
     const mediaKeyPrefix = `media/${project.userId}/${project.id}`;
 
     await setJobProgress(jobId, 10, "Transcribing audio…");
@@ -77,14 +87,14 @@ export async function runRepurposeJob(jobId: string) {
     }
 
     const clips = await Promise.all(
-      plan.map((seg, i) =>
+      plan.map((seg) =>
         db.clip.create({
           data: {
             projectId: project.id,
             title: seg.title,
             startSec: seg.startSec,
             endSec: seg.endSec,
-            score: 1 - i * 0.1,
+            score: seg.score,
             status: "pending",
           },
         })
@@ -101,6 +111,7 @@ export async function runRepurposeJob(jobId: string) {
             startSec: clip.startSec,
             endSec: clip.endSec,
             title: clip.title,
+            aspectRatio: input.aspectRatio,
           },
           `${mediaKeyPrefix}/clip-${clip.id}.mp4`,
           (percent) => {

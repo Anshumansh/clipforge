@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { AspectRatioPicker } from "@/components/aspect-ratio-picker";
 import { Scissors, UploadCloud } from "lucide-react";
+import type { AspectRatio } from "@/lib/aspect-ratio";
 
 function readVideoDuration(file: File): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -26,6 +28,7 @@ export default function NewRepurposePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [topic, setTopic] = useState("");
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("9:16");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,6 +55,7 @@ export default function NewRepurposePage() {
       formData.append("file", file);
       formData.append("topic", topic);
       formData.append("durationSec", String(durationSec));
+      formData.append("aspectRatio", aspectRatio);
 
       const res = await fetch("/api/projects/repurpose", { method: "POST", body: formData });
       const data = await res.json().catch(() => ({}));
@@ -117,6 +121,11 @@ export default function NewRepurposePage() {
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Format</Label>
+              <AspectRatioPicker value={aspectRatio} onChange={setAspectRatio} />
+              <p className="text-xs text-muted-foreground">1:1 and 16:9 are a Business-plan feature.</p>
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" disabled={loading} className="w-full">

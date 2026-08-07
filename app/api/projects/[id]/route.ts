@@ -11,7 +11,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const project = await db.project.findFirst({
     where: { id: params.id, userId },
     include: {
-      clips: { orderBy: { startSec: "asc" } },
+      clips: { orderBy: { score: "desc" } },
       jobs: { orderBy: { createdAt: "desc" }, take: 1 },
     },
   });
