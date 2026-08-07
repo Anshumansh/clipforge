@@ -1,8 +1,11 @@
 import fs from "node:fs/promises";
+import { createWriteStream } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { pipeline } from "node:stream/promises";
+import { Readable } from "node:stream";
 
 const execFileAsync = promisify(execFile);
 
@@ -57,6 +60,27 @@ function getFfmpegPath(): string {
   const pkg = process.platform === "win32" ? "@remotion/compositor-win32-x64-msvc" : "@remotion/compositor-linux-x64-gnu";
   const bin = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
   return path.join(process.cwd(), "node_modules", pkg, bin);
+}
+
+/** Remotion's bundled ffmpeg is compiled without any network protocol support
+ * (no openssl/gnutls) — it can only read local files, so a remote source URL
+ * has to be downloaded first. Callers analyzing multiple clips from the same
+ * source should download once and reuse the local path, not call this per clip. */
+export async function prepareLocalSource(sourcePath: string): Promise<{ localPath: string; cleanup: () => Promise<void> }> {
+  if (!/^https?:\/\//.test(sourcePath)) {
+    return { localPath: sourcePath, cleanup: async () => {} };
+  }
+
+  const tempPath = path.join(os.tmpdir(), `clipforge-source-${Date.now()}-${Math.random().toString(36).slice(2)}.mp4`);
+  const res = await fetch(sourcePath);
+  if (!res.ok || !res.body) throw new Error(`Failed to download source for analysis: ${res.status}`);
+
+  await pipeline(Readable.fromWeb(res.body as never), createWriteStream(tempPath));
+
+  return {
+    localPath: tempPath,
+    cleanup: () => fs.rm(tempPath, { force: true }).catch(() => {}),
+  };
 }
 
 async function extractSampleFrames(sourcePath: string, startSec: number, endSec: number, tempDir: string): Promise<string[]> {

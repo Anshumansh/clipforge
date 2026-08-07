@@ -3,7 +3,7 @@ import { renderRepurposeClip } from "@/lib/remotion-render";
 import { transcribeVideo } from "@/lib/providers/transcription";
 import { planHighlightsFromTranscript, type HighlightClip } from "@/lib/providers/highlights";
 import { chatJSON } from "@/lib/providers/llm";
-import { analyzeSubjectPan } from "@/lib/providers/subject-tracking";
+import { analyzeSubjectPan, prepareLocalSource } from "@/lib/providers/subject-tracking";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 
 async function setJobProgress(jobId: string, progress: number, log?: string) {
@@ -102,15 +102,28 @@ export async function runRepurposeJob(jobId: string) {
       )
     );
 
+    // Remotion's bundled ffmpeg can't read the remote source URL directly (no
+    // network protocol support in that build) — download once and reuse the
+    // local copy for every clip's analysis, rather than re-fetching per clip.
+    await setJobProgress(jobId, 22, "Preparing for subject tracking…");
+    const { localPath: localSourcePath, cleanup: cleanupLocalSource } = await prepareLocalSource(input.sourcePath).catch(
+      (err) => {
+        console.error("[repurpose] could not download source for tracking:", err instanceof Error ? err.message : err);
+        return { localPath: null as string | null, cleanup: async () => {} };
+      }
+    );
+
     let completed = 0;
     for (const clip of clips) {
       await db.clip.update({ where: { id: clip.id }, data: { status: "processing" } });
       try {
         await setJobProgress(jobId, Math.round(25 + (completed / clips.length) * 70), "Tracking subject…");
-        const panKeyframes = await analyzeSubjectPan(input.sourcePath, clip.startSec, clip.endSec).catch((err) => {
-          console.error("[repurpose] subject tracking failed, using center crop:", err instanceof Error ? err.message : err);
-          return null;
-        });
+        const panKeyframes = localSourcePath
+          ? await analyzeSubjectPan(localSourcePath, clip.startSec, clip.endSec).catch((err) => {
+              console.error("[repurpose] subject tracking failed, using center crop:", err instanceof Error ? err.message : err);
+              return null;
+            })
+          : null;
 
         const videoUrl = await renderRepurposeClip(
           {
@@ -133,6 +146,8 @@ export async function runRepurposeJob(jobId: string) {
       }
       completed += 1;
     }
+
+    await cleanupLocalSource();
 
     const readyClips = await db.clip.count({ where: { projectId: project.id, status: "ready" } });
 
