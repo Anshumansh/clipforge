@@ -186,12 +186,13 @@ these by generating a new key on the provider's dashboard and updating `.env` + 
 - **Dashboard:** https://resend.com
 - **What it's used for:** password reset emails only, right now
 - **Plan:** Free tier — 3,000 emails/month
-- **Sending domain:** currently using Resend's shared `resend.dev` address for the
-  "from" — works with zero setup but looks less professional. To send from
-  `noreply@forgecut.app` instead: Resend dashboard → **Domains** → Add `forgecut.app` →
-  add the TXT/DKIM records it gives you to Porkbun's DNS → once verified, set
-  `EMAIL_FROM=Clipforge <noreply@forgecut.app>` in `.env`.
-- **Credentials:** `RESEND_API_KEY` in `.env`.
+- **Sending domain:** `forgecut.app` is verified with Resend (DKIM, SPF, and the
+  `send` MX record are all set in Porkbun's DNS). Emails send from
+  `Clipforge <noreply@forgecut.app>` — confirmed delivering to arbitrary recipients,
+  not just the account owner's own address.
+- **Credentials:** `RESEND_API_KEY` and `EMAIL_FROM` in `.env`.
+- **If DNS ever needs to be recreated** (e.g. moving registrars): Resend dashboard →
+  Domains → `forgecut.app` shows the exact DKIM/SPF/MX records to re-add.
 
 ---
 
@@ -207,8 +208,6 @@ these by generating a new key on the provider's dashboard and updating `.env` + 
 ## 11. Things that are NOT set up yet (known gaps)
 
 - **Stripe live mode** — currently test mode only; no real payments possible. See §8.
-- **Custom email domain** — password reset emails send from Resend's shared address, not
-  `@forgecut.app`. See §9.
 - **Error monitoring** (e.g. Sentry) — not configured. Errors are only visible via
   `docker logs clipforge-app-1` on the VPS.
 - **Backups** — Neon (DB) and Backblaze B2 (storage) both have their own durability, but
