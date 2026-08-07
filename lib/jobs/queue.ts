@@ -54,11 +54,13 @@ async function setQueuePosition(jobId: string, position: number) {
 }
 
 function pump() {
+  console.error(`[queue] pump: active=${active} pending=${pending.length}`);
   if (active >= MAX_CONCURRENT_RENDERS) return;
   const next = pending.shift();
   if (!next) return;
 
   active++;
+  console.error(`[queue] starting ${next.jobId}, active now ${active}`);
   pending.forEach((job, i) => void setQueuePosition(job.jobId, i));
 
   runnerFor(next.type)(next.jobId)
@@ -67,6 +69,7 @@ function pump() {
     })
     .finally(() => {
       active--;
+      console.error(`[queue] finished ${next.jobId}, active now ${active}`);
       pump();
     });
 
@@ -75,6 +78,7 @@ function pump() {
 }
 
 export function enqueueJob(jobId: string, type: JobType) {
+  console.error(`[queue] enqueueJob ${jobId}, active=${active} pending-before=${pending.length}`);
   pending.push({ jobId, type });
   if (pending.length > 1 || active >= MAX_CONCURRENT_RENDERS) {
     void setQueuePosition(jobId, pending.length - 1);
