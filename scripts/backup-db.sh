@@ -19,7 +19,7 @@ FILE="/tmp/clipforge-db-$TIMESTAMP.sql.gz"
 cleanup() { rm -f "$FILE"; }
 trap cleanup EXIT
 
-docker run --rm -e DATABASE_URL="$DATABASE_URL" postgres:17-alpine \
+docker run --rm -e DATABASE_URL="$DATABASE_URL" postgres:18-alpine \
   sh -c 'pg_dump "$DATABASE_URL"' | gzip > "$FILE"
 
 export AWS_ACCESS_KEY_ID="$STORAGE_ACCESS_KEY_ID"
