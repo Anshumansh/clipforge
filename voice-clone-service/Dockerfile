@@ -9,7 +9,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 # CPU-only torch — the CUDA build is several GB and useless without a GPU.
-RUN pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+# Pinned to a matched pair: unpinned installs resolved mismatched torch/
+# torchaudio ABI versions (torchaudio's compiled extension expected a symbol
+# that didn't exist in the torch build that got installed alongside it).
+RUN pip install --no-cache-dir torch==2.1.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir TTS==0.22.0
 
 COPY clone.py .
