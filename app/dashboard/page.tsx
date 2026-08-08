@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { StreakCard } from "@/components/streak-card";
 import { formatDate } from "@/lib/utils";
 import { Clapperboard, Plus, Scissors, UserRound, Wand2 } from "lucide-react";
 
@@ -30,6 +31,7 @@ export default async function DashboardPage() {
 
   return (
     <div>
+      <StreakCard currentStreak={user.currentStreak} longestStreak={user.longestStreak} />
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Your projects</h1>

@@ -11,7 +11,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
-      <DashboardNav credits={user.credits} />
+      <DashboardNav credits={user.credits} streak={user.currentStreak} />
       <main className="min-h-screen flex-1 overflow-y-auto p-4 md:p-8">{children}</main>
     </div>
   );

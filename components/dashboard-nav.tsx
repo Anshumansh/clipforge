@@ -7,10 +7,25 @@ import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Coins, CreditCard, LayoutGrid, LogOut, Menu, Scissors, Share2, Sparkles, UserRound, Wand2, X } from "lucide-react";
+import {
+  Coins,
+  CreditCard,
+  Flame,
+  LayoutGrid,
+  Lightbulb,
+  LogOut,
+  Menu,
+  Scissors,
+  Share2,
+  Sparkles,
+  UserRound,
+  Wand2,
+  X,
+} from "lucide-react";
 
 const links = [
   { href: "/dashboard", label: "Projects", icon: LayoutGrid, exact: true },
+  { href: "/dashboard/ideas", label: "Idea Radar", icon: Lightbulb },
   { href: "/dashboard/new/script", label: "Script to video", icon: Wand2 },
   { href: "/dashboard/new/repurpose", label: "Repurpose", icon: Scissors },
   { href: "/dashboard/new/ugc", label: "UGC / Avatar ad", icon: UserRound },
@@ -18,7 +33,7 @@ const links = [
   { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
 ];
 
-export function DashboardNav({ credits }: { credits: number }) {
+export function DashboardNav({ credits, streak }: { credits: number; streak: number }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -88,6 +103,14 @@ export function DashboardNav({ credits }: { credits: number }) {
           })}
         </nav>
         <div className="space-y-3 border-t border-border/60 pt-4">
+          {streak > 0 && (
+            <Badge
+              variant="secondary"
+              className="w-full justify-center gap-1.5 border border-amber-500/30 bg-amber-500/10 py-1.5 text-amber-500"
+            >
+              <Flame className="h-3.5 w-3.5" /> {streak}-day streak
+            </Badge>
+          )}
           <Badge variant="secondary" className="w-full justify-center gap-1.5 border border-primary/20 bg-primary/10 py-1.5 text-foreground">
             <Coins className="h-3.5 w-3.5 text-primary" /> {credits} credits
           </Badge>

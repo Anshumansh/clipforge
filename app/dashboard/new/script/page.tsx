@@ -1,23 +1,44 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { AspectRatioPicker } from "@/components/aspect-ratio-picker";
-import { Wand2 } from "lucide-react";
+import { Sparkles, Wand2 } from "lucide-react";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 
 export default function NewScriptVideoPage() {
   const router = useRouter();
-  const [topic, setTopic] = useState("");
+  const searchParams = useSearchParams();
+  const [topic, setTopic] = useState(() => searchParams.get("topic") ?? "");
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("9:16");
   const [voiceSample, setVoiceSample] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hooks, setHooks] = useState<string[] | null>(null);
+  const [hooksLoading, setHooksLoading] = useState(false);
+
+  async function getHooks() {
+    setHooksLoading(true);
+    setHooks(null);
+    const res = await fetch("/api/hooks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setHooksLoading(false);
+    if (res.ok) setHooks(data.hooks ?? []);
+  }
+
+  function useHook(hook: string) {
+    setTopic((current) => `Open with this exact hook: "${hook}"\n\n${current}`);
+    setHooks(null);
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -72,6 +93,31 @@ export default function NewScriptVideoPage() {
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
               />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="gap-1.5 px-0 text-xs text-muted-foreground hover:bg-transparent hover:text-primary"
+                disabled={topic.trim().length < 3 || hooksLoading}
+                onClick={getHooks}
+              >
+                <Sparkles className="h-3.5 w-3.5" /> {hooksLoading ? "Thinking of hooks…" : "Get 3 hook ideas"}
+              </Button>
+              {hooks && hooks.length > 0 && (
+                <div className="space-y-1.5 rounded-lg border border-border/60 bg-secondary/30 p-3">
+                  <p className="text-xs text-muted-foreground">Pick one to open your video with:</p>
+                  {hooks.map((hook, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => useHook(hook)}
+                      className="block w-full rounded-md border border-transparent px-2 py-1.5 text-left text-sm transition-colors hover:border-primary/40 hover:bg-primary/10"
+                    >
+                      "{hook}"
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>Format</Label>

@@ -21,6 +21,9 @@ model User {
   stripeSubscriptionId   String?   @unique
   stripePriceId          String?
   stripeCurrentPeriodEnd DateTime?
+  currentStreak          Int       @default(0)
+  longestStreak          Int       @default(0)
+  lastActiveAt           DateTime?
   createdAt              DateTime  @default(now())
   projects               Project[]
   jobs                   Job[]

@@ -4,6 +4,7 @@ import { transcribeVideo } from "@/lib/providers/transcription";
 import { planHighlightsFromTranscript, type HighlightClip } from "@/lib/providers/highlights";
 import { chatJSON } from "@/lib/providers/llm";
 import { analyzeSubjectPan, prepareLocalSource } from "@/lib/providers/subject-tracking";
+import { recordActivity } from "@/lib/streaks";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 
 async function setJobProgress(jobId: string, progress: number, log?: string) {
@@ -157,6 +158,7 @@ export async function runRepurposeJob(jobId: string) {
 
     await db.project.update({ where: { id: project.id }, data: { status: "ready" } });
     await db.job.update({ where: { id: jobId }, data: { status: "done", progress: 100, log: "Done" } });
+    await recordActivity(project.userId);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     await db.project.update({ where: { id: project.id }, data: { status: "failed", errorMessage: message } });
