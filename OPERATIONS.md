@@ -356,7 +356,55 @@ running it concurrently with an active video render under real load.
 
 ---
 
-## 16. Cost summary (live Stripe since 2026-08-07)
+## 16. Trend Radar (ingestion backend only — UI not built yet)
+
+Scans tracked YouTube channels + user-chosen niches for videos breaking out relative
+to their own channel's normal pace, then extracts a structural "why it's working"
+pattern via LLM — the eventual UI lets a user turn that pattern into an original
+script through the existing generation pipeline, one tap.
+
+**Runs on a schedule**, not per-request: `scripts/process-trend-ingestion.sh` via
+VPS cron, every 3h (`0 */3 * * *`), hitting `POST /api/trend/ingest` with the same
+`x-cron-secret` pattern as the scheduled social-post processor.
+
+**Per cycle**: `channels.list` + `playlistItems.list` for every tracked channel
+(1 quota unit each — cheap), `search.list` once per distinct user-chosen niche
+(100 units — the expensive call, only run for discovery), `videos.list` in
+batches of 50 for stats. Free tier is 10k units/day; a handful of tracked
+channels plus a few niches comes in well under 1,000/day.
+
+**Breakout scoring**: velocity (views/hour) compared against that channel's own
+historical median (`BREAKOUT_THRESHOLD = 3`×, `lib/trend/scoring.ts`) — never a
+global bar, since channel sizes vary wildly. Requires 3+ prior samples for that
+channel before trusting the median, so a channel's first tracked video can't
+register as an infinite-multiple false breakout.
+
+**Pattern extraction** (`lib/providers/pattern-extraction.ts`) only runs on videos
+that clear the breakout threshold, and only once ever per video (cached
+permanently via a unique `ExtractedPattern` row) — the one real cost in this
+pipeline. It's deliberately Groq-only (`chatJSONFree` in `lib/providers/llm.ts`),
+never falling through to the paid OpenAI key configured for user-triggered
+features elsewhere — **`GROQ_API_KEY` isn't set yet**, so pattern extraction
+currently returns null and is skipped for every video. Add a free key at
+console.groq.com to activate it; until then, ingestion still records real
+snapshots and breakout scores, just without the "why it's breaking out" field.
+
+**Known deviation from spec**: pattern extraction uses title + description +
+thumbnail only, not captions/transcript. YouTube's official caption-download
+endpoint requires OAuth as the video's owner for third-party videos — the
+official-API-only / no-scraping constraint rules out working around that.
+
+**Not built yet**: onboarding UI (niche + tracked-channel picker), the trend
+card feed, and "Make My Version" wiring into the Script-to-Video wizard —
+ingestion currently has no UI consumer, so `UserNiche`/`TrackedChannel` rows
+have to be created directly for testing until that lands.
+
+Verified end-to-end against real YouTube data (MKBHD, MrBeast) before this
+was documented — real velocity math, correct breakout-gating on a cold start.
+
+---
+
+## 17. Cost summary (live Stripe since 2026-08-07)
 
 | Item | Cost |
 |---|---|
@@ -364,8 +412,9 @@ running it concurrently with an active video render under real load.
 | Porkbun domain | ~$10-15/year |
 | Neon Postgres | $0 (free tier) |
 | Backblaze B2 | $0 (free tier, until >10GB or heavy egress) |
-| Groq | $0 (free tier) |
+| Groq | $0 (free tier — not yet configured; needed for Trend Radar pattern extraction) |
 | Pexels | $0 (free tier) |
+| YouTube Data API v3 | $0 (free, 10k quota units/day) |
 | Resend | $0 (free tier, until >3,000 emails/month) |
 | OpenAI | Pay-as-you-go — the only real variable cost; check usage regularly |
 | Stripe | 2.9% + $0.30 per transaction (live mode active) |
