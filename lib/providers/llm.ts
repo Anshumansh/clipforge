@@ -68,3 +68,25 @@ export async function chatJSON(
   }
   return null;
 }
+
+/** Same as chatJSON, but Groq-only — never touches a paid OpenAI key even if one is
+ * configured. For automated/background calls (e.g. Trend Radar pattern extraction)
+ * that run unattended and could fire many times a day: those must stay at zero
+ * marginal cost, not silently bill through to whatever key a human-triggered feature
+ * happens to have configured. Returns null (caller should skip, not fall back to
+ * a paid provider) if GROQ_API_KEY isn't set. */
+export async function chatJSONFree(
+  messages: { role: "system" | "user"; content: string }[],
+  temperature = 0.7
+): Promise<Record<string, unknown> | null> {
+  if (!process.env.GROQ_API_KEY) return null;
+  return tryChat(
+    {
+      baseUrl: "https://api.groq.com/openai/v1/chat/completions",
+      apiKey: process.env.GROQ_API_KEY,
+      model: "llama-3.3-70b-versatile",
+    },
+    messages,
+    temperature
+  );
+}
