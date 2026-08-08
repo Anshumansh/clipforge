@@ -28,32 +28,35 @@ export function DashboardNav({ credits }: { credits: number }) {
 
   return (
     <>
-      <div className="flex h-14 items-center justify-between border-b border-border/60 px-4 md:hidden">
-        <Link href="/" className="flex items-center gap-2 font-semibold">
+      <div className="glass flex h-14 items-center justify-between border-b border-border/60 px-4 md:hidden">
+        <Link href="/" className="flex items-center gap-2 font-display font-semibold">
           <Sparkles className="h-5 w-5 text-primary" /> Clipforge
         </Link>
         <button
           onClick={() => setOpen(true)}
           aria-label="Open menu"
-          className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           <Menu className="h-5 w-5" />
         </button>
       </div>
 
       {open && (
-        <div className="fixed inset-0 z-40 bg-black/60 md:hidden" onClick={() => setOpen(false)} aria-hidden="true" />
+        <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden" onClick={() => setOpen(false)} aria-hidden="true" />
       )}
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-64 shrink-0 flex-col border-r border-border/60 bg-background p-4 transition-transform duration-200 md:sticky md:top-0 md:h-screen md:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 flex w-64 shrink-0 flex-col border-r border-border/60 bg-background/95 p-4 transition-transform duration-200 md:sticky md:top-0 md:h-screen md:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full"
         )}
       >
         <div className="mb-8 flex items-center justify-between px-2">
-          <Link href="/" className="flex items-center gap-2 font-semibold">
-            <Sparkles className="h-5 w-5 text-primary" /> Clipforge
+          <Link href="/" className="flex items-center gap-2 font-display font-semibold tracking-tight">
+            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-br from-[hsl(262_83%_66%)] to-[hsl(316_80%_62%)]">
+              <Sparkles className="h-4 w-4 text-white" />
+            </span>
+            Clipforge
           </Link>
           <button
             onClick={() => setOpen(false)}
@@ -71,19 +74,22 @@ export function DashboardNav({ credits }: { credits: number }) {
                 key={link.href}
                 href={link.href}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-                  active && "bg-muted text-foreground"
+                  "relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                  active && "bg-primary/10 text-foreground"
                 )}
               >
-                <link.icon className="h-4 w-4" />
+                {active && (
+                  <span className="absolute -left-1 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full bg-gradient-to-b from-[hsl(262_83%_66%)] to-[hsl(316_80%_62%)]" />
+                )}
+                <link.icon className={cn("h-4 w-4", active && "text-primary")} />
                 {link.label}
               </Link>
             );
           })}
         </nav>
         <div className="space-y-3 border-t border-border/60 pt-4">
-          <Badge variant="secondary" className="w-full justify-center gap-1.5 py-1.5">
-            <Coins className="h-3.5 w-3.5" /> {credits} credits
+          <Badge variant="secondary" className="w-full justify-center gap-1.5 border border-primary/20 bg-primary/10 py-1.5 text-foreground">
+            <Coins className="h-3.5 w-3.5 text-primary" /> {credits} credits
           </Badge>
           <Button variant="ghost" size="sm" className="w-full justify-start gap-2" onClick={() => signOut({ callbackUrl: "/" })}>
             <LogOut className="h-4 w-4" /> Log out

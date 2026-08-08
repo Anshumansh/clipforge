@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
+import { Reveal, RevealGroup, RevealItem } from "@/components/reveal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { SubscribeButton } from "@/components/subscribe-button";
@@ -86,56 +87,67 @@ export default function PricingPage() {
   return (
     <div className="flex min-h-screen flex-col">
       <SiteHeader />
-      <main className="flex-1 px-6 py-20">
-        <div className="mx-auto max-w-2xl text-center">
-          <h1 className="text-4xl font-bold tracking-tight">Simple, credit-based pricing</h1>
-          <p className="mt-4 text-muted-foreground">
-            One credit ≈ one minute of rendered video. Upgrade, downgrade, or cancel any time.
-          </p>
-        </div>
-        <div className="mx-auto mt-14 grid max-w-6xl gap-6 sm:grid-cols-2 lg:grid-cols-4">
+      <main className="hero-glow grid-pattern flex-1 px-6 py-20">
+        <Reveal>
+          <div className="mx-auto max-w-2xl text-center">
+            <h1 className="text-4xl font-bold tracking-tight">Simple, credit-based pricing</h1>
+            <p className="mt-4 text-muted-foreground">
+              One credit ≈ one minute of rendered video. Upgrade, downgrade, or cancel any time.
+            </p>
+          </div>
+        </Reveal>
+        <RevealGroup className="mx-auto mt-14 grid max-w-6xl gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {plans.map((plan) => (
-            <Card key={plan.name} className={plan.highlighted ? "border-primary shadow-lg shadow-primary/10" : ""}>
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between">
-                  {plan.name}
-                  {plan.highlighted && (
-                    <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary">
-                      Popular
-                    </span>
-                  )}
-                </CardTitle>
-                <CardDescription>{plan.description}</CardDescription>
-                <div className="pt-4">
-                  <span className="text-3xl font-bold">{plan.price}</span>
-                  <span className="text-muted-foreground">/mo</span>
-                </div>
-                <p className="text-sm text-muted-foreground">{plan.credits}</p>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2.5 text-sm">
-                  {plan.features.map((f) => (
-                    <li key={f} className="flex items-start gap-2">
-                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
-                {plan.planId ? (
-                  <div className="mt-8">
-                    <SubscribeButton plan={plan.planId} variant={plan.highlighted ? "default" : "outline"}>
-                      {plan.cta}
-                    </SubscribeButton>
-                  </div>
-                ) : (
-                  <Button asChild className="mt-8 w-full" variant="outline">
-                    <Link href="/register">{plan.cta}</Link>
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
+            <RevealItem key={plan.name} className="h-full">
+              <div className={plan.highlighted ? "glow-ring h-full" : "h-full"}>
+                <Card
+                  className={
+                    "flex h-full flex-col border-transparent bg-card/90 transition-transform duration-200 hover:-translate-y-1" +
+                    (plan.highlighted ? " shadow-lg shadow-primary/10" : "")
+                  }
+                >
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between font-display">
+                      {plan.name}
+                      {plan.highlighted && (
+                        <span className="rounded-full bg-gradient-to-r from-[hsl(262_83%_66%)] to-[hsl(316_80%_62%)] px-2 py-0.5 text-xs font-medium text-white">
+                          Popular
+                        </span>
+                      )}
+                    </CardTitle>
+                    <CardDescription>{plan.description}</CardDescription>
+                    <div className="pt-4">
+                      <span className="font-display text-3xl font-bold">{plan.price}</span>
+                      <span className="text-muted-foreground">/mo</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{plan.credits}</p>
+                  </CardHeader>
+                  <CardContent className="flex flex-1 flex-col">
+                    <ul className="flex-1 space-y-2.5 text-sm">
+                      {plan.features.map((f) => (
+                        <li key={f} className="flex items-start gap-2">
+                          <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                          <span>{f}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {plan.planId ? (
+                      <div className="mt-8">
+                        <SubscribeButton plan={plan.planId} variant={plan.highlighted ? "default" : "outline"}>
+                          {plan.cta}
+                        </SubscribeButton>
+                      </div>
+                    ) : (
+                      <Button asChild className="mt-8 w-full" variant="outline">
+                        <Link href="/register">{plan.cta}</Link>
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </RevealItem>
           ))}
-        </div>
+        </RevealGroup>
       </main>
       <SiteFooter />
     </div>

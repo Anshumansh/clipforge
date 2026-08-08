@@ -31,16 +31,106 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "cv11", "ss01";
+  }
+  h1, h2, h3, h4 {
+    @apply font-display tracking-tight;
+  }
+  ::selection {
+    background: hsl(var(--primary) / 0.35);
+    color: hsl(var(--foreground));
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 999px;
+    border: 2px solid hsl(var(--background));
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
   }
 }
 
 .gradient-text {
-  background: linear-gradient(90deg, hsl(262 83% 66%), hsl(316 80% 62%));
+  background: linear-gradient(90deg, hsl(262 83% 68%), hsl(316 80% 64%), hsl(199 89% 62%));
+  background-size: 200% auto;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 
+/* Layered, slowly-drifting radial gradients behind the hero — a soft "aurora"
+   instead of one flat radial glow, without a canvas/WebGL dependency. */
 .hero-glow {
-  background: radial-gradient(600px circle at 50% 0%, hsl(262 83% 66% / 0.25), transparent 60%);
+  position: relative;
+  isolation: isolate;
+}
+.hero-glow::before {
+  content: "";
+  position: absolute;
+  inset: -20% -10% auto -10%;
+  height: 140%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(480px circle at 20% 10%, hsl(262 83% 66% / 0.28), transparent 60%),
+    radial-gradient(520px circle at 80% 15%, hsl(316 80% 62% / 0.22), transparent 60%),
+    radial-gradient(600px circle at 50% 0%, hsl(199 89% 62% / 0.14), transparent 65%);
+  animation: aurora 18s ease-in-out infinite;
+  filter: blur(40px);
+}
+
+/* Faint grid, fading out toward the edges so it reads as texture, not a chart. */
+.grid-pattern {
+  background-image:
+    linear-gradient(hsl(var(--foreground) / 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--foreground) / 0.06) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, black 40%, transparent 90%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, black 40%, transparent 90%);
+}
+
+.glass {
+  background: hsl(var(--background) / 0.72);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+}
+
+/* Gradient border via double-background trick: an opaque padding-box fill on
+   top of a gradient border-box fill, so the border is a gradient but the
+   card interior stays a solid theme color. */
+.glow-ring {
+  position: relative;
+  border-radius: var(--radius);
+}
+.glow-ring::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, hsl(262 83% 66% / 0.7), hsl(316 80% 62% / 0.5), transparent 70%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.shine-text {
+  background: linear-gradient(
+    110deg,
+    hsl(var(--primary-foreground)) 40%,
+    hsl(var(--primary) / 0.6) 50%,
+    hsl(var(--primary-foreground)) 60%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }

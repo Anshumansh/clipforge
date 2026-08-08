@@ -1,6 +1,10 @@
 import type { Metadata, Viewport } from "next";
+import { Inter, Lexend } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
+
+const inter = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
+const lexend = Lexend({ subsets: ["latin"], variable: "--font-display", display: "swap" });
 
 const title = "Clipforge — Turn any idea into a scroll-stopping short video";
 const description =
@@ -15,13 +19,13 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0a0a0f",
+  themeColor: "#08070c",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
-      <body className="min-h-screen antialiased">
+    <html lang="en" className={`dark ${inter.variable} ${lexend.variable}`}>
+      <body className="min-h-screen bg-background font-sans antialiased">
         <Providers>{children}</Providers>
       </body>
     </html>

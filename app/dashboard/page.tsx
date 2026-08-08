@@ -49,8 +49,10 @@ export default async function DashboardPage() {
       </div>
 
       {projects.length === 0 ? (
-        <Card className="flex flex-col items-center gap-4 py-16 text-center">
-          <Clapperboard className="h-10 w-10 text-muted-foreground" />
+        <Card className="hero-glow flex flex-col items-center gap-4 border-dashed py-16 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-accent/20">
+            <Clapperboard className="h-7 w-7 text-primary" />
+          </div>
           <div>
             <p className="font-medium">No projects yet</p>
             <p className="text-sm text-muted-foreground">Generate your first video to see it here.</p>
@@ -64,11 +66,11 @@ export default async function DashboardPage() {
           {projects.map((project) => {
             const Icon = typeIcon[project.type as keyof typeof typeIcon] ?? Wand2;
             return (
-              <Link key={project.id} href={`/dashboard/projects/${project.id}`}>
-                <Card className="h-full transition-colors hover:border-primary/50">
+              <Link key={project.id} href={`/dashboard/projects/${project.id}`} className="group">
+                <Card className="h-full transition-all duration-200 group-hover:-translate-y-0.5 group-hover:border-primary/50 group-hover:shadow-lg group-hover:shadow-primary/10">
                   <CardHeader>
                     <div className="flex items-center justify-between">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/15">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-accent/20">
                         <Icon className="h-4 w-4 text-primary" />
                       </div>
                       <Badge variant={statusVariant[project.status as keyof typeof statusVariant] ?? "outline"}>

@@ -26,11 +26,14 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-6">
+    <div className="hero-glow grid-pattern flex min-h-screen items-center justify-center px-6">
       <Card className="w-full max-w-sm">
         <CardHeader className="items-center text-center">
-          <Link href="/" className="mb-2 flex items-center gap-2 font-semibold">
-            <Sparkles className="h-5 w-5 text-primary" /> Clipforge
+          <Link href="/" className="mb-2 flex items-center gap-2 font-display font-semibold">
+            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-br from-[hsl(262_83%_66%)] to-[hsl(316_80%_62%)]">
+              <Sparkles className="h-4 w-4 text-white" />
+            </span>
+            Clipforge
           </Link>
           <CardTitle>Reset your password</CardTitle>
           <CardDescription>We'll email you a link to set a new password.</CardDescription>
