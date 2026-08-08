@@ -1,0 +1,77 @@
+name: Weekly maintenance scan
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Monday 06:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci"
+      NEXTAUTH_SECRET: "ci-build-only-not-a-real-secret"
+      NEXTAUTH_URL: "https://forgecut.app"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Snapshot audit before update
+        run: npm audit --omit=dev --json > audit-before.json || true
+
+      # npm update only ever moves a package to the highest version allowed
+      # by its existing package.json range (^1.2.3 -> latest 1.x, never 2.x)
+      # — major/breaking bumps are structurally impossible here, not just
+      # policy. That's what makes auto-applying this safe to do unattended.
+      - name: Apply safe (semver-range) updates
+        run: npm update
+
+      - name: Regenerate Prisma client
+        run: npx prisma generate
+
+      - name: Typecheck + build gate
+        id: build
+        continue-on-error: true
+        run: npm run build
+
+      - name: Snapshot audit + outdated after update
+        run: |
+          npm audit --omit=dev --json > audit-after.json || true
+          npm outdated --json > outdated-after.json || true
+
+      - name: Compose report
+        run: |
+          LOCKFILE_CHANGED=$(git diff --quiet package-lock.json && echo false || echo true)
+          node scripts/maintenance-report.js "$LOCKFILE_CHANGED" "${{ steps.build.outcome == 'success' }}"
+          echo "lockfile_changed=$LOCKFILE_CHANGED" >> "$GITHUB_ENV"
+
+      - name: Commit and push safe updates
+        if: steps.build.outcome == 'success' && env.lockfile_changed == 'true'
+        run: |
+          git config user.name "clipforge-maintenance-bot"
+          git config user.email "bot@forgecut.app"
+          git add package.json package-lock.json
+          git commit -m "chore: automated dependency updates (weekly scan)"
+          git push
+
+      - name: Revert if build failed
+        if: steps.build.outcome != 'success'
+        run: git checkout -- package.json package-lock.json
+
+      - name: Email report
+        if: always()
+        run: |
+          BODY=$(cat report.txt | sed 's/$/<br>/' | tr -d '\n')
+          curl -sS -X POST "https://api.resend.com/emails" \
+            -H "Authorization: Bearer ${{ secrets.RESEND_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"from\":\"Clipforge <onboarding@resend.dev>\",\"to\":\"support@forgecut.app\",\"subject\":\"Clipforge weekly maintenance report\",\"html\":\"<div style='font-family:monospace'>$BODY</div>\"}" \
+            --max-time 15 || true

@@ -94,6 +94,17 @@ export async function getPresignedDownloadUrl(key: string, expiresInSeconds = 36
   return getSignedUrl(client, command, { expiresIn: expiresInSeconds });
 }
 
+/** Cheap connectivity check for /api/health — lists at most 1 key so it
+ * verifies auth + reachability without the cost of a real listing. */
+export async function checkStorageHealth(): Promise<boolean> {
+  const config = getS3Config();
+  if (!config) return false;
+
+  const client = getS3Client(config);
+  await client.send(new ListObjectsV2Command({ Bucket: config.bucket, MaxKeys: 1 }));
+  return true;
+}
+
 /** Permanently deletes every stored object under a user's media prefix —
  * called on account deletion. Deleting the DB rows that reference these
  * files (via Prisma's onDelete: Cascade) removes the *references*, not the

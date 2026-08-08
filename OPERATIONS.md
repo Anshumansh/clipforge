@@ -555,3 +555,75 @@ notice.
 | Resend | $0 (free tier, until >3,000 emails/month) |
 | OpenAI | Pay-as-you-go — the only real variable cost; check usage regularly |
 | Stripe | 2.9% + $0.30 per transaction (live mode active) |
+
+---
+
+## 19. Self-healing / auto-maintenance system (2026-08-09)
+
+Built to keep the app up 24/7 without a manual click, and to catch problems before a
+user reports them. Entirely free-tier — no new paid services.
+
+**`/api/health`** (`app/api/health/route.ts`) — public JSON endpoint, checks a real DB
+query and a real storage list call (each with a 5s timeout), returns 200/`ok` or
+503/`degraded`. Used by Docker's own healthcheck, the watchdog, and the post-deploy
+check below.
+
+**Docker healthcheck** (`docker-compose.yml`) — `app` now has a `healthcheck:` block
+polling `/api/health` every 30s. Deliberately did **not** add an `autoheal` sidecar
+container for this: that pattern needs the host's Docker socket bind-mounted into a
+container, which is the exact container-escape risk already rejected once this session
+for the voice-cloning service (see §15/§16 — an RCE in anything with socket access is
+root on the host). The watchdog below gets the same auto-restart capability by running
+directly on the host via cron instead, with no socket exposed to any container.
+
+**`scripts/watchdog.sh`** (cron, every 5 min) — checks `/api/health`, both containers'
+running/healthy status, cron-script log freshness (see incident below), and disk usage.
+Auto-fixes what's safe: restarts a down or unhealthy container, prunes Docker
+images/build cache once disk crosses 85%. Emails `support@forgecut.app` via Resend —
+but only on a state *transition* (healthy→unhealthy, unhealthy→resolved), not on every
+5-minute tick, so a stuck problem doesn't turn into a spam flood.
+
+**`deploy.yml` now gates on a real build** — previously `git reset --hard` +
+`docker compose up -d --build` ran with zero verification; a broken push would have
+gone straight to production. Added a `build-check` job (typecheck + `next build` with
+dummy-format env vars) that must pass before the SSH deploy step runs, plus a
+post-deploy step that polls `/api/health` for up to 60s after deploy and emails an
+alert if it doesn't come back healthy.
+
+**`.github/workflows/maintenance.yml`** (weekly, Monday 06:00 UTC, + manual trigger) —
+runs `npm audit` and `npm outdated`, then `npm update`. This is the auto-upgrade
+boundary worth being explicit about: `npm update` can only ever move a package to the
+highest version still satisfying its existing `package.json` range (`^1.2.3` → newest
+`1.x`, never `2.x`) — so auto-applying it is safe *by construction*, not by policy. The
+result still has to pass the same typecheck/build gate before being committed and
+pushed (which triggers `deploy.yml`'s own gate again — belt and suspenders). Anything
+that needs an actual major-version bump, or an audit finding that only a major fixes,
+is never auto-applied — it's listed in the weekly email report for manual review
+instead. **This is a deliberate choice, not the most aggressive automation possible**:
+fully unattended major-version bumps on a live paid product is a real way to cause the
+downtime this whole system exists to prevent.
+
+**Incident found while building this** (worth its own entry, not just a footnote): all
+three existing cron scripts (`backup-db.sh`, `process-scheduled-posts.sh`,
+`process-trend-ingestion.sh`) were tracked in git as non-executable (`644`), and cron
+invokes them by path directly — every single scheduled run since they were created had
+been failing with `Permission denied`, silently. Confirmed via the log files (100% of
+runs logged the same failure) and via the storage bucket, which had exactly one backup
+object — from the one-time manual test run right after the script was written on
+2026-08-07, and nothing since. Impact assessed and addressed immediately:
+- **Backups**: zero automated backups had ever actually run. Fixed permissions, then
+  immediately ran a fresh manual backup (`db-20260808-155028.sql.gz`) so there's a
+  current recovery point rather than waiting for the next 3am run.
+- **Scheduled social posts**: queried the DB directly for any post past its
+  `scheduledAt` still sitting in `scheduled` status — zero found, so no user's post
+  silently failed to publish (the feature likely just hasn't seen real scheduled-post
+  usage yet).
+- **Trend Radar's scheduled refresh**: lower impact since the on-demand ingestion path
+  (what actually runs when a user interacts with Trend Radar) is a separate code path
+  that was never affected — only the background 3-hourly freshness refresh was down.
+- Fixed at the root: the executable bit is now tracked in git itself
+  (`git update-index --chmod=+x`) for all four cron scripts, not just set once by hand
+  on the VPS, so it survives the next `git reset --hard` deploy instead of silently
+  regressing again. The watchdog's cron-log-freshness check (above) also now exists
+  specifically so this class of failure — a script that's silently never running,
+  vs. a container that's visibly down — can't hide again.
