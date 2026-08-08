@@ -13,7 +13,7 @@
     --secondary: 240 6% 14%;
     --secondary-foreground: 0 0% 98%;
     --muted: 240 6% 14%;
-    --muted-foreground: 240 5% 65%;
+    --muted-foreground: 240 8% 72%;
     --accent: 316 80% 62%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 72% 51%;
@@ -133,4 +133,29 @@
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+
+/* Infinite horizontal ticker — duplicated content track, shifted exactly -50%
+   so the loop point is invisible. Paused on hover so it doesn't fight a user
+   trying to read it. */
+.marquee-track {
+  animation: marquee 26s linear infinite;
+}
+.marquee-track:hover {
+  animation-play-state: paused;
+}
+
+/* A brighter, saturated glow ring for elements that need to stand out more
+   than .glow-ring (stat numbers, the primary CTA) — used sparingly. */
+.pulse-ring {
+  position: relative;
+}
+.pulse-ring::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(circle, hsl(var(--primary) / 0.35), transparent 70%);
+  animation: pulse-glow 3s ease-in-out infinite;
 }

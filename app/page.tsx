@@ -3,6 +3,8 @@ import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { Reveal, RevealGroup, RevealItem } from "@/components/reveal";
 import { PhoneMockup } from "@/components/phone-showcase";
+import { StatCounter } from "@/components/stat-counter";
+import { Marquee } from "@/components/marquee";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -72,6 +74,25 @@ const steps = [
   { step: "03", title: "Export & post", description: "Download — or auto-post straight to TikTok, Reels, and Shorts." },
 ];
 
+const stats = [
+  { value: 3, suffix: "", label: "AI generation engines, one credit pool" },
+  { value: 50, suffix: "", label: "free credits to start — no card" },
+  { value: 3, suffix: "", label: "platforms you can auto-publish to" },
+  { value: 0, prefix: "$", suffix: "", label: "extra cost for voice cloning on Business" },
+];
+
+const tickerItems = [
+  "Script to video",
+  "Podcast → Shorts",
+  "UGC avatar ads",
+  "Voice cloning",
+  "Auto captions",
+  "Smart b-roll",
+  "Hook scoring",
+  "Auto-publish to TikTok, Reels & Shorts",
+  "Trend Radar",
+];
+
 // Real, unedited renders pulled straight from production — not stock footage or
 // staged mockups. Muted/looped in the phone frames below.
 const showcaseClips = [
@@ -92,38 +113,92 @@ const showcaseClips = [
 const differentiators = [
   {
     title: "Three engines, one credit pool",
-    description: "Script-to-video, long-form repurposing, and UGC ad generation — most tools force you to pick one.",
+    description:
+      "Script-to-video, long-form repurposing, and UGC ad generation each usually mean a separate subscription elsewhere. In Clipforge they share one credit pool and one dashboard, so switching between a talking-head ad and a podcast clip doesn't mean switching tools.",
   },
   {
-    title: "Voice cloning included",
-    description: "Narrate in your own voice at no extra per-word cost, on every paid plan tier that supports it.",
+    title: "Voice cloning included, not upsold per word",
+    description:
+      "Most voice-cloning tools charge by the character or the minute on top of your plan. Clipforge's Business tier includes it flat — narrate every video in your own voice at no extra per-word cost.",
   },
   {
-    title: "Publishing built in",
-    description: "Connect TikTok, Instagram, and YouTube once — publish from inside the editor, not a separate tool.",
+    title: "Publishing built in, not bolted on",
+    description:
+      "Connect TikTok, Instagram, and YouTube once and publish straight from the editor after a render finishes. No downloading a file just to re-upload it somewhere else five minutes later.",
   },
   {
-    title: "Built for a daily pipeline",
-    description: "Bounded render concurrency keeps renders fast and reliable even when everyone posts at once.",
+    title: "Built for a daily pipeline, not a demo",
+    description:
+      "A bounded-concurrency render queue keeps output fast and stable even when your whole team queues renders at once — this runs the same infrastructure in production, not a lighter demo path.",
   },
 ];
 
-const structuredData = {
-  "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  name: "Clipforge",
-  applicationCategory: "MultimediaApplication",
-  operatingSystem: "Web",
-  description:
-    "AI short-form video generator — turns a script, URL, or long-form upload into a captioned, voiced, edited vertical video for TikTok, Reels, and Shorts.",
-  offers: {
-    "@type": "AggregateOffer",
-    lowPrice: "0",
-    highPrice: "99",
-    priceCurrency: "USD",
-    offerCount: "3",
+const faqs = [
+  {
+    q: "Is Clipforge actually free to try?",
+    a: "Yes — every new account gets 50 free credits with no credit card required. That's enough to generate several full videos across any of the three engines before you'd need to upgrade.",
   },
-};
+  {
+    q: "Do I own the videos Clipforge generates?",
+    a: "Yes. You own the output Clipforge renders for you, the same as any footage or script you upload. See our Terms of Service for the full breakdown.",
+  },
+  {
+    q: "What's the difference between Script-to-Video, Repurpose, and UGC ads?",
+    a: "Script-to-Video turns a topic, script, or article into a finished short from scratch. Repurpose takes a long podcast or YouTube upload and automatically cuts it into vertical highlight clips, with the camera tracking whoever's speaking. UGC & avatar ads turn a product description into a talking-avatar ad script with voiceover — no camera or actor required.",
+  },
+  {
+    q: "Can I really clone my own voice?",
+    a: "Yes, on the Business plan. Upload a clean 10-30 second sample and Clipforge narrates every generated video in that voice instead of a stock one. You confirm you own the voice (or have explicit consent to clone it) before it's used — see our voice-cloning consent policy.",
+  },
+  {
+    q: "Which platforms can I auto-publish to?",
+    a: "TikTok, Instagram Reels, and YouTube Shorts. Connect an account once from your dashboard, and finished renders can publish directly without a manual re-upload.",
+  },
+  {
+    q: "Is Trend Radar just copying other creators' videos?",
+    a: "No — Trend Radar analyzes public YouTube metadata (titles, descriptions, thumbnails, engagement) via the official YouTube Data API to identify structural patterns, never the actual audio or spoken content of a video. It then generates an original script inspired by that structure, not a copy of anyone's video.",
+  },
+  {
+    q: "What happens to my data if I cancel or delete my account?",
+    a: "You can permanently delete your account and all associated media at any time from Billing settings — it cancels any active subscription and removes your stored files, not just the database rows referencing them.",
+  },
+];
+
+const structuredData = [
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "Clipforge",
+    applicationCategory: "MultimediaApplication",
+    operatingSystem: "Web",
+    description:
+      "AI short-form video generator — turns a script, URL, or long-form upload into a captioned, voiced, edited vertical video for TikTok, Reels, and Shorts.",
+    offers: {
+      "@type": "AggregateOffer",
+      lowPrice: "0",
+      highPrice: "99",
+      priceCurrency: "USD",
+      offerCount: "3",
+    },
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "Clipforge",
+    url: "https://forgecut.app",
+    logo: "https://forgecut.app/icon.svg",
+    description: "AI short-form video generation platform for creators and brands.",
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: faqs.map((f) => ({
+      "@type": "Question",
+      name: f.q,
+      acceptedAnswer: { "@type": "Answer", text: f.a },
+    })),
+  },
+];
 
 export default function LandingPage() {
   return (
@@ -135,7 +210,7 @@ export default function LandingPage() {
       />
       <SiteHeader />
       <main className="flex-1">
-        <section className="hero-glow grid-pattern relative overflow-hidden px-6 pb-24 pt-24">
+        <section className="hero-glow grid-pattern relative overflow-hidden px-6 pb-20 pt-24">
           <div className="mx-auto grid max-w-6xl items-center gap-16 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="text-center lg:text-left">
               <Reveal>
@@ -145,8 +220,7 @@ export default function LandingPage() {
               </Reveal>
               <Reveal delay={0.05}>
                 <h1 className="mx-auto max-w-xl text-4xl font-bold tracking-tight sm:text-6xl lg:mx-0">
-                  Turn any idea into a{" "}
-                  <span className="gradient-text">scroll-stopping</span> short video
+                  Your next <span className="gradient-text">scroll-stopping</span> short is one prompt away
                 </h1>
               </Reveal>
               <Reveal delay={0.1}>
@@ -157,7 +231,7 @@ export default function LandingPage() {
               </Reveal>
               <Reveal delay={0.15}>
                 <div className="mt-10 flex items-center justify-center gap-4 lg:justify-start">
-                  <Button asChild size="lg">
+                  <Button asChild size="lg" className="pulse-ring">
                     <Link href="/register">Start creating — free</Link>
                   </Button>
                   <Button asChild size="lg" variant="outline">
@@ -166,31 +240,29 @@ export default function LandingPage() {
                 </div>
                 <p className="mt-4 text-xs text-muted-foreground">No credit card required · 50 free credits</p>
               </Reveal>
-
-              <Reveal delay={0.22}>
-                <div className="mx-auto mt-16 grid max-w-md grid-cols-2 gap-4 sm:grid-cols-4 lg:mx-0">
-                  {[
-                    { icon: Wand2, label: "3 generation engines" },
-                    { icon: Mic2, label: "Free voice cloning" },
-                    { icon: Share2, label: "Direct social publishing" },
-                    { icon: Coins, label: "One credit-based plan" },
-                  ].map((s) => (
-                    <div
-                      key={s.label}
-                      className="flex flex-col items-center gap-2 rounded-xl border border-border/60 bg-card/40 px-3 py-4 text-center text-xs text-muted-foreground lg:items-start lg:text-left"
-                    >
-                      <s.icon className="h-4 w-4 text-primary" />
-                      {s.label}
-                    </div>
-                  ))}
-                </div>
-              </Reveal>
             </div>
 
             <Reveal delay={0.2} className="mx-auto w-full max-w-[280px] lg:mx-0">
               <PhoneMockup src={showcaseClips[1].src} label="Real, unedited Clipforge output" lazy={false} />
             </Reveal>
           </div>
+        </section>
+
+        <div className="border-y border-border/60 bg-secondary/20 py-4">
+          <Marquee items={tickerItems} />
+        </div>
+
+        <section className="px-6 py-16">
+          <RevealGroup className="mx-auto grid max-w-5xl grid-cols-2 gap-6 sm:grid-cols-4">
+            {stats.map((s) => (
+              <RevealItem key={s.label} className="text-center">
+                <div className="gradient-text text-4xl font-bold tracking-tight sm:text-5xl">
+                  <StatCounter value={s.value} prefix={s.prefix} suffix={s.suffix} />
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">{s.label}</p>
+              </RevealItem>
+            ))}
+          </RevealGroup>
         </section>
 
         <section className="border-y border-border/60 bg-secondary/30 px-6 py-20">
@@ -278,6 +350,29 @@ export default function LandingPage() {
                     <p className="mt-1.5 text-sm text-muted-foreground">{d.description}</p>
                   </div>
                 </div>
+              </RevealItem>
+            ))}
+          </RevealGroup>
+        </section>
+
+        <section id="faq" className="border-y border-border/60 bg-secondary/30 px-6 py-20">
+          <Reveal>
+            <div className="mx-auto max-w-2xl text-center">
+              <h2 className="text-3xl font-bold tracking-tight">Frequently asked questions</h2>
+            </div>
+          </Reveal>
+          <RevealGroup className="mx-auto mt-12 max-w-3xl space-y-3">
+            {faqs.map((f) => (
+              <RevealItem key={f.q}>
+                <details className="group rounded-xl border border-border/60 bg-card/40 px-6 py-4 open:border-primary/40">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium">
+                    {f.q}
+                    <span className="shrink-0 text-primary transition-transform duration-200 group-open:rotate-45">
+                      +
+                    </span>
+                  </summary>
+                  <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{f.a}</p>
+                </details>
               </RevealItem>
             ))}
           </RevealGroup>

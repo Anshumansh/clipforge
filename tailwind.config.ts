@@ -61,11 +61,26 @@ const config: Config = {
           from: { opacity: "0", transform: "translateY(12px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
+        marquee: {
+          from: { transform: "translateX(0)" },
+          to: { transform: "translateX(-50%)" },
+        },
+        "pulse-glow": {
+          "0%, 100%": { opacity: "0.6", transform: "scale(1)" },
+          "50%": { opacity: "1", transform: "scale(1.08)" },
+        },
+        "count-in": {
+          from: { opacity: "0", transform: "translateY(6px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
       },
       animation: {
         aurora: "aurora 18s ease-in-out infinite",
         shine: "shine 3s linear infinite",
         "fade-up": "fade-up 0.6s ease-out both",
+        marquee: "marquee 26s linear infinite",
+        "pulse-glow": "pulse-glow 3s ease-in-out infinite",
+        "count-in": "count-in 0.5s ease-out both",
       },
     },
   },
