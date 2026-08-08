@@ -252,6 +252,21 @@ these by generating a new key on the provider's dashboard and updating `.env` + 
   rendering service (e.g. Remotion Lambda) — which is a real infrastructure cost decision,
   not something to silently change.
 
+**Incident (2026-08-08)**: during a live production regression test, a script-to-video
+render was OOM-killed mid-render (confirmed via `dmesg`: kernel killed the `remotion`
+compositor process, RSS 2.8GB) while 2 renders were already active. Root cause: an
+unrelated ad-hoc `docker exec` command (a Python `import torch` check, run manually
+for a separate verification) executed on the host *while* both render slots were
+occupied — the combined memory pressure crossed the 7.6GB ceiling. The 2-render cap
+was never violated and is not at fault; this was extra, uncounted memory demand from
+a manual debugging command that the queue has no way to know about. Retried the same
+generation immediately afterward under normal conditions — it completed successfully,
+confirming the render pipeline itself is sound. **Lesson**: avoid running ad-hoc heavy
+commands (imports, model loads, anything non-trivial) directly on the VPS while
+renders may be in flight — the 2-render cap assumes it's the only real memory consumer
+beyond the app/DB/Caddy baseline, and manual debugging work breaks that assumption
+same as a third render would.
+
 ---
 
 ## 13. Smart subject tracking (Repurpose)
