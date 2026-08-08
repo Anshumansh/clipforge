@@ -135,3 +135,59 @@ export async function searchByNiche(niche: string, maxResults = 15): Promise<str
     .map((item) => (item.id as Record<string, unknown> | undefined)?.videoId)
     .filter((id): id is string => typeof id === "string");
 }
+
+export interface ResolvedChannel {
+  id: string;
+  title: string;
+  thumbnailUrl: string | null;
+  subscriberCount: number;
+}
+
+/** Accepts whatever a user is likely to paste — a full channel URL in any of
+ * YouTube's formats, a bare @handle, or a raw channel ID — and resolves it to
+ * a real channel via the official API. 1 quota unit. Returns null if nothing
+ * matches (typo'd handle, private/deleted channel, garbage input). */
+export async function resolveChannel(input: string): Promise<ResolvedChannel | null> {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  let idParam: { id: string } | null = null;
+  let handleParam: { forHandle: string } | null = null;
+
+  const directIdMatch = trimmed.match(/^UC[\w-]{22}$/);
+  const urlChannelMatch = trimmed.match(/youtube\.com\/channel\/(UC[\w-]{22})/);
+  const urlHandleMatch = trimmed.match(/youtube\.com\/(?:@|c\/|user\/)([\w.-]+)/);
+  const bareHandleMatch = trimmed.match(/^@?([\w.-]+)$/);
+
+  if (directIdMatch) {
+    idParam = { id: directIdMatch[0] };
+  } else if (urlChannelMatch) {
+    idParam = { id: urlChannelMatch[1] };
+  } else if (urlHandleMatch) {
+    handleParam = { forHandle: `@${urlHandleMatch[1]}` };
+  } else if (bareHandleMatch) {
+    handleParam = { forHandle: `@${bareHandleMatch[1]}` };
+  } else {
+    return null;
+  }
+
+  const data = await getJson("/channels", {
+    part: "snippet,statistics",
+    ...(idParam ?? handleParam!),
+  });
+
+  const item = (data?.items as Record<string, unknown>[] | undefined)?.[0];
+  if (!item || typeof item.id !== "string") return null;
+
+  const snippet = item.snippet as Record<string, unknown> | undefined;
+  const stats = item.statistics as Record<string, unknown> | undefined;
+  const thumbnails = snippet?.thumbnails as Record<string, unknown> | undefined;
+  const thumb = (thumbnails?.default ?? thumbnails?.medium) as Record<string, unknown> | undefined;
+
+  return {
+    id: item.id,
+    title: typeof snippet?.title === "string" ? snippet.title : trimmed,
+    thumbnailUrl: typeof thumb?.url === "string" ? thumb.url : null,
+    subscriberCount: Number(stats?.subscriberCount ?? 0),
+  };
+}

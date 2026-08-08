@@ -1,6 +1,23 @@
 import { chatJSON } from "./llm";
 import type { ScriptResult } from "./types";
 
+/** Models asked for "plain spoken text, no stage directions" sometimes ignore
+ * it anyway — e.g. "*[SPLASH SOUND]*", "[cut to]", "(laughs)". Left in, the
+ * TTS engine reads these aloud literally, since it has no way to know they
+ * weren't meant to be spoken. Prompt instructions are a hint, not a
+ * guarantee, so strip anything bracket- or asterisk-wrapped as a real
+ * guardrail rather than relying on compliance alone. */
+function stripStageDirections(text: string): string {
+  return text
+    .replace(/\*\[[^\]]*\]\*/g, "")
+    .replace(/\[[^\]]*\]/g, "")
+    .replace(/\([^)]*\)/g, "")
+    .replace(/\*([^*]*)\*/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([.,!?])/g, "$1")
+    .trim();
+}
+
 const HOOKS = [
   "Nobody's telling you this, but",
   "Here's what changed everything for me:",
@@ -72,7 +89,66 @@ export async function generateAdScript(productName: string, sellingPoints: strin
 
   return {
     title: typeof parsed.title === "string" ? parsed.title : fallback.title,
-    script: typeof parsed.script === "string" ? parsed.script : fallback.script,
+    script: stripStageDirections(typeof parsed.script === "string" ? parsed.script : fallback.script),
+    sceneKeywords:
+      Array.isArray(parsed.sceneKeywords) && parsed.sceneKeywords.length > 0
+        ? (parsed.sceneKeywords as string[])
+        : fallback.sceneKeywords,
+  };
+}
+
+/** Generates an original script inspired by a Trend Radar pattern — structure,
+ * hook type, and pacing only, never the source content itself (the caller
+ * never even has source text to leak; ExtractedPattern is all that's ever
+ * persisted from a trend video, see lib/providers/pattern-extraction.ts).
+ * The system prompt explicitly forbids paraphrasing the source, and the
+ * caller (app/api/trend/make-version/route.ts) runs checkTextOverlap() on
+ * the result as a second guardrail layer before it's ever shown to a user. */
+export async function generateScriptFromPattern(
+  pattern: {
+    hookType: string;
+    structure: string;
+    pacingNotes: string;
+    titleFormula: string;
+    thumbnailFormula: string;
+    emotionalDriver: string;
+  },
+  niche: string
+): Promise<ScriptResult> {
+  const fallback = mockScript(niche);
+
+  const parsed = await chatJSON(
+    [
+      {
+        role: "system",
+        content:
+          "You write short, punchy scripts for 30-45 second vertical social videos (TikTok/Reels/Shorts). " +
+          "You'll be given a STRUCTURAL PATTERN (hook type, pacing, emotional driver) that worked well for another " +
+          "creator, and a topic niche. Write a wholly original script in that structural style, on a fresh angle " +
+          "within the niche — never reuse or paraphrase any specific wording, examples, or claims from elsewhere; " +
+          "only the pacing/structure/hook-type pattern should carry over. The script will be read verbatim by a " +
+          "text-to-speech engine, so it must be ONLY the literal words to be spoken out loud — no bracketed sound " +
+          "cues, no camera directions, no parenthetical asides, no asterisk-wrapped emphasis or actions of any " +
+          "kind. If a beat needs a sound effect or cut, convey it through the spoken words themselves instead. " +
+          "Return strict JSON with keys: title (short, <60 chars), script (plain spoken text only, 70-110 words), " +
+          "sceneKeywords (array of 4-6 short visual keywords for stock footage search).",
+      },
+      {
+        role: "user",
+        content:
+          `Niche: ${niche}\n\nPattern to draw structural inspiration from:\n` +
+          `- Hook type: ${pattern.hookType}\n- Structure: ${pattern.structure}\n- Pacing: ${pattern.pacingNotes}\n` +
+          `- Title formula: ${pattern.titleFormula}\n- Emotional driver: ${pattern.emotionalDriver}`,
+      },
+    ],
+    0.9
+  );
+
+  if (!parsed) return fallback;
+
+  return {
+    title: typeof parsed.title === "string" ? parsed.title : fallback.title,
+    script: stripStageDirections(typeof parsed.script === "string" ? parsed.script : fallback.script),
     sceneKeywords:
       Array.isArray(parsed.sceneKeywords) && parsed.sceneKeywords.length > 0
         ? (parsed.sceneKeywords as string[])
@@ -98,7 +174,7 @@ export async function generateScript(topic: string): Promise<ScriptResult> {
 
   return {
     title: typeof parsed.title === "string" ? parsed.title : fallback.title,
-    script: typeof parsed.script === "string" ? parsed.script : fallback.script,
+    script: stripStageDirections(typeof parsed.script === "string" ? parsed.script : fallback.script),
     sceneKeywords:
       Array.isArray(parsed.sceneKeywords) && parsed.sceneKeywords.length > 0
         ? (parsed.sceneKeywords as string[])

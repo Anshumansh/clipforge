@@ -15,6 +15,7 @@ import {
   Lightbulb,
   LogOut,
   Menu,
+  Radar,
   Scissors,
   Share2,
   Sparkles,
@@ -26,6 +27,7 @@ import {
 const links = [
   { href: "/dashboard", label: "Projects", icon: LayoutGrid, exact: true },
   { href: "/dashboard/ideas", label: "Idea Radar", icon: Lightbulb },
+  { href: "/dashboard/trends", label: "Trend Radar", icon: Radar },
   { href: "/dashboard/new/script", label: "Script to video", icon: Wand2 },
   { href: "/dashboard/new/repurpose", label: "Repurpose", icon: Scissors },
   { href: "/dashboard/new/ugc", label: "UGC / Avatar ad", icon: UserRound },
