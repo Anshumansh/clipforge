@@ -380,15 +380,12 @@ existing generation pipeline, one tap ("Make My Version"). Full UI at
 **/dashboard/trends**: niche + up-to-10-channel onboarding (accepts a pasted URL,
 `@handle`, or raw channel ID), a feed of trend cards, and the one-tap flow.
 
-**⚠️ Core feature is not functional yet — needs one free key.** "Make My Version" is
-the entire point of this feature, and it depends on pattern extraction, which is
-deliberately Groq-only (see below) so it never silently spends through the paid
-OpenAI key configured elsewhere. **`GROQ_API_KEY` isn't set** — until it is, every
-"Make My Version" click returns "Pattern analysis isn't available right now" instead
-of a script. Everything else works (onboarding, channel resolution, the feed, honest
-"Gathering data" states) — this one key is the only thing standing between what's
-shipped and the feature actually working end to end for a real user. Sign up free
-at console.groq.com (no credit card) and add the key to `.env` on the VPS.
+**Fully functional as of 2026-08-08.** `GROQ_API_KEY` is configured in production —
+pattern extraction is deliberately Groq-only (see below) so this unattended step
+never silently spends through the paid OpenAI key configured elsewhere. Verified
+live end to end: a real "Make My Version" click on a fresh video triggered on-demand
+Groq pattern extraction, generated an original script, passed the overlap guardrail,
+and returned a wizard-ready draft.
 
 **Runs on a schedule**, not per-request: `scripts/process-trend-ingestion.sh` via
 VPS cron, every 3h (`0 */3 * * *`), hitting `POST /api/trend/ingest` with the same
@@ -451,7 +448,7 @@ pipeline produces genuinely original, guardrail-clean output.
 | Porkbun domain | ~$10-15/year |
 | Neon Postgres | $0 (free tier) |
 | Backblaze B2 | $0 (free tier, until >10GB or heavy egress) |
-| Groq | $0 (free tier — **not yet configured**; Trend Radar's "Make My Version" doesn't work without it, see §16) |
+| Groq | $0 (free tier — configured 2026-08-08; powers Trend Radar pattern extraction + LLM/Whisper fallbacks) |
 | Pexels | $0 (free tier) |
 | YouTube Data API v3 | $0 (free, 10k quota units/day) |
 | Resend | $0 (free tier, until >3,000 emails/month) |
