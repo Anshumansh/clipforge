@@ -371,16 +371,31 @@ running it concurrently with an active video render under real load.
 
 ---
 
-## 16. Trend Radar (ingestion backend only — UI not built yet)
+## 16. Trend Radar
 
 Scans tracked YouTube channels + user-chosen niches for videos breaking out relative
-to their own channel's normal pace, then extracts a structural "why it's working"
-pattern via LLM — the eventual UI lets a user turn that pattern into an original
-script through the existing generation pipeline, one tap.
+to their own channel's normal pace, extracts a structural "why it's working" pattern
+via LLM, and lets a user turn that pattern into an original script through the
+existing generation pipeline, one tap ("Make My Version"). Full UI at
+**/dashboard/trends**: niche + up-to-10-channel onboarding (accepts a pasted URL,
+`@handle`, or raw channel ID), a feed of trend cards, and the one-tap flow.
+
+**⚠️ Core feature is not functional yet — needs one free key.** "Make My Version" is
+the entire point of this feature, and it depends on pattern extraction, which is
+deliberately Groq-only (see below) so it never silently spends through the paid
+OpenAI key configured elsewhere. **`GROQ_API_KEY` isn't set** — until it is, every
+"Make My Version" click returns "Pattern analysis isn't available right now" instead
+of a script. Everything else works (onboarding, channel resolution, the feed, honest
+"Gathering data" states) — this one key is the only thing standing between what's
+shipped and the feature actually working end to end for a real user. Sign up free
+at console.groq.com (no credit card) and add the key to `.env` on the VPS.
 
 **Runs on a schedule**, not per-request: `scripts/process-trend-ingestion.sh` via
 VPS cron, every 3h (`0 */3 * * *`), hitting `POST /api/trend/ingest` with the same
-`x-cron-secret` pattern as the scheduled social-post processor.
+`x-cron-secret` pattern as the scheduled social-post processor. Saving the onboarding
+form also triggers an immediate scan of just the newly-added channels
+(`lib/trend/ingest.ts`, shared with the cron job) so a new user sees real videos
+within seconds rather than waiting up to 3h.
 
 **Per cycle**: `channels.list` + `playlistItems.list` for every tracked channel
 (1 quota unit each — cheap), `search.list` once per distinct user-chosen niche
@@ -392,30 +407,39 @@ channels plus a few niches comes in well under 1,000/day.
 historical median (`BREAKOUT_THRESHOLD = 3`×, `lib/trend/scoring.ts`) — never a
 global bar, since channel sizes vary wildly. Requires 3+ prior samples for that
 channel before trusting the median, so a channel's first tracked video can't
-register as an infinite-multiple false breakout.
+register as an infinite-multiple false breakout. **This means the feed is
+genuinely sparse for the first few days** for a brand-new channel — there's no way
+to shortcut this honestly (velocity needs real time-spaced observations), so the
+feed shows real recent uploads with a "Gathering data" badge instead of a
+fabricated breakout claim until enough history exists.
 
-**Pattern extraction** (`lib/providers/pattern-extraction.ts`) only runs on videos
-that clear the breakout threshold, and only once ever per video (cached
-permanently via a unique `ExtractedPattern` row) — the one real cost in this
-pipeline. It's deliberately Groq-only (`chatJSONFree` in `lib/providers/llm.ts`),
-never falling through to the paid OpenAI key configured for user-triggered
-features elsewhere — **`GROQ_API_KEY` isn't set yet**, so pattern extraction
-currently returns null and is skipped for every video. Add a free key at
-console.groq.com to activate it; until then, ingestion still records real
-snapshots and breakout scores, just without the "why it's breaking out" field.
+**Pattern extraction** (`lib/providers/pattern-extraction.ts`) runs two ways: the
+scheduled batch job only extracts for videos that already cleared the breakout
+threshold (cost control for something that runs unattended), and permanently
+caches per video once extracted. "Make My Version" also extracts **on demand** if a
+video doesn't have a pattern yet, so the feature doesn't fully depend on cron
+timing — same Groq-only function either way. `generateScriptFromPattern` (the
+script-writing step after extraction) is a direct, rate-limited, user-initiated
+call, so — unlike extraction — it uses the normal OpenAI-preferred `chatJSON`, same
+as Idea Radar and hooks.
 
 **Known deviation from spec**: pattern extraction uses title + description +
 thumbnail only, not captions/transcript. YouTube's official caption-download
 endpoint requires OAuth as the video's owner for third-party videos — the
 official-API-only / no-scraping constraint rules out working around that.
 
-**Not built yet**: onboarding UI (niche + tracked-channel picker), the trend
-card feed, and "Make My Version" wiring into the Script-to-Video wizard —
-ingestion currently has no UI consumer, so `UserNiche`/`TrackedChannel` rows
-have to be created directly for testing until that lands.
+**Guardrails**: `checkTextOverlap()` flags generated scripts too textually close to
+their source (word-5-gram overlap >15%), triggers one automatic regeneration
+attempt, and falls through with a visible warning if still flagged rather than
+silently shipping a near-duplicate. Found and fixed during testing: generated
+scripts sometimes included bracketed stage directions a TTS engine would read
+aloud literally — `stripStageDirections()` now sanitizes this in all three
+script-generation functions app-wide, not just Trend Radar.
 
-Verified end-to-end against real YouTube data (MKBHD, MrBeast) before this
-was documented — real velocity math, correct breakout-gating on a cold start.
+Verified end-to-end in the browser: real channel resolution, a real first-scan
+against MKBHD/MrBeast, and (via a manually-inserted test pattern, since no Groq key
+exists to test the real extraction call) confirmed the full pattern-to-script
+pipeline produces genuinely original, guardrail-clean output.
 
 ---
 
@@ -427,7 +451,7 @@ was documented — real velocity math, correct breakout-gating on a cold start.
 | Porkbun domain | ~$10-15/year |
 | Neon Postgres | $0 (free tier) |
 | Backblaze B2 | $0 (free tier, until >10GB or heavy egress) |
-| Groq | $0 (free tier — not yet configured; needed for Trend Radar pattern extraction) |
+| Groq | $0 (free tier — **not yet configured**; Trend Radar's "Make My Version" doesn't work without it, see §16) |
 | Pexels | $0 (free tier) |
 | YouTube Data API v3 | $0 (free, 10k quota units/day) |
 | Resend | $0 (free tier, until >3,000 emails/month) |
