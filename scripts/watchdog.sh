@@ -82,8 +82,9 @@ for entry in "/var/log/clipforge-backup.log:93600:backup" "/var/log/clipforge-so
   if [ "$age" -gt "$max_age" ]; then
     PROBLEMS+=("$label log hasn't been touched in $((age / 60)) minutes (expected within $((max_age / 60))) — cron job may be failing silently")
   fi
-  if tail -3 "$path" 2>/dev/null | grep -qiE "permission denied|command not found|no such file"; then
-    PROBLEMS+=("$label log shows a recent execution error: $(tail -1 "$path")")
+  LAST_LINE=$(tail -1 "$path" 2>/dev/null)
+  if echo "$LAST_LINE" | grep -qiE "permission denied|command not found|no such file"; then
+    PROBLEMS+=("$label log's most recent run failed: $LAST_LINE")
   fi
 done
 
