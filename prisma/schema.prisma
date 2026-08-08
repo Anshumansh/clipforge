@@ -30,6 +30,9 @@ model User {
   passwordResetTokens    PasswordResetToken[]
   socialAccounts         SocialAccount[]
   socialPosts            SocialPost[]
+  userNiche              UserNiche?
+  captureSessions        CaptureSession[]
+  disclaimerConfig       DisclaimerConfig?
 }
 
 // A project is one piece of content the user is generating:
@@ -135,4 +138,244 @@ model Job {
   log        String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+}
+
+// =====================================================================
+// Trend Radar
+// =====================================================================
+
+// A user's single niche selection plus the channels they picked as
+// inspiration (spec: "up to ~10 inspiration channels"). One per user for
+// now — matches "user picks a niche" (singular) rather than multiple.
+model UserNiche {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  niche           String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  trackedChannels TrackedChannel[]
+}
+
+model TrackedChannel {
+  id               String    @id @default(cuid())
+  userNicheId      String
+  userNiche        UserNiche @relation(fields: [userNicheId], references: [id], onDelete: Cascade)
+  youtubeChannelId String
+  channelTitle     String?
+  createdAt        DateTime  @default(now())
+
+  @@unique([userNicheId, youtubeChannelId])
+}
+
+// A YouTube video the ingestion job is tracking. Metadata only — the raw
+// transcript/captions text is never persisted here or anywhere else (see
+// ExtractedPattern below); only derived pattern fields survive.
+model YoutubeVideo {
+  id              String   @id // the YouTube video ID itself
+  channelId       String   // the YouTube channel ID (external, not a local FK)
+  title           String
+  thumbnailUrl    String?
+  publishedAt     DateTime
+  createdAt       DateTime @default(now())
+  snapshots       TrendSnapshot[]
+  breakoutScores  BreakoutScore[]
+  pattern         ExtractedPattern?
+
+  @@index([channelId])
+}
+
+// One point-in-time metrics capture, per the spec's named columns —
+// velocity (views/hour) is computed from consecutive snapshots, not stored
+// as a raw view count alone.
+model TrendSnapshot {
+  id         String       @id @default(cuid())
+  videoId    String
+  video      YoutubeVideo @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  channelId  String
+  views      Int
+  likes      Int
+  comments   Int
+  capturedAt DateTime     @default(now())
+
+  @@index([videoId, capturedAt])
+  @@index([channelId, capturedAt])
+}
+
+// A computed breakout score: this video's early velocity vs. its own
+// channel's historical median velocity. Only videos that clear the
+// breakout threshold go on to pattern extraction (cost control).
+model BreakoutScore {
+  id                    String       @id @default(cuid())
+  videoId               String
+  video                 YoutubeVideo @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  velocity              Float        // views/hour at scoring time
+  channelMedianVelocity Float        // that channel's own historical median
+  score                 Float        // velocity / channelMedianVelocity
+  computedAt            DateTime     @default(now())
+
+  @@index([videoId, computedAt])
+}
+
+// The ONLY durable output of the LLM pattern-extraction step. Raw
+// title/thumbnail/captions are sent to the LLM but never stored — this is
+// the structured result, and it's what script generation is allowed to see.
+model ExtractedPattern {
+  id               String       @id @default(cuid())
+  videoId          String       @unique
+  video            YoutubeVideo @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  hookType         String
+  structure        String
+  pacingNotes      String
+  titleFormula     String
+  thumbnailFormula String
+  emotionalDriver  String
+  createdAt        DateTime     @default(now())
+}
+
+// =====================================================================
+// Live Capture Engine (shared core) + persona pack fields
+// =====================================================================
+
+model CaptureSession {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceType      String   // "upload" | "rtmp" (rtmp is v2)
+  sourceUrl       String
+  personaType     String   @default("generic") // "generic" | "podcaster" | "trading" | "gaming"
+  durationSec     Float?
+  status          String   @default("processing") // processing | ready | failed
+  errorMessage    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  speakerSegments SpeakerSegment[]
+  clipCandidates  ClipCandidate[]
+  highlightScores HighlightScore[]
+  tradeCalls      TradeCall[]
+
+  @@index([userId, createdAt])
+}
+
+// Diarized transcript segments. speakerLabel is whatever the diarization
+// tool emits (e.g. "SPEAKER_00") — Podcaster Pack's per-guest features key
+// off this.
+model SpeakerSegment {
+  id           String         @id @default(cuid())
+  sessionId    String
+  session      CaptureSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  speakerLabel String
+  startSec     Float
+  endSec       Float
+  text         String
+  createdAt    DateTime       @default(now())
+
+  @@index([sessionId, startSec])
+}
+
+// One scored moment from the multimodal highlight detector. `signals` keeps
+// the raw per-signal breakdown (JSON) so scoring weights can be tuned later
+// without re-running detection.
+model HighlightScore {
+  id              String         @id @default(cuid())
+  sessionId       String
+  session         CaptureSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  startSec        Float
+  endSec          Float
+  audioScore      Float          @default(0)
+  transcriptScore Float          @default(0)
+  chatScore       Float          @default(0) // live chat spike; 0 for VOD-only sources
+  totalScore      Float
+  signals         String?        // JSON: contributing signals, persona-specific extras
+  createdAt       DateTime       @default(now())
+
+  @@index([sessionId, totalScore])
+}
+
+// A candidate clip surfaced for the review UI (approve/trim/discard before
+// publish). `metadata` carries persona-specific fields (pull-quote text,
+// kill count, linked trade call, etc.) as JSON rather than a wide sparse
+// column set shared by all three packs.
+model ClipCandidate {
+  id             String         @id @default(cuid())
+  sessionId      String
+  session        CaptureSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  startSec       Float
+  endSec         Float
+  predictedScore Float
+  status         String         @default("pending") // pending | approved | discarded | published
+  videoUrl       String?        // rendered clip, once approved + rendered
+  reframeMode    String         @default("center") // "center" | "face-tracked"
+  metadata       String?        // JSON, persona-specific
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([sessionId, predictedScore])
+}
+
+// =====================================================================
+// Live Trading Pack
+// =====================================================================
+
+// A directional prediction detected in the transcript, timestamped so its
+// outcome can be checked later against real price history.
+model TradeCall {
+  id               String         @id @default(cuid())
+  sessionId        String
+  session          CaptureSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  asset            String         // e.g. "BTCUSDT", "AAPL"
+  direction        String         // "long" | "short"
+  targetPrice      Float?
+  calledAtPrice    Float?
+  calledAtSec      Float          // timestamp within the session
+  resolveAt        DateTime       // when the "called it" resolution job should check the outcome
+  resolvedAt       DateTime?
+  outcome          String?        // "correct" | "incorrect" | null while unresolved
+  resolvedPrice    Float?
+  clipCandidateId  String?        // the auto-generated "called it" clip, once created
+  createdAt        DateTime       @default(now())
+
+  @@index([resolveAt, outcome])
+}
+
+// Price history pulled from a free market-data source, used for both
+// price-sync highlight scoring and the "called it" resolution job.
+model PriceSnapshot {
+  id         String   @id @default(cuid())
+  asset      String
+  price      Float
+  capturedAt DateTime @default(now())
+
+  @@index([asset, capturedAt])
+}
+
+// The "not financial advice" overlay config. A default template is NOT
+// sufficient on its own for regions with financial-content regulations —
+// this needs legal review before the Trading Pack ships anywhere such
+// regulations apply (flagged per the spec's own requirement).
+model DisclaimerConfig {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  region    String   @default("US")
+  text      String
+  enabled   Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+}
+
+// =====================================================================
+// Live Gaming Pack
+// =====================================================================
+
+// Per-game detection config so highlight rules adapt without manual
+// per-session tagging. hudRegion/killfeedKeywords are populated as titles
+// are added, starting empty (falls back to audio-spike-only detection).
+model GameTemplate {
+  id               String   @id @default(cuid())
+  gameName         String   @unique
+  hudRegion        String?  // JSON: {x,y,w,h} normalized killfeed region for OCR, once known
+  killfeedKeywords String?  // JSON array, e.g. ["ELIMINATED", "Victory Royale"]
+  detectionMode    String   @default("audio") // "ocr" | "audio" | "hybrid"
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }
