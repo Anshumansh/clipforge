@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { ingestChannels, getAllTrackedChannelsAndNiches } from "@/lib/trend/ingest";
+import { isValidCronSecret } from "@/lib/cron-auth";
 
 export const runtime = "nodejs";
 
 /** Scheduled ingestion — run every 2-6h via cron (see scripts/process-trend-ingestion.sh),
  * same pattern as the existing scheduled-social-post processor. Not a user-facing route. */
 export async function POST(req: Request) {
-  const secret = req.headers.get("x-cron-secret");
-  if (!secret || secret !== process.env.CRON_SECRET) {
+  if (!isValidCronSecret(req.headers.get("x-cron-secret"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

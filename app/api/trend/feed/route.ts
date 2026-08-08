@@ -4,13 +4,21 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getChannelsInfo } from "@/lib/providers/youtube";
 import { BREAKOUT_THRESHOLD } from "@/lib/trend/scoring";
+import { rateLimit } from "@/lib/rate-limit";
 
 const MIN_BASELINE_SAMPLES = 3; // must match lib/trend/scoring.ts
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Unlike most GETs, this one makes a real YouTube API call (getChannelsInfo
+  // below) on every load — worth capping so a refresh loop (buggy client or
+  // otherwise) can't burn through the shared 10k/day quota the scheduled
+  // ingestion job also depends on.
+  const { ok } = rateLimit(`trend-feed:${userId}`, 20, 60 * 1000);
+  if (!ok) return NextResponse.json({ error: "Too many requests. Slow down and try again shortly." }, { status: 429 });
 
   const userNiche = await db.userNiche.findUnique({
     where: { userId },

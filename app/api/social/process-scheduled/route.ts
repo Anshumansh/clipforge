@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { publishToSocial } from "@/lib/social/publish";
+import { isValidCronSecret } from "@/lib/cron-auth";
 
 // Triggered by cron (see scripts/process-scheduled-posts.sh), not by a user —
 // authenticated with a shared secret instead of a session, the same pattern
 // Stripe webhooks use (signature/secret, not user auth).
 export async function POST(req: Request) {
-  const secret = req.headers.get("x-cron-secret");
-  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+  if (!isValidCronSecret(req.headers.get("x-cron-secret"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

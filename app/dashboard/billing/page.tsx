@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ManageBillingButton } from "@/components/manage-billing-button";
+import { DeleteAccountButton } from "@/components/delete-account-button";
 import { PLANS } from "@/lib/plans";
 import { formatDate } from "@/lib/utils";
 import { CheckCircle2 } from "lucide-react";
@@ -59,6 +60,16 @@ export default async function BillingPage({
               <Link href="/pricing">View plans</Link>
             </Button>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Danger zone</CardTitle>
+          <CardDescription>Permanently delete your account and all associated data.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DeleteAccountButton />
         </CardContent>
       </Card>
     </div>

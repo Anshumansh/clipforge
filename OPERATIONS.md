@@ -440,7 +440,92 @@ pipeline produces genuinely original, guardrail-clean output.
 
 ---
 
-## 17. Cost summary (live Stripe since 2026-08-07)
+## 17. Security + legal compliance audit (2026-08-09)
+
+**Critical, fixed**: `/api/media/[...key]` presigned literally any storage key with no
+auth and no ownership check — and `scripts/backup-db.sh` writes full database dumps
+(emails, password hashes, Stripe IDs, encrypted OAuth tokens) into the *same bucket*
+under a predictable `backups/db-<timestamp>.sql.gz` name. Anyone who ever obtained one
+of those filenames got a working presigned download URL to the entire database, no
+login required. Fixed by hard-restricting the route to the `media/` prefix only —
+closes the hole without breaking either dashboard playback or the public homepage
+showcase videos, both of which already use `media/`-prefixed keys.
+
+**High, fixed**: `publishToYoutube` (`lib/social/publish.ts`) fetched an
+authenticated user's arbitrary `videoUrl` server-side with no validation — a
+straightforward SSRF (internal network access, cloud metadata endpoints) via an
+otherwise-ordinary "publish my video" request. Fixed by requiring `videoUrl` to
+actually be a Clipforge-hosted media URL (`app/api/social/post/route.ts`).
+
+**Medium, fixed**:
+- Login timing side-channel: `authorize()` in `lib/auth.ts` only called
+  `bcrypt.compare` when an account existed, making "does this email have an account"
+  measurable by response time. Fixed with a constant dummy-hash comparison on the
+  no-user path.
+- `generateMetadata` in the project detail page looked up another user's private
+  project title with no ownership check — low-severity info leak into the page
+  `<title>`/meta description for anyone who requested the URL. Fixed to scope by
+  session user, matching the page body's existing check.
+- Cron-secret comparisons (`/api/trend/ingest`, `/api/social/process-scheduled`)
+  used plain `===`, a timing side-channel on the secret itself. Replaced with a
+  hash-then-`timingSafeEqual` comparison (`lib/cron-auth.ts`).
+- `/api/trend/feed` made a real YouTube API call on every load with no rate limit —
+  a refresh loop could burn the shared 10k/day quota the scheduled ingestion job
+  also depends on. Added a per-user cap.
+- No security headers set anywhere (checked both `next.config.js` and the
+  Caddyfile). Added HSTS, `X-Content-Type-Options`, `X-Frame-Options`,
+  `Referrer-Policy`, and a restrictive `Permissions-Policy` at the Caddy layer —
+  deliberately did **not** add a Content-Security-Policy, since Next.js hydration,
+  YouTube thumbnails, and the Stripe/OAuth redirect flows all need specific
+  allowances that deserve real testing, not a guess made during an audit pass.
+
+**Everything checked and found sound**: every other resource-scoped route (projects,
+social accounts, DELETE endpoints) correctly filters by session `userId`; Stripe
+webhook signature verification; the OAuth CSRF state-cookie flow (httpOnly, secure,
+short-lived, single-use); password reset tokens (random, hashed at rest, single-use,
+expiring); no secrets committed to git.
+
+**Legal — Terms of Service and Privacy Policy rewritten.** They hadn't been touched
+since before voice cloning, social auto-posting, or Trend Radar existed. Added: an
+explicit voice-cloning consent clause (§4.1 — a general Terms agreement isn't
+sufficient per current guidance, so this is *also* now a standalone checkbox at the
+point of upload, enforced server-side too, not just in the UI), a DMCA takedown
+policy, an eligibility/age clause, an indemnification clause, a governing-law/dispute
+clause, the YouTube API Services disclosure Google's developer policy requires apps
+using the API to display, biometric/voice-data retention language, and specific
+GDPR/CCPA rights. **Not a substitute for actual legal review** — flagged to the user
+directly; recommended before scaling paid usage, especially given voice cloning's
+regulatory exposure.
+
+**Built as part of this**: self-service account deletion
+(`app/api/account/delete/route.ts`) — cancels any active Stripe subscription,
+deletes every stored media object (`deleteUserMedia` in `lib/storage.ts` — the DB
+cascade alone only removes rows, not the underlying files), then deletes the user
+row. Requires re-entering the current password, separate from just having an open
+session. The Privacy Policy references this feature, so it needed to actually exist,
+not just be promised.
+
+**Contact**: the site previously used the operator's personal Gmail as the sole
+support/legal/DMCA contact, publicly exposed in the footer and both legal pages.
+Switched to `support@forgecut.app` throughout — but this needs email forwarding set
+up in Porkbun (Domain → Email Forwarding) before it will actually deliver anywhere;
+until then, mail to that address bounces.
+
+**Known open items, not fixed by design** (need your decision, not mine):
+- No email verification on registration — anyone can register with any email
+  address (including someone else's) for 50 free credits. Common MVP tradeoff, but
+  worth building if credit-farming/abuse becomes real.
+- No formal DMCA agent registration with the U.S. Copyright Office — the takedown
+  *policy* is published, but perfecting the statutory safe-harbor protection is a
+  separate ~$6 government filing tied to your legal name, which only you can do.
+- Business entity is currently a sole proprietorship — no liability shield between
+  you personally and the business. Worth revisiting before scaling paid usage
+  further, given real payment processing and biometric-adjacent voice data are both
+  now in play.
+
+---
+
+## 18. Cost summary (live Stripe since 2026-08-07)
 
 | Item | Cost |
 |---|---|

@@ -4,6 +4,14 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
 
+// A valid bcrypt hash of an arbitrary constant, compared against when no
+// account matches the email. Without this, an unknown email returns from
+// `authorize` before ever calling bcrypt.compare, while a known email with
+// a wrong password always calls it — a measurable timing difference an
+// attacker can use to enumerate which emails have accounts, entirely
+// independent of the actual login attempt succeeding or failing.
+const DUMMY_HASH = "$2a$10$D9dE01KqVmMAizvUyCltz.yB5G210EGvxW79ZAgg1PCvYkHh.t8N.";
+
 export const authOptions: AuthOptions = {
   session: { strategy: "jwt" },
   pages: {
@@ -27,10 +35,9 @@ export const authOptions: AuthOptions = {
         const user = await db.user.findUnique({
           where: { email: credentials.email.toLowerCase() },
         });
-        if (!user) return null;
 
-        const valid = await bcrypt.compare(credentials.password, user.passwordHash);
-        if (!valid) return null;
+        const valid = await bcrypt.compare(credentials.password, user?.passwordHash ?? DUMMY_HASH);
+        if (!user || !valid) return null;
 
         return { id: user.id, email: user.email, name: user.name ?? user.email };
       },

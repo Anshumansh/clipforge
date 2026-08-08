@@ -6,9 +6,20 @@ import { db } from "@/lib/db";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import { publishToSocial } from "@/lib/social/publish";
 
+// publishToYoutube (lib/social/publish.ts) fetches this URL server-side to
+// stream it into YouTube's resumable upload — an arbitrary user-supplied URL
+// there is a straightforward SSRF (internal network access, cloud metadata
+// endpoints, etc.) via an otherwise-ordinary authenticated request. Require
+// it to actually be one of Clipforge's own hosted media URLs; nothing about
+// "publish my rendered video" needs it to be anything else.
+function isOwnMediaUrl(url: string): boolean {
+  const base = (process.env.NEXTAUTH_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  return url.startsWith(`${base}/api/media/media/`);
+}
+
 const schema = z.object({
   socialAccountId: z.string(),
-  videoUrl: z.string().url(),
+  videoUrl: z.string().url().refine(isOwnMediaUrl, "videoUrl must be a Clipforge-hosted media URL"),
   caption: z.string().max(2200),
   projectId: z.string().optional(),
   clipId: z.string().optional(),

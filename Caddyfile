@@ -3,5 +3,18 @@ www.{$DOMAIN} {
 }
 
 {$DOMAIN} {
+	header {
+		# No prior security headers were set anywhere (checked next.config.js
+		# and here) — these are the safe, essentially-never-break-anything ones.
+		# Not included: a Content-Security-Policy — Next.js's hydration scripts,
+		# YouTube thumbnail images, and the Stripe/OAuth redirect flows all need
+		# specific allowances that deserve real testing before going live,
+		# rather than guessing one in during an audit pass.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
 	reverse_proxy app:3000
 }

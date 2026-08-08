@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 interface S3Config {
@@ -92,4 +92,35 @@ export async function getPresignedDownloadUrl(key: string, expiresInSeconds = 36
   const client = getS3Client(config);
   const command = new GetObjectCommand({ Bucket: config.bucket, Key: key });
   return getSignedUrl(client, command, { expiresIn: expiresInSeconds });
+}
+
+/** Permanently deletes every stored object under a user's media prefix —
+ * called on account deletion. Deleting the DB rows that reference these
+ * files (via Prisma's onDelete: Cascade) removes the *references*, not the
+ * underlying storage objects; without this, "delete my account" would
+ * leave every generated video, voiceover, and uploaded voice sample
+ * sitting in the bucket indefinitely, which isn't a real deletion for
+ * GDPR/CCPA purposes. No-ops in local dev (no remote storage configured). */
+export async function deleteUserMedia(userId: string): Promise<void> {
+  const config = getS3Config();
+  if (!config) return;
+
+  const client = getS3Client(config);
+  const prefix = `media/${userId}/`;
+  let continuationToken: string | undefined;
+
+  do {
+    const listed = await client.send(
+      new ListObjectsV2Command({ Bucket: config.bucket, Prefix: prefix, ContinuationToken: continuationToken })
+    );
+    const keys = (listed.Contents ?? []).map((obj) => obj.Key).filter((k): k is string => !!k);
+
+    if (keys.length > 0) {
+      await client.send(
+        new DeleteObjectsCommand({ Bucket: config.bucket, Delete: { Objects: keys.map((Key) => ({ Key })) } })
+      );
+    }
+
+    continuationToken = listed.IsTruncated ? listed.NextContinuationToken : undefined;
+  } while (continuationToken);
 }

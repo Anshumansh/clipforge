@@ -13,7 +13,7 @@ export function SiteFooter() {
         <div className="flex gap-6">
           <Link href="/privacy" className="transition-colors hover:text-foreground">Privacy</Link>
           <Link href="/terms" className="transition-colors hover:text-foreground">Terms</Link>
-          <a href="mailto:sharma0810anshuman@gmail.com" className="transition-colors hover:text-foreground">Contact</a>
+          <a href="mailto:support@forgecut.app" className="transition-colors hover:text-foreground">Contact</a>
         </div>
       </div>
     </footer>

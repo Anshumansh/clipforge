@@ -17,6 +17,7 @@ export default function NewScriptVideoPage() {
   const [topic, setTopic] = useState(() => searchParams.get("topic") ?? "");
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("9:16");
   const [voiceSample, setVoiceSample] = useState<File | null>(null);
+  const [voiceConsent, setVoiceConsent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hooks, setHooks] = useState<string[] | null>(null);
@@ -48,7 +49,10 @@ export default function NewScriptVideoPage() {
     const form = new FormData();
     form.set("topic", topic);
     form.set("aspectRatio", aspectRatio);
-    if (voiceSample) form.set("voiceSample", voiceSample);
+    if (voiceSample) {
+      form.set("voiceSample", voiceSample);
+      form.set("voiceConsent", String(voiceConsent));
+    }
 
     const res = await fetch("/api/projects/script", { method: "POST", body: form });
 
@@ -130,15 +134,38 @@ export default function NewScriptVideoPage() {
                 id="voiceSample"
                 type="file"
                 accept="audio/*"
-                onChange={(e) => setVoiceSample(e.target.files?.[0] ?? null)}
+                onChange={(e) => {
+                  setVoiceSample(e.target.files?.[0] ?? null);
+                  setVoiceConsent(false);
+                }}
               />
               <p className="text-xs text-muted-foreground">
                 Upload a clean 10-30s voice sample and we'll narrate in that voice instead of a stock one. A
                 Business-plan feature.
               </p>
+              {voiceSample && (
+                <label className="flex items-start gap-2 rounded-lg border border-border/60 bg-secondary/30 p-3 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    required
+                    checked={voiceConsent}
+                    onChange={(e) => setVoiceConsent(e.target.checked)}
+                    className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-primary"
+                  />
+                  <span>
+                    I confirm this is my own voice, or I have the explicit, informed consent of the person whose
+                    voice this is, to clone it through Clipforge. Cloning someone's voice without their consent
+                    violates our{" "}
+                    <a href="/terms#4-1-voice-cloning" target="_blank" className="text-primary hover:underline">
+                      Terms of Service
+                    </a>
+                    .
+                  </span>
+                </label>
+              )}
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
-            <Button type="submit" disabled={loading} className="w-full">
+            <Button type="submit" disabled={loading || (!!voiceSample && !voiceConsent)} className="w-full">
               {loading ? "Starting render…" : "Generate video"}
             </Button>
           </form>

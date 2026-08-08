@@ -54,6 +54,12 @@ export async function POST(req: Request) {
     if (voiceSample.size > MAX_VOICE_SAMPLE_BYTES) {
       return NextResponse.json({ error: "Voice sample too large (max 15MB)" }, { status: 400 });
     }
+    // The UI requires an affirmative consent checkbox before this field can
+    // even be submitted (Terms of Service §4.1) — enforced here too, since a
+    // client-side checkbox alone doesn't stop a direct API call.
+    if (form.get("voiceConsent") !== "true") {
+      return NextResponse.json({ error: "Voice cloning consent is required" }, { status: 400 });
+    }
     voiceSampleFile = voiceSample;
   }
 
