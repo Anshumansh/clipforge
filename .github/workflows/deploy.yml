@@ -21,4 +21,7 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             docker compose up -d --build
+            # Caddy bind-mounts a single file; git's atomic rename leaves it bound
+            # to the old inode unless force-recreated (see OPERATIONS.md #17).
+            docker compose up -d --force-recreate caddy
             docker image prune -f

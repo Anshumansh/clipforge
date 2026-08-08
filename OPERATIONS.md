@@ -511,6 +511,22 @@ Switched to `support@forgecut.app` throughout — but this needs email forwardin
 up in Porkbun (Domain → Email Forwarding) before it will actually deliver anywhere;
 until then, mail to that address bounces.
 
+**Infra gotcha found while deploying the headers above**: `docker compose up -d
+--build` did not pick up the new `Caddyfile` content. Root cause — Caddy's compose
+service bind-mounts a single file (`./Caddyfile:/etc/caddy/Caddyfile:ro`), and CI/CD
+replaces that file via `git pull`, which does an atomic rename rather than an in-place
+edit. Docker's single-file bind mounts attach to the original inode at container
+*creation* time, so the running container kept serving the pre-rename file — `caddy
+reload` and even a direct `POST /load` to Caddy's own admin API both "succeeded"
+against that stale inode with no error, which made this look like a Caddy reload bug
+rather than a Docker mount one. Confirmed via `docker exec ... md5sum` showing the
+container's copy and the host's copy had different hashes. Fixed for this deploy with
+`docker compose up -d --force-recreate caddy` (recreates the container, re-binds to
+current content — few seconds of proxy downtime). **This will recur on every future
+Caddyfile change** unless the deploy script is updated to force-recreate `caddy`
+whenever that file changes, instead of relying on `docker compose up -d --build` to
+notice.
+
 **Known open items, not fixed by design** (need your decision, not mine):
 - No email verification on registration — anyone can register with any email
   address (including someone else's) for 50 free credits. Common MVP tradeoff, but
