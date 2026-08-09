@@ -114,9 +114,10 @@ async function synthesizeWithEdge(script: string, mediaKeyPrefix: string, voice:
 export async function synthesizeVoiceover(
   script: string,
   mediaKeyPrefix: string,
-  voice = "alloy"
+  voice = "alloy",
+  useFreeOnly = false
 ): Promise<VoiceoverResult> {
-  if (process.env.OPENAI_API_KEY) {
+  if (process.env.OPENAI_API_KEY && !useFreeOnly) {
     try {
       return await withTimeout(synthesizeWithOpenAI(script, mediaKeyPrefix, voice), PROVIDER_TIMEOUT_MS, "OpenAI TTS");
     } catch (err) {

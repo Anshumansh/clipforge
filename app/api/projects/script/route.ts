@@ -95,7 +95,7 @@ export async function POST(req: Request) {
 
   await db.project.update({
     where: { id: project.id },
-    data: { input: JSON.stringify({ topic, voice, aspectRatio, voiceSampleUrl }) },
+    data: { input: JSON.stringify({ topic, voice, aspectRatio, voiceSampleUrl, watermark: user.plan === "free" }) },
   });
 
   const job = await db.job.create({

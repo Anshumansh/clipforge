@@ -1,4 +1,4 @@
-import { chatJSON } from "./llm";
+import { chatJSON, chatJSONFree } from "./llm";
 import type { ScriptResult } from "./types";
 
 /** Models asked for "plain spoken text, no stage directions" sometimes ignore
@@ -156,10 +156,11 @@ export async function generateScriptFromPattern(
   };
 }
 
-export async function generateScript(topic: string): Promise<ScriptResult> {
+export async function generateScript(topic: string, useFreeOnly = false): Promise<ScriptResult> {
   const fallback = mockScript(topic);
+  const chat = useFreeOnly ? chatJSONFree : chatJSON;
 
-  const parsed = await chatJSON([
+  const parsed = await chat([
     {
       role: "system",
       content:

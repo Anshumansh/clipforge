@@ -23,6 +23,32 @@ export interface ScriptVideoProps {
    * component reads the resulting size via useVideoConfig() rather than the raw
    * ratio, so every aspect ratio shares one proportionally-scaled layout. */
   aspectRatio?: AspectRatio;
+  /** Free-plan exports and the signup-free homepage demo both burn this in —
+   * advertised on the pricing page as "Watermarked exports" for the Free tier,
+   * so it needs to actually exist, not just be a bullet point. */
+  watermark?: boolean;
+}
+
+function Watermark() {
+  const { width, height } = useVideoConfig();
+  return (
+    <div
+      style={{
+        position: "absolute",
+        right: width * 0.03,
+        bottom: height * 0.03,
+        fontFamily: "Arial, Helvetica, sans-serif",
+        fontWeight: 700,
+        fontSize: width * 0.032,
+        color: "rgba(255,255,255,0.85)",
+        textShadow: "0 1px 4px rgba(0,0,0,0.6)",
+        letterSpacing: "0.02em",
+        pointerEvents: "none",
+      }}
+    >
+      Clipforge
+    </div>
+  );
 }
 
 function useCrossfadeOpacity(durationInFrames: number, fadeInFrames: number, fadeOutFrames: number) {
@@ -179,7 +205,7 @@ function CtaCard({ text }: { text: string }) {
   );
 }
 
-export function ScriptVideo({ words, scenes, audioUrl, durationInSeconds, ctaText }: ScriptVideoProps) {
+export function ScriptVideo({ words, scenes, audioUrl, durationInSeconds, ctaText, watermark }: ScriptVideoProps) {
   const { fps } = useVideoConfig();
   const totalFrames = Math.ceil(durationInSeconds * fps);
   const sceneCount = Math.max(scenes.length, 1);
@@ -215,6 +241,7 @@ export function ScriptVideo({ words, scenes, audioUrl, durationInSeconds, ctaTex
         </Sequence>
       )}
       {audioUrl && <Audio src={resolveSource(audioUrl)} />}
+      {watermark && <Watermark />}
     </AbsoluteFill>
   );
 }

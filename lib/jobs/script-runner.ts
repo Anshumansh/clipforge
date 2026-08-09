@@ -24,11 +24,17 @@ export async function runScriptJob(jobId: string) {
       voice?: string;
       aspectRatio?: AspectRatio;
       voiceSampleUrl?: string;
+      watermark?: boolean;
+      /** Set by the unauthenticated homepage demo route — never touches a
+       * paid provider even if OPENAI_API_KEY is configured globally, since
+       * this path is driven by anonymous internet traffic, not a signed-up
+       * user's own request. */
+      freeOnly?: boolean;
     };
     const mediaKeyPrefix = `media/${project.userId}/${project.id}`;
 
     await setJobProgress(jobId, 10, "Writing script…");
-    const scriptResult = await generateScript(input.topic);
+    const scriptResult = await generateScript(input.topic, input.freeOnly);
 
     await setJobProgress(jobId, 30, "Selecting b-roll…");
     const scenes = await pickBrollScenes(scriptResult.sceneKeywords);
@@ -40,9 +46,9 @@ export async function runScriptJob(jobId: string) {
             "[script-runner] voice cloning failed, falling back to default TTS:",
             err instanceof Error ? err.message : err
           );
-          return synthesizeVoiceover(scriptResult.script, mediaKeyPrefix, input.voice);
+          return synthesizeVoiceover(scriptResult.script, mediaKeyPrefix, input.voice, input.freeOnly);
         })
-      : await synthesizeVoiceover(scriptResult.script, mediaKeyPrefix, input.voice);
+      : await synthesizeVoiceover(scriptResult.script, mediaKeyPrefix, input.voice, input.freeOnly);
 
     await db.project.update({
       where: { id: project.id },
@@ -62,6 +68,7 @@ export async function runScriptJob(jobId: string) {
         audioUrl: voiceover.audioUrl,
         durationInSeconds: voiceover.durationSec,
         aspectRatio: input.aspectRatio,
+        watermark: input.watermark,
       },
       `${mediaKeyPrefix}/final.mp4`,
       (percent) => {

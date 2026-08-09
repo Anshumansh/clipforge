@@ -3,7 +3,7 @@ import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { Reveal, RevealGroup, RevealItem } from "@/components/reveal";
 import { PhoneMockup } from "@/components/phone-showcase";
-import { HeroShowcase } from "@/components/hero-showcase";
+import { HeroDemo } from "@/components/hero-demo";
 import { StatCounter } from "@/components/stat-counter";
 import { Marquee } from "@/components/marquee";
 import { TestimonialsSection } from "@/components/testimonials-section";
@@ -319,7 +319,7 @@ export default async function LandingPage() {
             </div>
 
             <Reveal delay={0.2}>
-              <HeroShowcase clips={showcaseClips} />
+              <HeroDemo clips={showcaseClips} />
             </Reveal>
           </div>
         </section>
