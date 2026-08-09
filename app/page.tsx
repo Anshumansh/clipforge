@@ -255,8 +255,8 @@ export default async function LandingPage() {
       />
       <SiteHeader />
       <main className="flex-1">
-        <section id="try-it" className="hero-glow grid-pattern relative overflow-hidden px-6 pb-20 pt-24">
-          <div className="mx-auto grid max-w-6xl items-center gap-16 lg:grid-cols-[1.1fr_0.9fr]">
+        <section id="try-it" className="hero-glow grid-pattern relative overflow-hidden px-6 pb-14 pt-16">
+          <div className="mx-auto grid max-w-6xl items-start gap-16 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="text-center lg:text-left">
               <Reveal fast>
                 <Badge variant="outline" className="mx-auto mb-6 w-fit gap-1.5 border-primary/30 bg-primary/5 lg:mx-0">
@@ -313,6 +313,25 @@ export default async function LandingPage() {
                       <s.icon className="h-4 w-4 text-primary" />
                       {s.label}
                     </div>
+                  ))}
+                </div>
+              </Reveal>
+
+              <Reveal delay={0.25}>
+                <div className="mx-auto mt-8 flex max-w-md flex-wrap items-center justify-center gap-2 lg:mx-0 lg:justify-start">
+                  <span className="text-xs text-muted-foreground">Publish straight to:</span>
+                  {[
+                    { label: "TikTok", dot: "bg-[#25F4EE]" },
+                    { label: "Instagram Reels", dot: "bg-gradient-to-br from-[#f09433] via-[#e6683c] to-[#bc1888]" },
+                    { label: "YouTube Shorts", dot: "bg-[#FF0000]" },
+                  ].map((p) => (
+                    <span
+                      key={p.label}
+                      className="flex items-center gap-1.5 rounded-full border border-border bg-card/60 px-3 py-1 text-xs font-medium"
+                    >
+                      <span className={`h-2 w-2 rounded-full ${p.dot}`} />
+                      {p.label}
+                    </span>
                   ))}
                 </div>
               </Reveal>
