@@ -255,7 +255,7 @@ export default async function LandingPage() {
       />
       <SiteHeader />
       <main className="flex-1">
-        <section className="hero-glow grid-pattern relative overflow-hidden px-6 pb-20 pt-24">
+        <section id="try-it" className="hero-glow grid-pattern relative overflow-hidden px-6 pb-20 pt-24">
           <div className="mx-auto grid max-w-6xl items-center gap-16 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="text-center lg:text-left">
               <Reveal fast>
