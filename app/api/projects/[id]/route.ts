@@ -24,6 +24,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     title: project.title,
     status: project.status,
     videoUrl: project.videoUrl,
+    thumbnailUrl: project.thumbnailUrl,
+    hasTimeline: !!project.scenesJson,
     errorMessage: project.errorMessage,
     clips: project.clips,
     job: project.jobs[0]

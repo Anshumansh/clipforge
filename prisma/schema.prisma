@@ -81,6 +81,7 @@ model Project {
   input       String   // JSON blob of wizard input
   script      String?
   captionsJson String? // JSON word-timing captions
+  scenesJson  String?  // JSON b-roll scene timeline (SceneTimelineEntry[]) -- powers EDL/XML export
   voiceoverUrl String?
   videoUrl    String?
   thumbnailUrl String?

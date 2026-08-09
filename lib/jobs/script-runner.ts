@@ -6,6 +6,7 @@ import { pickBrollScenes } from "@/lib/providers/broll";
 import { renderScriptVideo } from "@/lib/remotion-render";
 import { recordActivity } from "@/lib/streaks";
 import { getLanguage } from "@/lib/languages";
+import { computeSceneTimeline } from "@/lib/timeline";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 
 async function setJobProgress(jobId: string, progress: number, log?: string) {
@@ -53,6 +54,8 @@ export async function runScriptJob(jobId: string) {
         })
       : await synthesizeVoiceover(scriptResult.script, mediaKeyPrefix, input.voice, input.freeOnly, language.code);
 
+    const sceneTimeline = computeSceneTimeline(scenes, voiceover.durationSec);
+
     await db.project.update({
       where: { id: project.id },
       data: {
@@ -60,6 +63,7 @@ export async function runScriptJob(jobId: string) {
         script: scriptResult.script,
         voiceoverUrl: voiceover.audioUrl,
         captionsJson: JSON.stringify(voiceover.words),
+        scenesJson: JSON.stringify(sceneTimeline),
       },
     });
 

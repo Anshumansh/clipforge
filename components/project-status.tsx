@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertTriangle, Download } from "lucide-react";
+import { AlertTriangle, Download, FileCode } from "lucide-react";
 import { PublishButton } from "@/components/publish-button";
 import { ThumbnailGenerator } from "@/components/thumbnail-generator";
 
@@ -25,6 +25,7 @@ interface ProjectData {
   status: string;
   videoUrl: string | null;
   thumbnailUrl: string | null;
+  hasTimeline: boolean;
   errorMessage: string | null;
   clips: Clip[];
   job: { status: string; progress: number; log: string | null } | null;
@@ -142,6 +143,32 @@ export function ProjectStatus({ initial }: { initial: ProjectData }) {
         <div className="mx-auto max-w-md space-y-4">
           <VideoCard title={data.title} url={data.videoUrl} projectId={data.id} />
           <ThumbnailGenerator projectId={data.id} initialUrl={data.thumbnailUrl} />
+          {data.type === "script" && data.hasTimeline && (
+            <Card>
+              <CardContent className="flex items-center justify-between gap-3 p-4">
+                <div>
+                  <p className="text-sm font-medium">Edit further in an NLE</p>
+                  <p className="text-xs text-muted-foreground">Export the scene timeline for Premiere or DaVinci Resolve.</p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <a
+                    href={`/api/projects/${data.id}/export?format=edl`}
+                    download
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary"
+                  >
+                    <FileCode className="h-3.5 w-3.5" /> EDL
+                  </a>
+                  <a
+                    href={`/api/projects/${data.id}/export?format=xml`}
+                    download
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary"
+                  >
+                    <FileCode className="h-3.5 w-3.5" /> XML
+                  </a>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
