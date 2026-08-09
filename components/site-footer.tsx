@@ -13,6 +13,7 @@ export function SiteFooter() {
         <div className="flex flex-wrap justify-center gap-6">
           <Link href="/changelog" className="transition-colors hover:text-foreground">Changelog</Link>
           <Link href="/roadmap" className="transition-colors hover:text-foreground">Roadmap</Link>
+          <Link href="/trust" className="transition-colors hover:text-foreground">Trust</Link>
           <Link href="/privacy" className="transition-colors hover:text-foreground">Privacy</Link>
           <Link href="/terms" className="transition-colors hover:text-foreground">Terms</Link>
           <a href="mailto:support@forgecut.app" className="transition-colors hover:text-foreground">Contact</a>
