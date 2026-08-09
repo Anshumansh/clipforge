@@ -42,6 +42,51 @@ model User {
   featureVotes           FeatureVote[]
   brandKit               BrandKit?
   apiKeys                ApiKey[]
+  ownedWorkspace         Workspace?        @relation("WorkspaceOwner")
+  workspaceMembership    WorkspaceMember?  @relation("WorkspaceMembership")
+}
+
+// Item 12 (team workspaces), v1 scope: members spend from the OWNER's
+// existing credit pool and plan -- no separate workspace billing, no
+// per-seat pricing yet. Matches this codebase's established pattern of
+// shipping the minimal real thing first (see the isAdmin/BrandKit/
+// UserNiche comments) rather than building a full multi-tenant billing
+// system speculatively. One workspace per owner, one workspace per member,
+// for the same reason -- add a switcher when there's a real need to be in
+// more than one.
+model Workspace {
+  id        String            @id @default(cuid())
+  name      String
+  ownerId   String            @unique
+  owner     User              @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members   WorkspaceMember[]
+  invites   WorkspaceInvite[]
+  projects  Project[]
+  createdAt DateTime          @default(now())
+}
+
+model WorkspaceMember {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String    @unique
+  user        User      @relation("WorkspaceMembership", fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt    DateTime  @default(now())
+}
+
+// Raw token emailed to the invitee, only the hash stored -- same pattern
+// as PasswordResetToken.
+model WorkspaceInvite {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  email       String
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId])
 }
 
 // API access (item 10, MCP server) is a Business-plan feature -- see
@@ -110,8 +155,15 @@ model FeatureVote {
 // script-to-video, repurpose (long-form -> clips), or ugc/avatar ad.
 model Project {
   id          String   @id @default(cuid())
-  userId      String
+  userId      String   // who actually generated it -- kept even for workspace projects, for attribution
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Set when created by a workspace owner/member -- makes it visible to
+  // every member of that workspace, not just its creator. Null for
+  // everyone not in a workspace (the vast majority of projects). SetNull
+  // (not Cascade) so a deleted workspace doesn't take a member's already-
+  // generated videos down with it -- they just revert to personal projects.
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
   type        String   // "script" | "repurpose" | "ugc"
   title       String
   status      String   @default("draft") // draft | queued | processing | ready | failed

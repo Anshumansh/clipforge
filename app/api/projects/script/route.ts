@@ -9,6 +9,7 @@ import { ASPECT_RATIOS, isAspectRatio, canUseAspectRatio, type AspectRatio } fro
 import { canUseVoiceClone } from "@/lib/plans";
 import { LANGUAGES } from "@/lib/languages";
 import { resolveApiUser } from "@/lib/api-auth";
+import { resolveGenerationContext } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -40,13 +41,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid input" }, { status: 400 });
   }
 
-  if (aspectRatio && !canUseAspectRatio(apiUser.plan, aspectRatio)) {
+  const genCtx = await resolveGenerationContext(userId, apiUser.plan);
+
+  if (aspectRatio && !canUseAspectRatio(genCtx.effectivePlan, aspectRatio)) {
     return NextResponse.json({ error: "Multi-format export is a Business-plan feature" }, { status: 403 });
   }
 
   let voiceSampleFile: File | null = null;
   if (voiceSample instanceof File && voiceSample.size > 0) {
-    if (!canUseVoiceClone(apiUser.plan)) {
+    if (!canUseVoiceClone(genCtx.effectivePlan)) {
       return NextResponse.json({ error: "Voice cloning is a Business-plan feature" }, { status: 403 });
     }
     if (!voiceSample.type.startsWith("audio/")) {
@@ -65,7 +68,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    await chargeCredits(userId, CREDITS_PER_VIDEO);
+    await chargeCredits(genCtx.creditOwnerId, CREDITS_PER_VIDEO);
   } catch (err) {
     if (err instanceof InsufficientCreditsError) {
       return NextResponse.json({ error: err.message }, { status: 402 });
@@ -76,6 +79,7 @@ export async function POST(req: Request) {
   const project = await db.project.create({
     data: {
       userId,
+      workspaceId: genCtx.workspaceId,
       type: "script",
       title: topic.slice(0, 60),
       status: "queued",
@@ -97,7 +101,7 @@ export async function POST(req: Request) {
   await db.project.update({
     where: { id: project.id },
     data: {
-      input: JSON.stringify({ topic, voice, language, aspectRatio, voiceSampleUrl, watermark: apiUser.plan === "free" }),
+      input: JSON.stringify({ topic, voice, language, aspectRatio, voiceSampleUrl, watermark: genCtx.effectivePlan === "free" }),
     },
   });
 

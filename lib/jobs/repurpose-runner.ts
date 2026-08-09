@@ -115,7 +115,7 @@ export async function runRepurposeJob(jobId: string) {
       }
     );
 
-    const brand = await getBrandForRender(project.userId, project.user.plan);
+    const brand = await getBrandForRender(project.userId);
 
     let completed = 0;
     for (const clip of clips) {

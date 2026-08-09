@@ -48,3 +48,23 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string): Prom
     `
   );
 }
+
+export async function sendWorkspaceInviteEmail(
+  to: string,
+  inviterName: string,
+  workspaceName: string,
+  inviteUrl: string
+): Promise<void> {
+  await sendEmail(
+    to,
+    `${inviterName} invited you to ${workspaceName} on Clipforge`,
+    `
+      <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+        <h2>You've been invited to a Clipforge workspace</h2>
+        <p>${inviterName} invited you to join <strong>${workspaceName}</strong> on Clipforge. Accepting shares their project pipeline and credit balance -- no separate subscription needed. This invite expires in 7 days.</p>
+        <p><a href="${inviteUrl}" style="display:inline-block;padding:10px 20px;background:#111;color:#fff;border-radius:6px;text-decoration:none;">Accept invite</a></p>
+        <p>If you weren't expecting this, you can safely ignore this email.</p>
+      </div>
+    `
+  );
+}

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requireUser } from "@/lib/session";
 import { db } from "@/lib/db";
+import { getWorkspaceContext } from "@/lib/workspace";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,9 +25,11 @@ const statusVariant = {
 
 export default async function DashboardPage() {
   const user = await requireUser();
+  const workspaceCtx = await getWorkspaceContext(user.id);
   const projects = await db.project.findMany({
-    where: { userId: user.id },
+    where: workspaceCtx ? { OR: [{ userId: user.id }, { workspaceId: workspaceCtx.workspaceId }] } : { userId: user.id },
     orderBy: { createdAt: "desc" },
+    include: { user: { select: { email: true } } },
   });
 
   return (
@@ -81,9 +84,12 @@ export default async function DashboardPage() {
                     </div>
                     <CardTitle className="line-clamp-2 text-base">{project.title}</CardTitle>
                   </CardHeader>
-                  <CardContent className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>{typeLabel[project.type as keyof typeof typeLabel] ?? project.type}</span>
-                    <span>{formatDate(project.createdAt)}</span>
+                  <CardContent className="space-y-1 text-xs text-muted-foreground">
+                    <div className="flex items-center justify-between">
+                      <span>{typeLabel[project.type as keyof typeof typeLabel] ?? project.type}</span>
+                      <span>{formatDate(project.createdAt)}</span>
+                    </div>
+                    {project.userId !== user.id && <p className="truncate">by {project.user.email}</p>}
                   </CardContent>
                 </Card>
               </Link>

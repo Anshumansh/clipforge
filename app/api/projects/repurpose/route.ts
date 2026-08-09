@@ -8,6 +8,7 @@ import { enqueueJob } from "@/lib/jobs/queue";
 import { uploadBuffer } from "@/lib/storage";
 import { rateLimit } from "@/lib/rate-limit";
 import { isAspectRatio, canUseAspectRatio, type AspectRatio } from "@/lib/aspect-ratio";
+import { resolveGenerationContext } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -45,12 +46,13 @@ export async function POST(req: Request) {
   }
 
   const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
-  if (aspectRatio && !canUseAspectRatio(user.plan, aspectRatio)) {
+  const genCtx = await resolveGenerationContext(userId, user.plan);
+  if (aspectRatio && !canUseAspectRatio(genCtx.effectivePlan, aspectRatio)) {
     return NextResponse.json({ error: "Multi-format export is a Business-plan feature" }, { status: 403 });
   }
 
   try {
-    await chargeCredits(userId, CREDITS_PER_VIDEO);
+    await chargeCredits(genCtx.creditOwnerId, CREDITS_PER_VIDEO);
   } catch (err) {
     if (err instanceof InsufficientCreditsError) {
       return NextResponse.json({ error: err.message }, { status: 402 });
@@ -61,6 +63,7 @@ export async function POST(req: Request) {
   const project = await db.project.create({
     data: {
       userId,
+      workspaceId: genCtx.workspaceId,
       type: "repurpose",
       title: topic || file.name || "Repurposed video",
       status: "queued",

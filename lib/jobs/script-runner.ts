@@ -56,7 +56,7 @@ export async function runScriptJob(jobId: string) {
       : await synthesizeVoiceover(scriptResult.script, mediaKeyPrefix, input.voice, input.freeOnly, language.code);
 
     const sceneTimeline = computeSceneTimeline(scenes, voiceover.durationSec);
-    const brand = await getBrandForRender(project.userId, project.user.plan);
+    const brand = await getBrandForRender(project.userId);
 
     await db.project.update({
       where: { id: project.id },

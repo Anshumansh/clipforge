@@ -58,3 +58,11 @@ export function canUseBrandKit(plan: string): boolean {
 export function canUseApiAccess(plan: string): boolean {
   return plan === "business";
 }
+
+/** Team workspaces (item 12) -- creating one is a Business-plan feature,
+ * since invited members spend from the owner's credit pool. Already-joined
+ * members can stay in a workspace regardless of their own plan (they're
+ * not the one being billed). */
+export function canCreateWorkspace(plan: string): boolean {
+  return plan === "business";
+}

@@ -7,6 +7,7 @@ import { chargeCredits, CREDITS_PER_VIDEO, InsufficientCreditsError } from "@/li
 import { enqueueJob } from "@/lib/jobs/queue";
 import { rateLimit } from "@/lib/rate-limit";
 import { ASPECT_RATIOS, canUseAspectRatio } from "@/lib/aspect-ratio";
+import { resolveGenerationContext } from "@/lib/workspace";
 
 const schema = z.object({
   productName: z.string().min(1).max(120),
@@ -28,12 +29,13 @@ export async function POST(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: "Invalid input" }, { status: 400 });
 
   const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
-  if (parsed.data.aspectRatio && !canUseAspectRatio(user.plan, parsed.data.aspectRatio as never)) {
+  const genCtx = await resolveGenerationContext(userId, user.plan);
+  if (parsed.data.aspectRatio && !canUseAspectRatio(genCtx.effectivePlan, parsed.data.aspectRatio as never)) {
     return NextResponse.json({ error: "Multi-format export is a Business-plan feature" }, { status: 403 });
   }
 
   try {
-    await chargeCredits(userId, CREDITS_PER_VIDEO);
+    await chargeCredits(genCtx.creditOwnerId, CREDITS_PER_VIDEO);
   } catch (err) {
     if (err instanceof InsufficientCreditsError) {
       return NextResponse.json({ error: err.message }, { status: 402 });
@@ -44,6 +46,7 @@ export async function POST(req: Request) {
   const project = await db.project.create({
     data: {
       userId,
+      workspaceId: genCtx.workspaceId,
       type: "ugc",
       title: `${parsed.data.productName} — UGC ad`,
       status: "queued",

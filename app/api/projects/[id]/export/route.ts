@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { generateEDL, generateFcp7Xml } from "@/lib/export/edl";
 import { ASPECT_RATIO_DIMENSIONS, isAspectRatio } from "@/lib/aspect-ratio";
+import { projectAccessFilter } from "@/lib/workspace";
 import type { SceneTimelineEntry } from "@/lib/timeline";
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
@@ -11,7 +12,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const project = await db.project.findFirst({ where: { id: params.id, userId } });
+  const project = await db.project.findFirst({ where: { id: params.id, ...(await projectAccessFilter(userId)) } });
   if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   if (!project.scenesJson) {

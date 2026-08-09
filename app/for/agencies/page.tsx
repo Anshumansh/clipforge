@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { VerticalLandingPage, type VerticalConfig } from "@/components/vertical-landing";
-import { Layers, Grid3x3, Mic2, ImageIcon, Zap, Calendar } from "lucide-react";
+import { Layers, Grid3x3, Mic2, ImageIcon, Zap, Calendar, Users } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Clipforge for Agencies",
@@ -43,19 +43,26 @@ const config: VerticalConfig = {
       body: "Batch-schedule a connected account's posts across the week instead of publishing one at a time.",
     },
     {
+      icon: Users,
+      title: "Invite the team, share one credit pool",
+      body: "Invite teammates to your workspace and they render from your account's credits and see the same project list — no separate subscription for each person.",
+    },
+    {
       icon: Zap,
       title: "Built for daily-pipeline load",
       body: "A bounded-concurrency render queue keeps output fast and stable even when a full day of client renders queues up at once.",
     },
   ],
   ctaHeadline: "See it handle a real client brief",
-  ctaBody: "50 free credits to start. Multi-seat team accounts are on the roadmap, not live yet — track progress on the roadmap board.",
+  ctaBody: "50 free credits to start. Team workspaces are included on the Business plan.",
 };
 
-// The CTA copy links transparently to the roadmap rather than implying
-// multi-user support exists today -- SocialAccount is unique per
-// (userId, platform), one connected account per platform per Clipforge
-// account, not a multi-client account manager yet (item 12, unshipped).
+// Team workspaces (item 12) share ONE account's projects and credit pool
+// across invited members -- real and shipped. What's still not here: a
+// true per-client account manager with separate connected social accounts
+// per client. SocialAccount is still unique per (userId, platform), so a
+// workspace's connected TikTok/Instagram/YouTube accounts belong to
+// whichever member connected them, not to the workspace as a whole.
 export default function AgenciesPage() {
   return <VerticalLandingPage config={config} />;
 }

@@ -47,7 +47,7 @@ export async function runUgcJob(jobId: string) {
       },
     });
 
-    const brand = await getBrandForRender(project.userId, project.user.plan);
+    const brand = await getBrandForRender(project.userId);
 
     await setJobProgress(jobId, 60, "Rendering ad video…");
     const videoUrl = await renderScriptVideo(

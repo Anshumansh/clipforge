@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { resolveApiUser } from "@/lib/api-auth";
+import { projectAccessFilter } from "@/lib/workspace";
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const apiUser = await resolveApiUser(req);
   if (!apiUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const project = await db.project.findFirst({
-    where: { id: params.id, userId: apiUser.userId },
+    where: { id: params.id, ...(await projectAccessFilter(apiUser.userId)) },
     include: {
       clips: { orderBy: { score: "desc" } },
       jobs: { orderBy: { createdAt: "desc" }, take: 1 },

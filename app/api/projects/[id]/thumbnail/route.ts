@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
 import { fetchThumbnailBackground } from "@/lib/providers/broll";
 import { renderThumbnail } from "@/lib/remotion-render";
+import { projectAccessFilter } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -16,7 +17,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const { ok } = rateLimit(`thumbnail:${userId}`, 10, 60 * 1000);
   if (!ok) return NextResponse.json({ error: "Too many requests. Slow down and try again shortly." }, { status: 429 });
 
-  const project = await db.project.findFirst({ where: { id: params.id, userId } });
+  const project = await db.project.findFirst({ where: { id: params.id, ...(await projectAccessFilter(userId)) } });
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
   if (project.status !== "ready") {
     return NextResponse.json({ error: "Project isn't finished rendering yet" }, { status: 400 });
@@ -28,7 +29,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const imageUrl = await fetchThumbnailBackground(keyword);
   const thumbnailUrl = await renderThumbnail(
     { imageUrl, title: project.title },
-    `media/${userId}/${project.id}/thumbnail-${Date.now()}.jpg`
+    `media/${project.userId}/${project.id}/thumbnail-${Date.now()}.jpg`
   );
 
   await db.project.update({ where: { id: project.id }, data: { thumbnailUrl } });
