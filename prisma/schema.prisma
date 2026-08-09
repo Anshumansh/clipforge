@@ -24,6 +24,11 @@ model User {
   currentStreak          Int       @default(0)
   longestStreak          Int       @default(0)
   lastActiveAt           DateTime?
+  // Gates the handful of founder-only actions that exist today (updating a
+  // feature request's status). Deliberately a single flag rather than a
+  // roles table -- there's exactly one admin right now; build the real
+  // thing when there's an actual reason to.
+  isAdmin                Boolean   @default(false)
   createdAt              DateTime  @default(now())
   projects               Project[]
   jobs                   Job[]
@@ -33,6 +38,35 @@ model User {
   userNiche              UserNiche?
   captureSessions        CaptureSession[]
   disclaimerConfig       DisclaimerConfig?
+  featureRequests        FeatureRequest[]
+  featureVotes           FeatureVote[]
+}
+
+// A user-submitted product suggestion on the public /roadmap board.
+// Anyone can view the board; submitting and voting require an account
+// (see app/api/roadmap routes) to keep it from being trivially spammed.
+model FeatureRequest {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String
+  status      String   @default("open") // open | planned | in_progress | shipped
+  createdAt   DateTime @default(now())
+  votes       FeatureVote[]
+
+  @@index([status])
+}
+
+model FeatureVote {
+  id               String         @id @default(cuid())
+  userId           String
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  featureRequestId String
+  featureRequest   FeatureRequest @relation(fields: [featureRequestId], references: [id], onDelete: Cascade)
+  createdAt        DateTime       @default(now())
+
+  @@unique([userId, featureRequestId])
 }
 
 // A project is one piece of content the user is generating:

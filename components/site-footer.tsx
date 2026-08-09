@@ -10,7 +10,9 @@ export function SiteFooter() {
           Clipforge
         </Link>
         <p>© {new Date().getFullYear()} Clipforge. All rights reserved.</p>
-        <div className="flex gap-6">
+        <div className="flex flex-wrap justify-center gap-6">
+          <Link href="/changelog" className="transition-colors hover:text-foreground">Changelog</Link>
+          <Link href="/roadmap" className="transition-colors hover:text-foreground">Roadmap</Link>
           <Link href="/privacy" className="transition-colors hover:text-foreground">Privacy</Link>
           <Link href="/terms" className="transition-colors hover:text-foreground">Terms</Link>
           <a href="mailto:support@forgecut.app" className="transition-colors hover:text-foreground">Contact</a>

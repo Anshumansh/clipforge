@@ -15,6 +15,7 @@ import {
   Lightbulb,
   LogOut,
   Menu,
+  MessageSquarePlus,
   Radar,
   Scissors,
   Share2,
@@ -33,6 +34,7 @@ const links = [
   { href: "/dashboard/new/ugc", label: "UGC / Avatar ad", icon: UserRound },
   { href: "/dashboard/settings", label: "Connected accounts", icon: Share2 },
   { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
+  { href: "/roadmap", label: "Roadmap", icon: MessageSquarePlus },
 ];
 
 export function DashboardNav({ credits, streak }: { credits: number; streak: number }) {
