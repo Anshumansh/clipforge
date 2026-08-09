@@ -627,3 +627,35 @@ object — from the one-time manual test run right after the script was written 
   regressing again. The watchdog's cron-log-freshness check (above) also now exists
   specifically so this class of failure — a script that's silently never running,
   vs. a container that's visibly down — can't hide again.
+
+---
+
+## 20. Homepage demo, admin access, and the feature-request board (2026-08-09)
+
+**Homepage try-before-signup demo** — `/api/demo/generate` + `/api/demo/status/[id]`.
+Anonymous visitors can generate a real, watermarked script-to-video render with no
+account. Reuses the entire existing pipeline via one shared system account
+(`demo@internal.forgecut.app`, see `lib/demo-user.ts`) rather than a parallel code
+path. Always forced onto free-tier providers only (`freeOnly` flag threaded through
+`generateScript`/`synthesizeVoiceover`) regardless of what's globally configured, since
+this path is driven by anonymous internet traffic. Gated by IP rate limiting (3/day)
+plus a hard cap of 1 concurrent demo render, so it can't starve real users of the
+render queue's 2-slot capacity. `scripts/cleanup-demo-media.sh` (daily cron, 4am)
+deletes demo projects and their storage objects after 24h — anonymous generations have
+no account behind them to ever come back and delete their own data, so unlike real
+users' media this has to expire on a timer or it grows unbounded.
+
+**Admin access** — `User.isAdmin` (boolean, default false). Exactly one founder-only
+action exists today (updating a roadmap item's status), so this is a single flag
+rather than a roles table. Set directly in the DB, not via any UI:
+```
+db.user.update({ where: { email: "..." }, data: { isAdmin: true } })
+```
+Currently `true` only for `sharma0810anshuman@gmail.com`.
+
+**`/changelog`** — static, hand-edited entries in `lib/changelog.ts`. No CMS.
+
+**`/roadmap`** — public feature-request board (`FeatureRequest`/`FeatureVote` models).
+Viewing is public; submitting and voting require a real account (one vote per user,
+enforced at the DB level via a unique constraint) to keep it from being spammed by
+anonymous traffic. Status updates (open/planned/in_progress/shipped) are admin-only.
