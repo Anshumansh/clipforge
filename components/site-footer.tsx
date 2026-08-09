@@ -15,6 +15,8 @@ export function SiteFooter() {
           <Link href="/for/podcasters" className="transition-colors hover:text-foreground">For podcasters</Link>
           <Link href="/for/ecommerce" className="transition-colors hover:text-foreground">For e-commerce</Link>
           <Link href="/for/agencies" className="transition-colors hover:text-foreground">For agencies</Link>
+          <Link href="/vs/opus-clip" className="transition-colors hover:text-foreground">vs Opus Clip</Link>
+          <Link href="/vs/revid-ai" className="transition-colors hover:text-foreground">vs Revid.ai</Link>
           <Link href="/changelog" className="transition-colors hover:text-foreground">Changelog</Link>
           <Link href="/roadmap" className="transition-colors hover:text-foreground">Roadmap</Link>
           <Link href="/trust" className="transition-colors hover:text-foreground">Trust</Link>

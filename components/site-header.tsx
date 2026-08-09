@@ -22,11 +22,14 @@ export function SiteHeader() {
                 <path d="M2.5 4.5L6 8l3.5-3.5" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
-            <div className="invisible absolute left-0 top-full w-48 pt-3 opacity-0 transition-all group-hover:visible group-hover:opacity-100">
+            <div className="invisible absolute left-0 top-full w-56 pt-3 opacity-0 transition-all group-hover:visible group-hover:opacity-100">
               <div className="rounded-lg border border-border bg-card p-1.5 shadow-lg">
                 <Link href="/for/podcasters" className="block rounded-md px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-secondary hover:text-foreground">For podcasters</Link>
                 <Link href="/for/ecommerce" className="block rounded-md px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-secondary hover:text-foreground">For e-commerce</Link>
                 <Link href="/for/agencies" className="block rounded-md px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-secondary hover:text-foreground">For agencies</Link>
+                <div className="my-1.5 border-t border-border" />
+                <Link href="/vs/opus-clip" className="block rounded-md px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-secondary hover:text-foreground">vs Opus Clip</Link>
+                <Link href="/vs/revid-ai" className="block rounded-md px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-secondary hover:text-foreground">vs Revid.ai</Link>
               </div>
             </div>
           </div>
