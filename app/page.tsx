@@ -3,11 +3,13 @@ import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { Reveal, RevealGroup, RevealItem } from "@/components/reveal";
 import { PhoneMockup } from "@/components/phone-showcase";
+import { HeroShowcase } from "@/components/hero-showcase";
 import { StatCounter } from "@/components/stat-counter";
 import { Marquee } from "@/components/marquee";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import {
   Captions,
   Clapperboard,
@@ -79,6 +81,14 @@ const stats = [
   { value: 50, suffix: "", label: "free credits to start — no card" },
   { value: 3, suffix: "", label: "platforms you can auto-publish to" },
   { value: 0, prefix: "$", suffix: "", label: "extra cost for voice cloning on Business" },
+];
+
+const quickLinks = [
+  { href: "/#features", label: "Explore features" },
+  { href: "/#how-it-works", label: "See how it works" },
+  { href: "/pricing", label: "View pricing" },
+  { href: "/#faq", label: "Read the FAQ" },
+  { href: "/register", label: "Sign up free →" },
 ];
 
 const tickerItems = [
@@ -213,37 +223,62 @@ export default function LandingPage() {
         <section className="hero-glow grid-pattern relative overflow-hidden px-6 pb-20 pt-24">
           <div className="mx-auto grid max-w-6xl items-center gap-16 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="text-center lg:text-left">
-              <Reveal>
+              <Reveal fast>
                 <Badge variant="outline" className="mx-auto mb-6 w-fit gap-1.5 border-primary/30 bg-primary/5 lg:mx-0">
                   <Sparkles className="h-3 w-3 text-primary" /> AI short-form video, end to end
                 </Badge>
               </Reveal>
-              <Reveal delay={0.05}>
+              <Reveal fast delay={0.05}>
                 <h1 className="mx-auto max-w-xl text-4xl font-bold tracking-tight sm:text-6xl lg:mx-0">
                   Your next <span className="gradient-text">scroll-stopping</span> short is one prompt away
                 </h1>
               </Reveal>
-              <Reveal delay={0.1}>
+              <Reveal fast delay={0.1}>
                 <p className="mx-auto mt-6 max-w-xl text-lg text-muted-foreground lg:mx-0">
                   Clipforge writes the script, generates the voiceover, cuts the b-roll, captions it, and can post it
                   straight to TikTok, Reels, and Shorts — so you never touch an editor.
                 </p>
               </Reveal>
-              <Reveal delay={0.15}>
-                <div className="mt-10 flex items-center justify-center gap-4 lg:justify-start">
+              <Reveal fast delay={0.15}>
+                <div className="mt-10 flex flex-wrap items-center justify-center gap-4 lg:justify-start">
                   <Button asChild size="lg" className="pulse-ring">
-                    <Link href="/register">Start creating — free</Link>
+                    <Link href="/register">Sign up free</Link>
                   </Button>
                   <Button asChild size="lg" variant="outline">
                     <Link href="/pricing">See pricing</Link>
                   </Button>
+                  <Link
+                    href="/login"
+                    className="text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                  >
+                    Already have an account? Log in
+                  </Link>
                 </div>
                 <p className="mt-4 text-xs text-muted-foreground">No credit card required · 50 free credits</p>
               </Reveal>
+
+              <Reveal delay={0.2}>
+                <div className="mx-auto mt-10 grid max-w-md grid-cols-2 gap-3 sm:grid-cols-4 lg:mx-0">
+                  {[
+                    { icon: Wand2, label: "3 generation engines" },
+                    { icon: Mic2, label: "Free voice cloning" },
+                    { icon: Share2, label: "Auto-publish everywhere" },
+                    { icon: Coins, label: "One credit-based plan" },
+                  ].map((s) => (
+                    <div
+                      key={s.label}
+                      className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card/60 px-3 py-4 text-center text-xs text-muted-foreground transition-colors hover:border-primary/50 lg:items-start lg:text-left"
+                    >
+                      <s.icon className="h-4 w-4 text-primary" />
+                      {s.label}
+                    </div>
+                  ))}
+                </div>
+              </Reveal>
             </div>
 
-            <Reveal delay={0.2} className="mx-auto w-full max-w-[280px] lg:mx-0">
-              <PhoneMockup src={showcaseClips[1].src} label="Real, unedited Clipforge output" lazy={false} />
+            <Reveal delay={0.2}>
+              <HeroShowcase clips={showcaseClips} />
             </Reveal>
           </div>
         </section>
@@ -263,6 +298,25 @@ export default function LandingPage() {
               </RevealItem>
             ))}
           </RevealGroup>
+
+          <Reveal delay={0.1}>
+            <div className="mx-auto mt-10 flex max-w-3xl flex-wrap items-center justify-center gap-3">
+              {quickLinks.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={cn(
+                    "rounded-full border px-4 py-2 text-sm font-medium transition-all duration-200",
+                    link.href === "/register"
+                      ? "border-primary/50 bg-primary/15 text-foreground hover:bg-primary/25"
+                      : "border-border/60 bg-card/40 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                  )}
+                >
+                  {link.label}
+                </Link>
+              ))}
+            </div>
+          </Reveal>
         </section>
 
         <section className="border-y border-border/60 bg-secondary/30 px-6 py-20">

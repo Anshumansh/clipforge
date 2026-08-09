@@ -6,7 +6,7 @@
   :root {
     --background: 240 10% 4%;
     --foreground: 0 0% 98%;
-    --card: 240 8% 8%;
+    --card: 240 8% 10%;
     --card-foreground: 0 0% 98%;
     --primary: 262 83% 66%;
     --primary-foreground: 0 0% 100%;
@@ -18,8 +18,8 @@
     --accent-foreground: 0 0% 100%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 6% 18%;
-    --input: 240 6% 18%;
+    --border: 240 9% 28%;
+    --input: 240 9% 28%;
     --ring: 262 83% 66%;
     --radius: 0.75rem;
   }
@@ -79,10 +79,10 @@
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(480px circle at 20% 10%, hsl(262 83% 66% / 0.28), transparent 60%),
-    radial-gradient(520px circle at 80% 15%, hsl(316 80% 62% / 0.22), transparent 60%),
-    radial-gradient(600px circle at 50% 0%, hsl(199 89% 62% / 0.14), transparent 65%);
-  animation: aurora 18s ease-in-out infinite;
+    radial-gradient(520px circle at 20% 10%, hsl(262 83% 66% / 0.36), transparent 60%),
+    radial-gradient(560px circle at 80% 15%, hsl(316 80% 62% / 0.30), transparent 60%),
+    radial-gradient(640px circle at 50% 0%, hsl(199 89% 62% / 0.20), transparent 65%);
+  animation: aurora 13s ease-in-out infinite;
   filter: blur(40px);
 }
 

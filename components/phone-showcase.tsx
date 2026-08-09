@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, useInView } from "framer-motion";
 import { cn } from "@/lib/utils";
 
@@ -25,9 +25,21 @@ export function PhoneMockup({
   lazy?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const observedInView = useInView(ref, { once: true, margin: "200px" });
   const inView = lazy ? observedInView : true;
   const [loaded, setLoaded] = useState(false);
+
+  // A <video>'s src ATTRIBUTE updates reactively like any other prop, but the
+  // browser doesn't re-run resource selection just because it changed — the
+  // spec only does that on an explicit .load() call. Without this, swapping
+  // src on an already-playing <video> (e.g. a "preview a different clip"
+  // switcher) silently keeps playing the old clip forever.
+  useEffect(() => {
+    if (!inView) return;
+    setLoaded(false);
+    videoRef.current?.load();
+  }, [src, inView]);
 
   return (
     <motion.div
@@ -40,6 +52,7 @@ export function PhoneMockup({
         <div className="relative aspect-[9/19.5] w-full overflow-hidden rounded-[2rem] border-4 border-black/40 bg-black shadow-2xl shadow-primary/20">
           {inView && (
             <video
+              ref={videoRef}
               src={src}
               muted
               loop

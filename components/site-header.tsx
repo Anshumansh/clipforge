@@ -16,6 +16,7 @@ export function SiteHeader() {
           <Link href="/#features" className="transition-colors hover:text-foreground">Features</Link>
           <Link href="/#how-it-works" className="transition-colors hover:text-foreground">How it works</Link>
           <Link href="/pricing" className="transition-colors hover:text-foreground">Pricing</Link>
+          <Link href="/#faq" className="transition-colors hover:text-foreground">FAQ</Link>
         </nav>
         <div className="flex items-center gap-3">
           <Button asChild variant="ghost" size="sm">
