@@ -12,6 +12,13 @@ export const changelog: ChangelogEntry[] = [
   {
     date: "2026-08-10",
     tag: "New",
+    title: "Team workspaces",
+    description:
+      "Invite teammates to a shared workspace — they render from your credit balance and plan, and everyone sees the same project list. Included on the Business plan.",
+  },
+  {
+    date: "2026-08-10",
+    tag: "New",
     title: "MCP server — generate videos from Claude",
     description:
       "Connect Clipforge to Claude Desktop or Claude Code with an API key and generate, check, and list videos without leaving your chat. Included on the Business plan.",
