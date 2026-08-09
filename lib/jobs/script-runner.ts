@@ -7,6 +7,7 @@ import { renderScriptVideo } from "@/lib/remotion-render";
 import { recordActivity } from "@/lib/streaks";
 import { getLanguage } from "@/lib/languages";
 import { computeSceneTimeline } from "@/lib/timeline";
+import { getBrandForRender } from "@/lib/brand-server";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 
 async function setJobProgress(jobId: string, progress: number, log?: string) {
@@ -14,7 +15,7 @@ async function setJobProgress(jobId: string, progress: number, log?: string) {
 }
 
 export async function runScriptJob(jobId: string) {
-  const job = await db.job.findUniqueOrThrow({ where: { id: jobId }, include: { project: true } });
+  const job = await db.job.findUniqueOrThrow({ where: { id: jobId }, include: { project: { include: { user: true } } } });
   const project = job.project;
 
   try {
@@ -55,6 +56,7 @@ export async function runScriptJob(jobId: string) {
       : await synthesizeVoiceover(scriptResult.script, mediaKeyPrefix, input.voice, input.freeOnly, language.code);
 
     const sceneTimeline = computeSceneTimeline(scenes, voiceover.durationSec);
+    const brand = await getBrandForRender(project.userId, project.user.plan);
 
     await db.project.update({
       where: { id: project.id },
@@ -76,6 +78,7 @@ export async function runScriptJob(jobId: string) {
         durationInSeconds: voiceover.durationSec,
         aspectRatio: input.aspectRatio,
         watermark: input.watermark,
+        brand,
       },
       `${mediaKeyPrefix}/final.mp4`,
       (percent) => {

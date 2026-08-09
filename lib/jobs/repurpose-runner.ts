@@ -5,6 +5,7 @@ import { planHighlightsFromTranscript, type HighlightClip } from "@/lib/provider
 import { chatJSON } from "@/lib/providers/llm";
 import { analyzeSubjectPan, prepareLocalSource } from "@/lib/providers/subject-tracking";
 import { recordActivity } from "@/lib/streaks";
+import { getBrandForRender } from "@/lib/brand-server";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 
 async function setJobProgress(jobId: string, progress: number, log?: string) {
@@ -53,7 +54,7 @@ async function generateTitlesForSegments(topic: string, count: number): Promise<
 }
 
 export async function runRepurposeJob(jobId: string) {
-  const job = await db.job.findUniqueOrThrow({ where: { id: jobId }, include: { project: true } });
+  const job = await db.job.findUniqueOrThrow({ where: { id: jobId }, include: { project: { include: { user: true } } } });
   const project = job.project;
 
   try {
@@ -114,6 +115,8 @@ export async function runRepurposeJob(jobId: string) {
       }
     );
 
+    const brand = await getBrandForRender(project.userId, project.user.plan);
+
     let completed = 0;
     for (const clip of clips) {
       await db.clip.update({ where: { id: clip.id }, data: { status: "processing" } });
@@ -134,6 +137,7 @@ export async function runRepurposeJob(jobId: string) {
             title: clip.title,
             aspectRatio: input.aspectRatio,
             panKeyframes: panKeyframes ?? undefined,
+            brand,
           },
           `${mediaKeyPrefix}/clip-${clip.id}.mp4`,
           (percent) => {

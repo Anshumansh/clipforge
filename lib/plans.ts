@@ -43,3 +43,10 @@ export function getPlanByPriceId(priceId: string) {
 export function canUseVoiceClone(plan: string): boolean {
   return plan === "business";
 }
+
+/** Brand kits can be configured on any plan (see app/api/brand-kit) so a
+ * user can set one up in advance, but only actually applied to a render on
+ * the Business plan -- same tier gate as voice cloning and multi-format. */
+export function canUseBrandKit(plan: string): boolean {
+  return plan === "business";
+}

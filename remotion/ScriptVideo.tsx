@@ -12,6 +12,7 @@ import {
 import { resolveSource } from "./resolve-source";
 import type { BrollScene, WordTiming } from "@/lib/providers/types";
 import type { AspectRatio } from "@/lib/aspect-ratio";
+import { resolveFontFamily, type BrandSettings } from "@/lib/brand";
 
 export interface ScriptVideoProps {
   words: WordTiming[];
@@ -27,6 +28,29 @@ export interface ScriptVideoProps {
    * advertised on the pricing page as "Watermarked exports" for the Free tier,
    * so it needs to actually exist, not just be a bullet point. */
   watermark?: boolean;
+  /** Business-plan brand kit (lib/plans.ts canUseBrandKit) — undefined for
+   * everyone else, in which case every styled element below falls back to
+   * its original hardcoded look. Separate from `watermark`, which is
+   * Clipforge's own forced free-tier branding, not something a user picks. */
+  brand?: BrandSettings;
+}
+
+function BrandLogo({ logoUrl }: { logoUrl: string }) {
+  const { width, height } = useVideoConfig();
+  return (
+    <Img
+      src={logoUrl}
+      style={{
+        position: "absolute",
+        left: width * 0.03,
+        top: height * 0.03,
+        maxHeight: height * 0.06,
+        maxWidth: width * 0.28,
+        objectFit: "contain",
+        filter: "drop-shadow(0 1px 4px rgba(0,0,0,0.6))",
+      }}
+    />
+  );
 }
 
 function Watermark() {
@@ -133,7 +157,7 @@ function BrollBackground({
 
 // Every measurement below is proportional to the 1080x1920 frame these values were
 // originally tuned for, so the same visual composition holds at 1:1 and 16:9 too.
-function Captions({ words }: { words: WordTiming[] }) {
+function Captions({ words, brand }: { words: WordTiming[]; brand?: BrandSettings }) {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const t = frame / fps;
@@ -144,6 +168,8 @@ function Captions({ words }: { words: WordTiming[] }) {
   const windowSize = 3;
   const start = Math.max(0, activeIndex - 1);
   const visible = words.slice(start, start + windowSize + 1);
+  const fontFamily = resolveFontFamily(brand?.fontFamily);
+  const activeColor = brand?.primaryColor ?? "#FFD400";
 
   return (
     <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "center", paddingBottom: height * 0.1146 }}>
@@ -164,11 +190,11 @@ function Captions({ words }: { words: WordTiming[] }) {
             <span
               key={globalIndex}
               style={{
-                fontFamily: "Arial, Helvetica, sans-serif",
+                fontFamily,
                 fontWeight: 800,
                 fontSize: width * 0.0593,
                 lineHeight: 1.2,
-                color: isActive ? "#FFD400" : "#FFFFFF",
+                color: isActive ? activeColor : "#FFFFFF",
                 textShadow: "0 4px 18px rgba(0,0,0,0.65)",
                 transform: isActive ? "scale(1.08)" : "scale(1)",
               }}
@@ -182,13 +208,16 @@ function Captions({ words }: { words: WordTiming[] }) {
   );
 }
 
-function CtaCard({ text }: { text: string }) {
+function CtaCard({ text, brand }: { text: string; brand?: BrandSettings }) {
   const { width } = useVideoConfig();
+  const fontFamily = resolveFontFamily(brand?.fontFamily);
+  const gradientStart = brand?.primaryColor ?? "#7c3aed";
+  const gradientEnd = brand?.secondaryColor ?? "#ec4899";
   return (
     <AbsoluteFill style={{ justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.55)" }}>
       <div
         style={{
-          fontFamily: "Arial, Helvetica, sans-serif",
+          fontFamily,
           fontWeight: 900,
           fontSize: width * 0.0667,
           color: "#fff",
@@ -196,7 +225,7 @@ function CtaCard({ text }: { text: string }) {
           maxWidth: width * 0.7407,
           padding: `${width * 0.0296}px ${width * 0.0444}px`,
           borderRadius: width * 0.0222,
-          background: "linear-gradient(135deg, #7c3aed, #ec4899)",
+          background: `linear-gradient(135deg, ${gradientStart}, ${gradientEnd})`,
         }}
       >
         {text}
@@ -205,7 +234,7 @@ function CtaCard({ text }: { text: string }) {
   );
 }
 
-export function ScriptVideo({ words, scenes, audioUrl, durationInSeconds, ctaText, watermark }: ScriptVideoProps) {
+export function ScriptVideo({ words, scenes, audioUrl, durationInSeconds, ctaText, watermark, brand }: ScriptVideoProps) {
   const { fps } = useVideoConfig();
   const totalFrames = Math.ceil(durationInSeconds * fps);
   const sceneCount = Math.max(scenes.length, 1);
@@ -234,14 +263,15 @@ export function ScriptVideo({ words, scenes, audioUrl, durationInSeconds, ctaTex
           </Sequence>
         );
       })}
-      <Captions words={words} />
+      <Captions words={words} brand={brand} />
       {ctaText && (
         <Sequence from={Math.max(totalFrames - ctaDuration, 0)} durationInFrames={ctaDuration}>
-          <CtaCard text={ctaText} />
+          <CtaCard text={ctaText} brand={brand} />
         </Sequence>
       )}
       {audioUrl && <Audio src={resolveSource(audioUrl)} />}
       {watermark && <Watermark />}
+      {brand?.logoUrl && <BrandLogo logoUrl={brand.logoUrl} />}
     </AbsoluteFill>
   );
 }

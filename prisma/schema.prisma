@@ -40,6 +40,27 @@ model User {
   disclaimerConfig       DisclaimerConfig?
   featureRequests        FeatureRequest[]
   featureVotes           FeatureVote[]
+  brandKit               BrandKit?
+}
+
+// One brand kit per account -- not per-client, since real multi-client
+// workspaces don't exist yet (see the agencies page and item 12 on the
+// roadmap). Editable on any plan so a user can set it up in advance; only
+// actually applied to a render on the Business plan (lib/plans.ts
+// canUseBrandKit), same tier gate as voice cloning and multi-format export.
+model BrandKit {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logoUrl        String?
+  primaryColor   String? // hex -- active caption word + CTA gradient start
+  secondaryColor String? // hex -- CTA gradient end
+  // Constrained to font stacks actually installed in the render container
+  // (see Dockerfile's fonts-liberation package) rather than a free-text
+  // field or a Google Fonts picker that would silently fail to render.
+  fontFamily     String? // "sans" | "serif" | "mono"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 // A user-submitted product suggestion on the public /roadmap board.

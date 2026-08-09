@@ -4,6 +4,7 @@ import { synthesizeVoiceover } from "@/lib/providers/tts";
 import { pickBrollScenes } from "@/lib/providers/broll";
 import { renderScriptVideo } from "@/lib/remotion-render";
 import { recordActivity } from "@/lib/streaks";
+import { getBrandForRender } from "@/lib/brand-server";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 
 async function setJobProgress(jobId: string, progress: number, log?: string) {
@@ -11,7 +12,7 @@ async function setJobProgress(jobId: string, progress: number, log?: string) {
 }
 
 export async function runUgcJob(jobId: string) {
-  const job = await db.job.findUniqueOrThrow({ where: { id: jobId }, include: { project: true } });
+  const job = await db.job.findUniqueOrThrow({ where: { id: jobId }, include: { project: { include: { user: true } } } });
   const project = job.project;
 
   try {
@@ -46,6 +47,8 @@ export async function runUgcJob(jobId: string) {
       },
     });
 
+    const brand = await getBrandForRender(project.userId, project.user.plan);
+
     await setJobProgress(jobId, 60, "Rendering ad video…");
     const videoUrl = await renderScriptVideo(
       {
@@ -55,6 +58,7 @@ export async function runUgcJob(jobId: string) {
         durationInSeconds: voiceover.durationSec + 2,
         ctaText: input.ctaText || `Get ${input.productName} today`,
         aspectRatio: input.aspectRatio,
+        brand,
       },
       `${mediaKeyPrefix}/final.mp4`,
       (percent) => {

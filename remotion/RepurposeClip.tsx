@@ -1,7 +1,8 @@
 import React from "react";
-import { AbsoluteFill, OffthreadVideo, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Img, OffthreadVideo, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 import { resolveSource } from "./resolve-source";
 import type { AspectRatio } from "@/lib/aspect-ratio";
+import { resolveFontFamily, type BrandSettings } from "@/lib/brand";
 
 // Kept as a plain local type (not imported from lib/providers/subject-tracking)
 // so this file never pulls that module's TensorFlow.js dependency graph into
@@ -23,6 +24,9 @@ export interface RepurposeClipProps {
    * one sample per second. Falls back to a static center crop when absent
    * (analysis found no face, or the source video is being repurposed without it). */
   panKeyframes?: PanKeyframe[];
+  /** Business-plan brand kit -- see remotion/ScriptVideo.tsx for the full
+   * explanation. Undefined for everyone else. */
+  brand?: BrandSettings;
 }
 
 function usePanObjectPosition(panKeyframes: PanKeyframe[] | undefined) {
@@ -42,9 +46,10 @@ function usePanObjectPosition(panKeyframes: PanKeyframe[] | undefined) {
   return `${xPercent}% center`;
 }
 
-export function RepurposeClip({ sourcePath, startSec, endSec, title, panKeyframes }: RepurposeClipProps) {
-  const { fps, width } = useVideoConfig();
+export function RepurposeClip({ sourcePath, startSec, endSec, title, panKeyframes, brand }: RepurposeClipProps) {
+  const { fps, width, height } = useVideoConfig();
   const objectPosition = usePanObjectPosition(panKeyframes);
+  const fontFamily = resolveFontFamily(brand?.fontFamily);
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
@@ -65,7 +70,7 @@ export function RepurposeClip({ sourcePath, startSec, endSec, title, panKeyframe
       <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "center", paddingBottom: width * 0.1296 }}>
         <div
           style={{
-            fontFamily: "Arial, Helvetica, sans-serif",
+            fontFamily,
             fontWeight: 800,
             fontSize: width * 0.0481,
             color: "#fff",
@@ -78,6 +83,20 @@ export function RepurposeClip({ sourcePath, startSec, endSec, title, panKeyframe
           {title}
         </div>
       </AbsoluteFill>
+      {brand?.logoUrl && (
+        <Img
+          src={brand.logoUrl}
+          style={{
+            position: "absolute",
+            left: width * 0.03,
+            top: height * 0.03,
+            maxHeight: height * 0.06,
+            maxWidth: width * 0.28,
+            objectFit: "contain",
+            filter: "drop-shadow(0 1px 4px rgba(0,0,0,0.6))",
+          }}
+        />
+      )}
     </AbsoluteFill>
   );
 }
