@@ -25,10 +25,14 @@ model User {
   longestStreak          Int       @default(0)
   lastActiveAt           DateTime?
   // Gates the handful of founder-only actions that exist today (updating a
-  // feature request's status). Deliberately a single flag rather than a
-  // roles table -- there's exactly one admin right now; build the real
-  // thing when there's an actual reason to.
+  // feature request's status, granting credits/trials). Deliberately a
+  // single flag rather than a roles table -- there's exactly one admin
+  // right now; build the real thing when there's an actual reason to.
   isAdmin                Boolean   @default(false)
+  // Set by an admin-granted free trial (app/api/admin/comp-plan) -- a cron
+  // (scripts/revert-expired-comps.sh) reverts `plan` back to whatever it
+  // was before the comp once this passes. Null the rest of the time.
+  compPlanExpiresAt      DateTime?
   createdAt              DateTime  @default(now())
   projects               Project[]
   jobs                   Job[]
@@ -44,6 +48,30 @@ model User {
   apiKeys                ApiKey[]
   ownedWorkspace         Workspace?        @relation("WorkspaceOwner")
   workspaceMembership    WorkspaceMember?  @relation("WorkspaceMembership")
+  adminActionsReceived   AdminAction[]     @relation("AdminActionTarget")
+  adminActionsPerformed  AdminAction[]     @relation("AdminActionAdmin")
+}
+
+// Audit log for every admin credit-grant / plan-comp action -- who did what,
+// to whom, and why. Manipulating a user's credits or plan without a trail
+// would be a real accountability gap the moment there's more than one admin,
+// or just for your own later "wait, why does this account have 5000 credits"
+// question.
+model AdminAction {
+  id           String   @id @default(cuid())
+  adminId      String
+  admin        User     @relation("AdminActionAdmin", fields: [adminId], references: [id], onDelete: Cascade)
+  targetUserId String
+  targetUser   User     @relation("AdminActionTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+  type         String // "credit_grant" | "plan_comp"
+  creditsGranted Int?
+  planGranted  String?
+  previousPlan String? // snapshot so a trial reverts to what the user actually had, not a hardcoded "free"
+  days         Int?
+  note         String
+  createdAt    DateTime @default(now())
+
+  @@index([targetUserId])
 }
 
 // Item 12 (team workspaces), v1 scope: members spend from the OWNER's

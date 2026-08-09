@@ -645,13 +645,27 @@ deletes demo projects and their storage objects after 24h — anonymous generati
 no account behind them to ever come back and delete their own data, so unlike real
 users' media this has to expire on a timer or it grows unbounded.
 
-**Admin access** — `User.isAdmin` (boolean, default false). Exactly one founder-only
-action exists today (updating a roadmap item's status), so this is a single flag
-rather than a roles table. Set directly in the DB, not via any UI:
+**Admin access** — `User.isAdmin` (boolean, default false). A single flag rather than
+a roles table, same reasoning as everywhere else in this codebase (see the Workspace/
+BrandKit/UserNiche comments in `prisma/schema.prisma`) — there's exactly one admin
+account right now. Set directly in the DB, not via any UI:
 ```
 db.user.update({ where: { email: "..." }, data: { isAdmin: true } })
 ```
 Currently `true` only for `sharma0810anshuman@gmail.com`.
+
+**`/admin`** (2026-08-10) — search any account by email, grant it credits, or comp it
+onto a plan for N days (a manual "free trial"). Every action writes an `AdminAction`
+row (who, whom, what, why) — a real audit trail, not a silent DB edit. A comp reverts
+automatically once it expires: `scripts/revert-expired-comps.sh` (daily cron) hits
+`POST /api/cron/revert-expired-comps`, which reverts each expired user to whatever
+plan they had *before* the comp (snapshotted on the `AdminAction` row), not a
+hardcoded `"free"` — a real paying subscriber who was comped a higher tier for a trial
+goes back to what they're actually paying for. **Known edge case, not fully solved**:
+if a comped user has an active Stripe subscription and it renews *during* the comp
+window, the Stripe webhook will overwrite the comp with their real plan immediately
+(not a bug — Stripe is still the source of truth for real subscriptions) — comps are
+cleanest for accounts without an active subscription.
 
 **`/changelog`** — static, hand-edited entries in `lib/changelog.ts`. No CMS.
 

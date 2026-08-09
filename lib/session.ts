@@ -13,3 +13,13 @@ export async function requireUser() {
 
   return user;
 }
+
+/** For server components (the admin page itself). API routes use the
+ * inline getServerSession + fresh isAdmin lookup pattern instead (see
+ * app/api/roadmap/[id]/status/route.ts) so they can return a JSON 401/403
+ * rather than a redirect. */
+export async function requireAdmin() {
+  const user = await requireUser();
+  if (!user.isAdmin) redirect("/dashboard");
+  return user;
+}
