@@ -12,7 +12,7 @@ import {
 import { resolveSource } from "./resolve-source";
 import type { BrollScene, WordTiming } from "@/lib/providers/types";
 import type { AspectRatio } from "@/lib/aspect-ratio";
-import { resolveFontFamily, type BrandSettings } from "@/lib/brand";
+import { resolveFontFamily, type BrandSettings } from "../lib/brand";
 
 export interface ScriptVideoProps {
   words: WordTiming[];

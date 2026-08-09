@@ -2,7 +2,7 @@ import React from "react";
 import { AbsoluteFill, Img, OffthreadVideo, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 import { resolveSource } from "./resolve-source";
 import type { AspectRatio } from "@/lib/aspect-ratio";
-import { resolveFontFamily, type BrandSettings } from "@/lib/brand";
+import { resolveFontFamily, type BrandSettings } from "../lib/brand";
 
 // Kept as a plain local type (not imported from lib/providers/subject-tracking)
 // so this file never pulls that module's TensorFlow.js dependency graph into
