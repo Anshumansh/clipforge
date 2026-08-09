@@ -28,6 +28,16 @@ import {
   Zap,
 } from "lucide-react";
 
+// This page has no dynamic APIs, so Next would otherwise treat it as fully
+// static: rendered exactly once at Docker build time (with no real
+// DATABASE_URL available then, since .dockerignore keeps .env out of the
+// build context — see Dockerfile) and served as that same fixed HTML
+// forever after. Without this, unstable_cache's revalidate window below is
+// meaningless: nothing would ever call the cached function again to trigger
+// a refresh. This makes the route ISR — background-regenerated against the
+// real running server (real DB access) on access after the interval.
+export const revalidate = 300;
+
 const features = [
   {
     icon: Wand2,
