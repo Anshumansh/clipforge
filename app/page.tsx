@@ -6,6 +6,9 @@ import { PhoneMockup } from "@/components/phone-showcase";
 import { HeroShowcase } from "@/components/hero-showcase";
 import { StatCounter } from "@/components/stat-counter";
 import { Marquee } from "@/components/marquee";
+import { TestimonialsSection } from "@/components/testimonials-section";
+import { db } from "@/lib/db";
+import { unstable_cache } from "next/cache";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +23,7 @@ import {
   Sparkles,
   Target,
   UserRound,
+  Users,
   Wand2,
   Zap,
 } from "lucide-react";
@@ -210,7 +214,28 @@ const structuredData = [
   },
 ];
 
-export default function LandingPage() {
+// This page has no dynamic APIs (no cookies/headers/searchParams), so Next
+// statically prerenders it at build time by default — which would otherwise
+// bake this count in permanently from whatever the CI build environment saw
+// (a dummy, unreachable DATABASE_URL there — see deploy.yml). unstable_cache
+// makes this one value revalidate on a timer against the real production DB
+// once the page is actually running, instead of freezing at a build-time
+// snapshot that never updates.
+const getVideosGeneratedCount = unstable_cache(
+  async (): Promise<number> => {
+    try {
+      return await db.project.count({ where: { status: "ready" } });
+    } catch {
+      return 0;
+    }
+  },
+  ["homepage-videos-generated-count"],
+  { revalidate: 300 }
+);
+
+export default async function LandingPage() {
+  const videosGenerated = await getVideosGeneratedCount();
+
   return (
     <div className="flex min-h-screen flex-col">
       <script
@@ -255,6 +280,12 @@ export default function LandingPage() {
                   </Link>
                 </div>
                 <p className="mt-4 text-xs text-muted-foreground">No credit card required · 50 free credits</p>
+                {videosGenerated > 0 && (
+                  <div className="mx-auto mt-4 flex w-fit items-center gap-1.5 rounded-full border border-border bg-card/40 px-3 py-1.5 text-xs text-muted-foreground lg:mx-0">
+                    <Users className="h-3.5 w-3.5 text-primary" />
+                    <StatCounter value={videosGenerated} /> videos generated on Clipforge and counting
+                  </div>
+                )}
               </Reveal>
 
               <Reveal delay={0.2}>
@@ -408,6 +439,8 @@ export default function LandingPage() {
             ))}
           </RevealGroup>
         </section>
+
+        <TestimonialsSection />
 
         <section id="faq" className="border-y border-border/60 bg-secondary/30 px-6 py-20">
           <Reveal>
