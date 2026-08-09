@@ -60,6 +60,27 @@ async function fetchPexelsImage(keyword: string): Promise<string | null> {
   }
 }
 
+/** Landscape orientation, for the thumbnail generator (YouTube thumbnails
+ * are 16:9) — same free Pexels photo search as b-roll images, just a
+ * different aspect ratio and public, since a thumbnail background doesn't
+ * need the tight per-keyword targeting a full script's b-roll sequence does. */
+export async function fetchThumbnailBackground(keyword: string): Promise<string | null> {
+  const apiKey = process.env.PEXELS_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const res = await fetch(
+      `https://api.pexels.com/v1/search?query=${encodeURIComponent(keyword)}&orientation=landscape&per_page=1`,
+      { headers: { Authorization: apiKey }, signal: AbortSignal.timeout(15000) }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.photos?.[0]?.src?.large2x ?? data.photos?.[0]?.src?.large ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function pickBrollScenes(keywords: string[]): Promise<BrollScene[]> {
   const scenes: BrollScene[] = [];
   const list = keywords.length > 0 ? keywords : ["idea", "focus", "growth"];

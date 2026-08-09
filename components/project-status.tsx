@@ -6,6 +6,7 @@ import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AlertTriangle, Download } from "lucide-react";
 import { PublishButton } from "@/components/publish-button";
+import { ThumbnailGenerator } from "@/components/thumbnail-generator";
 
 interface Clip {
   id: string;
@@ -23,6 +24,7 @@ interface ProjectData {
   title: string;
   status: string;
   videoUrl: string | null;
+  thumbnailUrl: string | null;
   errorMessage: string | null;
   clips: Clip[];
   job: { status: string; progress: number; log: string | null } | null;
@@ -137,8 +139,9 @@ export function ProjectStatus({ initial }: { initial: ProjectData }) {
       )}
 
       {data.status === "ready" && data.type !== "repurpose" && data.videoUrl && (
-        <div className="flex justify-center">
+        <div className="mx-auto max-w-md space-y-4">
           <VideoCard title={data.title} url={data.videoUrl} projectId={data.id} />
+          <ThumbnailGenerator projectId={data.id} initialUrl={data.thumbnailUrl} />
         </div>
       )}
 

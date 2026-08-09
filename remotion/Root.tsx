@@ -3,6 +3,7 @@ import { Composition } from "remotion";
 import { ScriptVideo, type ScriptVideoProps } from "./ScriptVideo";
 import { RepurposeClip, type RepurposeClipProps } from "./RepurposeClip";
 import { AudioExtract, type AudioExtractProps } from "./AudioExtract";
+import { Thumbnail, type ThumbnailProps } from "./Thumbnail";
 import { ASPECT_RATIO_DIMENSIONS } from "../lib/aspect-ratio";
 
 const FPS = 30;
@@ -24,6 +25,11 @@ const repurposeDefaultProps: RepurposeClipProps = {
 const audioExtractDefaultProps: AudioExtractProps = {
   sourcePath: "",
   durationInSeconds: 3,
+};
+
+const thumbnailDefaultProps: ThumbnailProps = {
+  imageUrl: "",
+  title: "Loading…",
 };
 
 // Remotion's <Composition> generics require a zod `schema` to infer prop types cleanly.
@@ -85,6 +91,16 @@ export function Root() {
           const p = props as unknown as AudioExtractProps;
           return { durationInFrames: Math.max(Math.ceil(p.durationInSeconds * FPS), FPS) };
         }}
+      />
+      <AnyComposition
+        id="Thumbnail"
+        component={Thumbnail as unknown as React.FC<Record<string, unknown>>}
+        durationInFrames={1}
+        fps={FPS}
+        width={1280}
+        height={720}
+        defaultProps={thumbnailDefaultProps as unknown as Record<string, unknown>}
+        calculateMetadata={async () => ({ durationInFrames: 1 })}
       />
     </>
   );

@@ -2,11 +2,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { bundle } from "@remotion/bundler";
-import { renderMedia, selectComposition } from "@remotion/renderer";
+import { renderMedia, renderStill, selectComposition } from "@remotion/renderer";
 import { uploadLocalFile } from "@/lib/storage";
 import type { ScriptVideoProps } from "@/remotion/ScriptVideo";
 import type { RepurposeClipProps } from "@/remotion/RepurposeClip";
 import type { AudioExtractProps } from "@/remotion/AudioExtract";
+import type { ThumbnailProps } from "@/remotion/Thumbnail";
 
 let bundlePromise: Promise<string> | null = null;
 
@@ -88,4 +89,32 @@ export function renderRepurposeClip(
  * caller right after transcription), so it never touches remote storage. */
 export function renderAudioExtract(props: AudioExtractProps, localOutputPath: string, onProgress?: (percent: number) => void) {
   return renderToLocalFile("AudioExtract", props as unknown as Record<string, unknown>, localOutputPath, "mp3", onProgress);
+}
+
+/** Renders a single still frame (YouTube thumbnail size) and uploads it —
+ * a real image composite (background photo + title text), not a paid
+ * generative-image API call. renderStill is a separate, much cheaper
+ * Remotion API than renderMedia: one frame, no encoding. */
+export async function renderThumbnail(props: ThumbnailProps, storageKey: string): Promise<string> {
+  const serveUrl = await getBundle();
+  const composition = await selectComposition({
+    serveUrl,
+    id: "Thumbnail",
+    inputProps: props as unknown as Record<string, unknown>,
+  });
+
+  const tempPath = path.join(os.tmpdir(), `clipforge-thumb-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`);
+  try {
+    await renderStill({
+      serveUrl,
+      composition,
+      output: tempPath,
+      inputProps: props as unknown as Record<string, unknown>,
+      imageFormat: "jpeg",
+      jpegQuality: 90,
+    });
+    return await uploadLocalFile(tempPath, storageKey, "image/jpeg");
+  } finally {
+    await fs.rm(tempPath, { force: true }).catch(() => {});
+  }
 }
