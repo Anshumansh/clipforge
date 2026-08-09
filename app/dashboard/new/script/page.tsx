@@ -111,7 +111,7 @@ export default function NewScriptVideoPage() {
                 <Sparkles className="h-3.5 w-3.5" /> {hooksLoading ? "Thinking of hooks…" : "Get 3 hook ideas"}
               </Button>
               {hooks && hooks.length > 0 && (
-                <div className="space-y-1.5 rounded-lg border border-border/60 bg-secondary/30 p-3">
+                <div className="space-y-1.5 rounded-lg border border-border bg-secondary/30 p-3">
                   <p className="text-xs text-muted-foreground">Pick one to open your video with:</p>
                   {hooks.map((hook, i) => (
                     <button
@@ -162,7 +162,7 @@ export default function NewScriptVideoPage() {
                 Business-plan feature.
               </p>
               {voiceSample && (
-                <label className="flex items-start gap-2 rounded-lg border border-border/60 bg-secondary/30 p-3 text-xs text-muted-foreground">
+                <label className="flex items-start gap-2 rounded-lg border border-border bg-secondary/30 p-3 text-xs text-muted-foreground">
                   <input
                     type="checkbox"
                     required

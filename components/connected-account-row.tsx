@@ -38,7 +38,7 @@ export function ConnectedAccountRow({
   }
 
   return (
-    <div className="flex items-center justify-between rounded-lg border border-border/60 px-4 py-3">
+    <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
       <div>
         <p className="text-sm font-medium">{label}</p>
         <p className="text-xs text-muted-foreground">

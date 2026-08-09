@@ -100,7 +100,7 @@ export function PublishButton({ videoUrl, projectId, clipId }: { videoUrl: strin
   const minDatetime = new Date(Date.now() + 5 * 60 * 1000).toISOString().slice(0, 16);
 
   return (
-    <div className="space-y-2 rounded-lg border border-border/60 p-3">
+    <div className="space-y-2 rounded-lg border border-border p-3">
       <div className="flex flex-wrap gap-1.5">
         {accounts.map((a) => (
           <button

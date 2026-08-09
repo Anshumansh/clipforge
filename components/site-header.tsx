@@ -4,7 +4,7 @@ import { Sparkles } from "lucide-react";
 
 export function SiteHeader() {
   return (
-    <header className="glass sticky top-0 z-40 border-b border-border/60">
+    <header className="glass sticky top-0 z-40 border-b border-border">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
         <Link href="/" className="group flex items-center gap-2 font-display font-semibold tracking-tight">
           <span className="flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-br from-[hsl(262_83%_66%)] to-[hsl(316_80%_62%)] transition-transform duration-200 group-hover:rotate-6">
