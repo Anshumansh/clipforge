@@ -5,23 +5,22 @@ import { parseBuffer } from "music-metadata";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { withTimeout } from "@/lib/with-timeout";
 import { uploadBuffer } from "@/lib/storage";
+import { getLanguage } from "@/lib/languages";
 import type { VoiceoverResult, WordTiming } from "./types";
 
 const WORDS_PER_SECOND = 2.5;
 const PROVIDER_TIMEOUT_MS = 20000;
 
-const EDGE_VOICES: Record<string, string> = {
-  alloy: "en-US-GuyNeural",
-  echo: "en-US-GuyNeural",
-  onyx: "en-US-DavisNeural",
-  nova: "en-US-JennyNeural",
-  shimmer: "en-US-AriaNeural",
-  fable: "en-US-JennyNeural",
-};
+// OpenAI-style aliases carry a rough gender lean, reused to pick which of a
+// language's two Edge voices to use -- kept separate from OpenAI's own
+// voice param (see synthesizeWithOpenAI) since these aren't valid OpenAI
+// voice names once mapped through a non-English language.
+const MALE_ALIASES = new Set(["alloy", "echo", "onyx"]);
 
-function mapToEdgeVoice(voice?: string): string {
-  if (voice && voice.includes("-Neural")) return voice; // already an Edge voice name
-  return (voice && EDGE_VOICES[voice]) || "en-US-GuyNeural";
+function mapToEdgeVoice(voice: string | undefined, languageCode: string): string {
+  if (voice && voice.includes("-Neural")) return voice; // already a literal Edge voice name
+  const language = getLanguage(languageCode);
+  return MALE_ALIASES.has(voice ?? "alloy") ? language.maleVoice : language.femaleVoice;
 }
 
 export function estimateWordTimings(script: string, totalDurationSec: number): WordTiming[] {
@@ -85,12 +84,17 @@ async function synthesizeWithOpenAI(script: string, mediaKeyPrefix: string, voic
 
 /** Free, no-signup voiceover using Microsoft Edge's neural TTS voices (the engine behind
  * Edge's "Read Aloud"). Unofficial API, but widely used and reliable in practice. */
-async function synthesizeWithEdge(script: string, mediaKeyPrefix: string, voice: string): Promise<VoiceoverResult> {
+async function synthesizeWithEdge(
+  script: string,
+  mediaKeyPrefix: string,
+  voice: string,
+  languageCode: string
+): Promise<VoiceoverResult> {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "clipforge-tts-"));
 
   const tts = new MsEdgeTTS();
   try {
-    await tts.setMetadata(mapToEdgeVoice(voice), OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
+    await tts.setMetadata(mapToEdgeVoice(voice, languageCode), OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
     const { audioFilePath } = await tts.toFile(tempDir, script);
 
     const buffer = await fs.readFile(audioFilePath);
@@ -115,7 +119,8 @@ export async function synthesizeVoiceover(
   script: string,
   mediaKeyPrefix: string,
   voice = "alloy",
-  useFreeOnly = false
+  useFreeOnly = false,
+  languageCode = "en"
 ): Promise<VoiceoverResult> {
   if (process.env.OPENAI_API_KEY && !useFreeOnly) {
     try {
@@ -126,7 +131,11 @@ export async function synthesizeVoiceover(
   }
 
   try {
-    return await withTimeout(synthesizeWithEdge(script, mediaKeyPrefix, voice), PROVIDER_TIMEOUT_MS, "Edge TTS");
+    return await withTimeout(
+      synthesizeWithEdge(script, mediaKeyPrefix, voice, languageCode),
+      PROVIDER_TIMEOUT_MS,
+      "Edge TTS"
+    );
   } catch (err) {
     console.error("[tts] Edge TTS failed, falling back to mock:", err instanceof Error ? err.message : err);
     return mockVoiceover(script);

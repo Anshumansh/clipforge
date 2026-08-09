@@ -10,12 +10,14 @@ import { Input } from "@/components/ui/input";
 import { AspectRatioPicker } from "@/components/aspect-ratio-picker";
 import { Sparkles, Wand2 } from "lucide-react";
 import type { AspectRatio } from "@/lib/aspect-ratio";
+import { LANGUAGES } from "@/lib/languages";
 
 export default function NewScriptVideoPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [topic, setTopic] = useState(() => searchParams.get("topic") ?? "");
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("9:16");
+  const [language, setLanguage] = useState("en");
   const [voiceSample, setVoiceSample] = useState<File | null>(null);
   const [voiceConsent, setVoiceConsent] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -49,6 +51,7 @@ export default function NewScriptVideoPage() {
     const form = new FormData();
     form.set("topic", topic);
     form.set("aspectRatio", aspectRatio);
+    form.set("language", language);
     if (voiceSample) {
       form.set("voiceSample", voiceSample);
       form.set("voiceConsent", String(voiceConsent));
@@ -127,6 +130,21 @@ export default function NewScriptVideoPage() {
               <Label>Format</Label>
               <AspectRatioPicker value={aspectRatio} onChange={setAspectRatio} />
               <p className="text-xs text-muted-foreground">1:1 and 16:9 are a Business-plan feature.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="language">Script + voiceover language</Label>
+              <select
+                id="language"
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+                className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                {LANGUAGES.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="voiceSample">Clone your voice (optional)</Label>

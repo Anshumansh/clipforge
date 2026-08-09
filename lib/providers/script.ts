@@ -156,9 +156,15 @@ export async function generateScriptFromPattern(
   };
 }
 
-export async function generateScript(topic: string, useFreeOnly = false): Promise<ScriptResult> {
+export async function generateScript(
+  topic: string,
+  useFreeOnly = false,
+  languageLabel = "English"
+): Promise<ScriptResult> {
   const fallback = mockScript(topic);
   const chat = useFreeOnly ? chatJSONFree : chatJSON;
+  const languageInstruction =
+    languageLabel === "English" ? "" : ` Write the script itself entirely in ${languageLabel}.`;
 
   const parsed = await chat([
     {
@@ -166,7 +172,8 @@ export async function generateScript(topic: string, useFreeOnly = false): Promis
       content:
         "You write short, punchy scripts for 30-45 second vertical social videos (TikTok/Reels/Shorts). " +
         "Return strict JSON with keys: title (short, <60 chars), script (plain spoken text, no stage directions, 70-110 words), " +
-        "sceneKeywords (array of 4-6 short visual keywords for stock footage search, based on the script).",
+        `sceneKeywords (array of 4-6 short visual keywords for stock footage search, based on the script — always in English, ` +
+        `regardless of the script's language, since they're used for an English-only stock footage search).${languageInstruction}`,
     },
     { role: "user", content: `Topic or source text:\n\n${topic}` },
   ]);

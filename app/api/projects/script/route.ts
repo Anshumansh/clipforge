@@ -9,6 +9,7 @@ import { uploadBuffer } from "@/lib/storage";
 import { rateLimit } from "@/lib/rate-limit";
 import { ASPECT_RATIOS, isAspectRatio, canUseAspectRatio, type AspectRatio } from "@/lib/aspect-ratio";
 import { canUseVoiceClone } from "@/lib/plans";
+import { LANGUAGES } from "@/lib/languages";
 
 export const runtime = "nodejs";
 
@@ -27,6 +28,8 @@ export async function POST(req: Request) {
 
   const topic = String(form.get("topic") ?? "");
   const voice = form.get("voice") ? String(form.get("voice")) : undefined;
+  const languageRaw = form.get("language") ? String(form.get("language")) : "en";
+  const language = LANGUAGES.some((l) => l.code === languageRaw) ? languageRaw : "en";
   const aspectRatioRaw = form.get("aspectRatio");
   const aspectRatio: AspectRatio | undefined = isAspectRatio(aspectRatioRaw) ? aspectRatioRaw : undefined;
   const voiceSample = form.get("voiceSample");
@@ -95,7 +98,9 @@ export async function POST(req: Request) {
 
   await db.project.update({
     where: { id: project.id },
-    data: { input: JSON.stringify({ topic, voice, aspectRatio, voiceSampleUrl, watermark: user.plan === "free" }) },
+    data: {
+      input: JSON.stringify({ topic, voice, language, aspectRatio, voiceSampleUrl, watermark: user.plan === "free" }),
+    },
   });
 
   const job = await db.job.create({

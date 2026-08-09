@@ -5,6 +5,7 @@ import { cloneVoice } from "@/lib/providers/voice-clone";
 import { pickBrollScenes } from "@/lib/providers/broll";
 import { renderScriptVideo } from "@/lib/remotion-render";
 import { recordActivity } from "@/lib/streaks";
+import { getLanguage } from "@/lib/languages";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 
 async function setJobProgress(jobId: string, progress: number, log?: string) {
@@ -22,6 +23,7 @@ export async function runScriptJob(jobId: string) {
     const input = JSON.parse(project.input) as {
       topic: string;
       voice?: string;
+      language?: string; // ISO-ish short code, see lib/languages.ts -- defaults to English
       aspectRatio?: AspectRatio;
       voiceSampleUrl?: string;
       watermark?: boolean;
@@ -32,9 +34,10 @@ export async function runScriptJob(jobId: string) {
       freeOnly?: boolean;
     };
     const mediaKeyPrefix = `media/${project.userId}/${project.id}`;
+    const language = getLanguage(input.language ?? "en");
 
     await setJobProgress(jobId, 10, "Writing script…");
-    const scriptResult = await generateScript(input.topic, input.freeOnly);
+    const scriptResult = await generateScript(input.topic, input.freeOnly, language.label);
 
     await setJobProgress(jobId, 30, "Selecting b-roll…");
     const scenes = await pickBrollScenes(scriptResult.sceneKeywords);
@@ -46,9 +49,9 @@ export async function runScriptJob(jobId: string) {
             "[script-runner] voice cloning failed, falling back to default TTS:",
             err instanceof Error ? err.message : err
           );
-          return synthesizeVoiceover(scriptResult.script, mediaKeyPrefix, input.voice, input.freeOnly);
+          return synthesizeVoiceover(scriptResult.script, mediaKeyPrefix, input.voice, input.freeOnly, language.code);
         })
-      : await synthesizeVoiceover(scriptResult.script, mediaKeyPrefix, input.voice, input.freeOnly);
+      : await synthesizeVoiceover(scriptResult.script, mediaKeyPrefix, input.voice, input.freeOnly, language.code);
 
     await db.project.update({
       where: { id: project.id },
