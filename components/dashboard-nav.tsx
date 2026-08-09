@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
+  Calendar,
   Coins,
   CreditCard,
   Flame,
@@ -33,6 +34,7 @@ const links = [
   { href: "/dashboard/new/repurpose", label: "Repurpose", icon: Scissors },
   { href: "/dashboard/new/ugc", label: "UGC / Avatar ad", icon: UserRound },
   { href: "/dashboard/settings", label: "Connected accounts", icon: Share2 },
+  { href: "/dashboard/schedule", label: "Schedule", icon: Calendar },
   { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
   { href: "/roadmap", label: "Roadmap", icon: MessageSquarePlus },
 ];

@@ -23,7 +23,8 @@ export function PublishButton({ videoUrl, projectId, clipId }: { videoUrl: strin
   const [open, setOpen] = useState(false);
   const [selectedId, setSelectedId] = useState("");
   const [caption, setCaption] = useState("");
-  const [status, setStatus] = useState<"idle" | "posting" | "posted" | "failed">("idle");
+  const [scheduleFor, setScheduleFor] = useState(""); // datetime-local value, empty = post now
+  const [status, setStatus] = useState<"idle" | "posting" | "posted" | "scheduled" | "failed">("idle");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -35,13 +36,21 @@ export function PublishButton({ videoUrl, projectId, clipId }: { videoUrl: strin
 
   async function publish() {
     if (!selectedId) return;
+    const scheduling = scheduleFor.length > 0;
     setStatus("posting");
     setError(null);
 
     const res = await fetch("/api/social/post", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ socialAccountId: selectedId, videoUrl, caption, projectId, clipId }),
+      body: JSON.stringify({
+        socialAccountId: selectedId,
+        videoUrl,
+        caption,
+        projectId,
+        clipId,
+        ...(scheduling ? { scheduledAt: new Date(scheduleFor).toISOString() } : {}),
+      }),
     });
     const data = await res.json().catch(() => ({}));
 
@@ -50,7 +59,7 @@ export function PublishButton({ videoUrl, projectId, clipId }: { videoUrl: strin
       setError(data.error ?? "Publish failed");
       return;
     }
-    setStatus("posted");
+    setStatus(scheduling ? "scheduled" : "posted");
   }
 
   if (!open) {
@@ -77,6 +86,19 @@ export function PublishButton({ videoUrl, projectId, clipId }: { videoUrl: strin
     return <p className="text-xs text-emerald-500">Posted!</p>;
   }
 
+  if (status === "scheduled") {
+    return (
+      <p className="text-xs text-emerald-500">
+        Scheduled for {new Date(scheduleFor).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.{" "}
+        <Link href="/dashboard/schedule" className="underline">
+          View schedule
+        </Link>
+      </p>
+    );
+  }
+
+  const minDatetime = new Date(Date.now() + 5 * 60 * 1000).toISOString().slice(0, 16);
+
   return (
     <div className="space-y-2 rounded-lg border border-border/60 p-3">
       <div className="flex flex-wrap gap-1.5">
@@ -100,10 +122,20 @@ export function PublishButton({ videoUrl, projectId, clipId }: { videoUrl: strin
         onChange={(e) => setCaption(e.target.value)}
         className="text-xs"
       />
+      <div className="flex items-center gap-2">
+        <input
+          type="datetime-local"
+          value={scheduleFor}
+          min={minDatetime}
+          onChange={(e) => setScheduleFor(e.target.value)}
+          className="rounded-md border border-border bg-background/60 px-2 py-1 text-xs"
+        />
+        <span className="text-xs text-muted-foreground">{scheduleFor ? "" : "Leave blank to post now"}</span>
+      </div>
       {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex gap-2">
         <Button size="sm" disabled={!selectedId || status === "posting"} onClick={publish}>
-          {status === "posting" ? "Publishing…" : "Publish now"}
+          {status === "posting" ? (scheduleFor ? "Scheduling…" : "Publishing…") : scheduleFor ? "Schedule" : "Publish now"}
         </Button>
         <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
           Cancel
