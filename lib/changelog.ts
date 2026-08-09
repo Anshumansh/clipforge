@@ -10,6 +10,20 @@ export interface ChangelogEntry {
 // what's still coming).
 export const changelog: ChangelogEntry[] = [
   {
+    date: "2026-08-10",
+    tag: "New",
+    title: "MCP server — generate videos from Claude",
+    description:
+      "Connect Clipforge to Claude Desktop or Claude Code with an API key and generate, check, and list videos without leaving your chat. Included on the Business plan.",
+  },
+  {
+    date: "2026-08-10",
+    tag: "New",
+    title: "Brand kits",
+    description:
+      "Set a logo, colors, and font once and every script-to-video, repurpose, and UGC render picks it up automatically. Included on the Business plan.",
+  },
+  {
     date: "2026-08-09",
     tag: "New",
     title: "Try a real generation before you sign up",
