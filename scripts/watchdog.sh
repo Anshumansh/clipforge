@@ -69,7 +69,7 @@ done
 # cron invoking these paths directly, and none of them had +x, so every
 # single run failed with "Permission denied" from day one until this was
 # caught here) ---
-for entry in "/var/log/clipforge-backup.log:93600:backup" "/var/log/clipforge-social.log:600:scheduled posts" "/var/log/clipforge-trend.log:14400:trend ingestion"; do
+for entry in "/var/log/clipforge-backup.log:93600:backup" "/var/log/clipforge-social.log:600:scheduled posts" "/var/log/clipforge-trend.log:14400:trend ingestion" "/var/log/clipforge-demo-cleanup.log:93600:demo cleanup"; do
   path="${entry%%:*}"
   rest="${entry#*:}"
   max_age="${rest%%:*}"
