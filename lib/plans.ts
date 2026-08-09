@@ -50,3 +50,11 @@ export function canUseVoiceClone(plan: string): boolean {
 export function canUseBrandKit(plan: string): boolean {
   return plan === "business";
 }
+
+/** API access (item 10, MCP server) -- advertised on the pricing page as a
+ * Business-plan feature. Checked both at key-creation time and on every
+ * request (lib/api-auth.ts), so a downgraded account's existing keys stop
+ * working immediately rather than at next renewal. */
+export function canUseApiAccess(plan: string): boolean {
+  return plan === "business";
+}

@@ -76,7 +76,7 @@ const plans = [
       "Multi-format export (9:16, 1:1, 16:9)",
       "AI voice cloning from a sample clip",
       "Team seats (coming soon)",
-      "API access (soon)",
+      "API / MCP access",
     ],
     cta: "Start Business plan",
     highlighted: false,

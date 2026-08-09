@@ -1,7 +1,5 @@
 import path from "node:path";
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { chargeCredits, CREDITS_PER_VIDEO, InsufficientCreditsError } from "@/lib/credits";
 import { enqueueJob } from "@/lib/jobs/queue";
@@ -10,15 +8,16 @@ import { rateLimit } from "@/lib/rate-limit";
 import { ASPECT_RATIOS, isAspectRatio, canUseAspectRatio, type AspectRatio } from "@/lib/aspect-ratio";
 import { canUseVoiceClone } from "@/lib/plans";
 import { LANGUAGES } from "@/lib/languages";
+import { resolveApiUser } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
 
 const MAX_VOICE_SAMPLE_BYTES = 15 * 1024 * 1024; // 15MB reference clip
 
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions);
-  const userId = (session?.user as { id?: string } | undefined)?.id;
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const apiUser = await resolveApiUser(req);
+  if (!apiUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const userId = apiUser.userId;
 
   const { ok } = rateLimit(`generate:${userId}`, 5, 60 * 1000);
   if (!ok) return NextResponse.json({ error: "Too many requests. Slow down and try again shortly." }, { status: 429 });
@@ -41,14 +40,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid input" }, { status: 400 });
   }
 
-  const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
-  if (aspectRatio && !canUseAspectRatio(user.plan, aspectRatio)) {
+  if (aspectRatio && !canUseAspectRatio(apiUser.plan, aspectRatio)) {
     return NextResponse.json({ error: "Multi-format export is a Business-plan feature" }, { status: 403 });
   }
 
   let voiceSampleFile: File | null = null;
   if (voiceSample instanceof File && voiceSample.size > 0) {
-    if (!canUseVoiceClone(user.plan)) {
+    if (!canUseVoiceClone(apiUser.plan)) {
       return NextResponse.json({ error: "Voice cloning is a Business-plan feature" }, { status: 403 });
     }
     if (!voiceSample.type.startsWith("audio/")) {
@@ -99,7 +97,7 @@ export async function POST(req: Request) {
   await db.project.update({
     where: { id: project.id },
     data: {
-      input: JSON.stringify({ topic, voice, language, aspectRatio, voiceSampleUrl, watermark: user.plan === "free" }),
+      input: JSON.stringify({ topic, voice, language, aspectRatio, voiceSampleUrl, watermark: apiUser.plan === "free" }),
     },
   });
 

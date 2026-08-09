@@ -41,6 +41,22 @@ model User {
   featureRequests        FeatureRequest[]
   featureVotes           FeatureVote[]
   brandKit               BrandKit?
+  apiKeys                ApiKey[]
+}
+
+// API access (item 10, MCP server) is a Business-plan feature -- see
+// lib/plans.ts canUseApiAccess. Only the SHA-256 hash is stored; the raw
+// key is shown once at creation time and never retrievable again, same
+// pattern as a password.
+model ApiKey {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label      String
+  keyPrefix  String // shown in the UI to identify a key without exposing it
+  keyHash    String    @unique
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
 }
 
 // One brand kit per account -- not per-client, since real multi-client

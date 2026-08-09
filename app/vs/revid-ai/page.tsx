@@ -37,10 +37,10 @@ const config: ComparisonConfig = {
       winner: "them",
     },
     {
-      feature: "API access",
-      us: "Coming soon (Business plan)",
+      feature: "API / programmatic access",
+      us: "REST API + a real MCP server (generate and check videos from Claude), on the Business plan ($44.99/mo)",
       them: "Included from the Growth plan ($39/mo)",
-      winner: "them",
+      winner: "neutral",
     },
     {
       feature: "UGC-style talking-avatar ad generation",
