@@ -15,6 +15,21 @@ export function SiteHeader() {
         <nav className="hidden items-center gap-8 text-sm text-muted-foreground md:flex">
           <Link href="/#features" className="transition-colors hover:text-foreground">Features</Link>
           <Link href="/how-it-works" className="transition-colors hover:text-foreground">How it works</Link>
+          <div className="group relative">
+            <button className="flex items-center gap-1 transition-colors hover:text-foreground">
+              Solutions
+              <svg viewBox="0 0 12 12" className="h-3 w-3 fill-none stroke-current transition-transform group-hover:rotate-180">
+                <path d="M2.5 4.5L6 8l3.5-3.5" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            <div className="invisible absolute left-0 top-full w-48 pt-3 opacity-0 transition-all group-hover:visible group-hover:opacity-100">
+              <div className="rounded-lg border border-border bg-card p-1.5 shadow-lg">
+                <Link href="/for/podcasters" className="block rounded-md px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-secondary hover:text-foreground">For podcasters</Link>
+                <Link href="/for/ecommerce" className="block rounded-md px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-secondary hover:text-foreground">For e-commerce</Link>
+                <Link href="/for/agencies" className="block rounded-md px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-secondary hover:text-foreground">For agencies</Link>
+              </div>
+            </div>
+          </div>
           <Link href="/pricing" className="transition-colors hover:text-foreground">Pricing</Link>
           <Link href="/#faq" className="transition-colors hover:text-foreground">FAQ</Link>
         </nav>

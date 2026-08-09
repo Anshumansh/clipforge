@@ -12,6 +12,9 @@ export function SiteFooter() {
         <p>© {new Date().getFullYear()} Clipforge. All rights reserved.</p>
         <div className="flex flex-wrap justify-center gap-6">
           <Link href="/how-it-works" className="transition-colors hover:text-foreground">How it works</Link>
+          <Link href="/for/podcasters" className="transition-colors hover:text-foreground">For podcasters</Link>
+          <Link href="/for/ecommerce" className="transition-colors hover:text-foreground">For e-commerce</Link>
+          <Link href="/for/agencies" className="transition-colors hover:text-foreground">For agencies</Link>
           <Link href="/changelog" className="transition-colors hover:text-foreground">Changelog</Link>
           <Link href="/roadmap" className="transition-colors hover:text-foreground">Roadmap</Link>
           <Link href="/trust" className="transition-colors hover:text-foreground">Trust</Link>
