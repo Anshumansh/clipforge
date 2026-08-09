@@ -105,19 +105,13 @@ export async function checkStorageHealth(): Promise<boolean> {
   return true;
 }
 
-/** Permanently deletes every stored object under a user's media prefix —
- * called on account deletion. Deleting the DB rows that reference these
- * files (via Prisma's onDelete: Cascade) removes the *references*, not the
- * underlying storage objects; without this, "delete my account" would
- * leave every generated video, voiceover, and uploaded voice sample
- * sitting in the bucket indefinitely, which isn't a real deletion for
- * GDPR/CCPA purposes. No-ops in local dev (no remote storage configured). */
-export async function deleteUserMedia(userId: string): Promise<void> {
+/** Permanently deletes every stored object under an arbitrary key prefix.
+ * No-ops in local dev (no remote storage configured). */
+export async function deleteMediaByPrefix(prefix: string): Promise<void> {
   const config = getS3Config();
   if (!config) return;
 
   const client = getS3Client(config);
-  const prefix = `media/${userId}/`;
   let continuationToken: string | undefined;
 
   do {
@@ -134,4 +128,14 @@ export async function deleteUserMedia(userId: string): Promise<void> {
 
     continuationToken = listed.IsTruncated ? listed.NextContinuationToken : undefined;
   } while (continuationToken);
+}
+
+/** Deletes every stored object under a user's media prefix — called on
+ * account deletion. Deleting the DB rows that reference these files (via
+ * Prisma's onDelete: Cascade) removes the *references*, not the underlying
+ * storage objects; without this, "delete my account" would leave every
+ * generated video, voiceover, and uploaded voice sample sitting in the
+ * bucket indefinitely, which isn't a real deletion for GDPR/CCPA purposes. */
+export async function deleteUserMedia(userId: string): Promise<void> {
+  await deleteMediaByPrefix(`media/${userId}/`);
 }
