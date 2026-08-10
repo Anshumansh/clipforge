@@ -8,7 +8,7 @@ import { ManageBillingButton } from "@/components/manage-billing-button";
 import { DeleteAccountButton } from "@/components/delete-account-button";
 import { PLANS } from "@/lib/plans";
 import { formatDate } from "@/lib/utils";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, AlertTriangle } from "lucide-react";
 
 export const metadata: Metadata = { title: "Billing" };
 
@@ -32,6 +32,19 @@ export default async function BillingPage({
       {searchParams.success && (
         <div className="flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-500">
           <CheckCircle2 className="h-4 w-4" /> Subscription active — credits have been added to your account.
+        </div>
+      )}
+
+      {user.billingIssue === "past_due" && (
+        <div className="flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-500">
+          <AlertTriangle className="h-4 w-4" /> Your last payment failed. Update your card to keep your subscription
+          active — nothing has been downgraded yet, but it will be if the retry doesn't go through.
+        </div>
+      )}
+      {user.billingIssue === "disputed" && (
+        <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          <AlertTriangle className="h-4 w-4" /> A charge on your account is under dispute. Contact support if this
+          wasn't you, or if you'd like to resolve it directly.
         </div>
       )}
 
