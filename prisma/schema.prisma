@@ -39,6 +39,15 @@ model User {
   // (scripts/revert-expired-comps.sh) reverts `plan` back to whatever it
   // was before the comp once this passes. Null the rest of the time.
   compPlanExpiresAt      DateTime?
+  // TOTP MFA -- currently only ever set for isAdmin accounts (see lib/auth.ts).
+  // totpSecret is AES-256-GCM encrypted (lib/crypto.ts), same as social OAuth
+  // tokens. totpEnabledAt null = not enrolled = login proceeds password-only;
+  // the login gate only activates once this is actually set, so shipping the
+  // enrollment flow can't retroactively lock anyone out. backupCodes is a
+  // JSON array of bcrypt hashes, each consumed (removed) on use.
+  totpSecret             String?
+  totpEnabledAt          DateTime?
+  totpBackupCodes        String?
   createdAt              DateTime  @default(now())
   projects               Project[]
   jobs                   Job[]

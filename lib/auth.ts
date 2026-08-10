@@ -3,6 +3,8 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
+import { decrypt } from "@/lib/crypto";
+import { verifyTotpCode, consumeBackupCode } from "@/lib/mfa";
 
 // A valid bcrypt hash of an arbitrary constant, compared against when no
 // account matches the email. Without this, an unknown email returns from
@@ -23,6 +25,9 @@ export const authOptions: AuthOptions = {
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
+        // Only ever required for accounts that have completed MFA enrollment
+        // (User.totpEnabledAt set) -- everyone else's login is unaffected.
+        totpCode: { label: "Authenticator code", type: "text" },
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
@@ -38,6 +43,22 @@ export const authOptions: AuthOptions = {
 
         const valid = await bcrypt.compare(credentials.password, user?.passwordHash ?? DUMMY_HASH);
         if (!user || !valid) return null;
+
+        if (user.totpSecret && user.totpEnabledAt) {
+          const code = credentials.totpCode?.trim();
+          if (!code) throw new Error("MFA_REQUIRED");
+
+          const secret = decrypt(user.totpSecret);
+          const validTotp = /^\d{6}$/.test(code) && verifyTotpCode(secret, code, user.email);
+
+          if (!validTotp) {
+            const remaining = user.totpBackupCodes
+              ? await consumeBackupCode(JSON.parse(user.totpBackupCodes), code)
+              : null;
+            if (remaining === null) throw new Error("MFA_INVALID");
+            await db.user.update({ where: { id: user.id }, data: { totpBackupCodes: JSON.stringify(remaining) } });
+          }
+        }
 
         return { id: user.id, email: user.email, name: user.name ?? user.email };
       },
