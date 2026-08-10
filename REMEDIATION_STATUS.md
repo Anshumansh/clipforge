@@ -5,8 +5,20 @@ Tracks execution of `Clipforge-Claude-Code-Full-Remediation-Brief.md` (2026-08-1
 **Pass 1** (`remediation/cf-audit-2026-08-10`): claims correction, `/contact`, credit-refund
 bug. Merged to `main` and deployed 2026-08-10, verified live.
 
-**Pass 2** (`remediation/cf-audit-pass2`, this update): security headers, missing Stripe
-webhook handlers, first test suite. Not yet merged/deployed — see status of each item below.
+**Pass 2** (`remediation/cf-audit-pass2`): security headers, missing Stripe webhook
+handlers, first test suite. Merged to `main` and deployed 2026-08-10.
+
+**Pass 2 hotfix** (direct to `main`, same day): the just-shipped CSP's `img-src 'self'
+data: blob:` missed one real external host — Trend Radar renders YouTube's own
+`i.ytimg.com` thumbnail URL directly rather than proxying it, so the CSP was silently
+blocking every video thumbnail on `/dashboard/trends`. Caught by checking live response
+headers immediately after deploy rather than assuming the earlier recon was complete.
+Also discovered Caddy already had its own HSTS/X-Frame-Options/Referrer-Policy/
+Permissions-Policy headers from a prior pass (before this audit), duplicating the ones
+just added in `next.config.js` — same header sent twice with different values.
+Consolidated to `next.config.js` as the single source of truth (it's the layer that has
+to know the real CSP allowances anyway) and added `https://i.ytimg.com` to `img-src`.
+Verified live: exactly one of each header now, correct values.
 
 **How to read this file:** each requirement gets one of the six statuses the brief
 defines. Nothing is marked `COMPLETED_AND_VERIFIED` unless a real end-to-end test
