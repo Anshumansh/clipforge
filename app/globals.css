@@ -84,6 +84,15 @@
     radial-gradient(640px circle at 50% 0%, hsl(199 89% 62% / 0.20), transparent 65%);
   animation: aurora 13s ease-in-out infinite;
   filter: blur(40px);
+  /* Forces this onto its own stable GPU compositing layer. Without it, a
+     large blurred, negatively-inset, negative-z-indexed pseudo-element is a
+     known trigger for a Chromium/Edge tile-raster bug where content further
+     down the page silently fails to paint on some GPU drivers -- the page
+     is structurally fine (DOM/layout/accessibility tree all correct), it's
+     purely a paint bug. transform: translateZ(0) is the standard, long-
+     standing fix. */
+  transform: translateZ(0);
+  will-change: transform;
 }
 
 /* Faint grid, fading out toward the edges so it reads as texture, not a chart. */
