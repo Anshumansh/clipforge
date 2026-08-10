@@ -21,6 +21,12 @@ model User {
   stripeSubscriptionId   String?   @unique
   stripePriceId          String?
   stripeCurrentPeriodEnd DateTime?
+  // "past_due" | "disputed" | null. Set by the Stripe webhook, shown as a
+  // billing-page banner -- deliberately doesn't touch plan/credits itself
+  // (Stripe's own dunning retries handle recovery; a real subscription
+  // cancellation still comes through as its own customer.subscription.deleted
+  // event, which does downgrade to free).
+  billingIssue           String?
   currentStreak          Int       @default(0)
   longestStreak          Int       @default(0)
   lastActiveAt           DateTime?

@@ -27,6 +27,8 @@ jobs:
         run: |
           npx prisma generate
           npm run build
+      - name: Unit tests
+        run: npm test
 
   deploy:
     needs: build-check

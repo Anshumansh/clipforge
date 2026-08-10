@@ -1,7 +1,12 @@
 # Clipforge Remediation Status
 
 Tracks execution of `Clipforge-Claude-Code-Full-Remediation-Brief.md` (2026-08-10).
-Branch: `remediation/cf-audit-2026-08-10`. Not yet merged to `main` or deployed.
+
+**Pass 1** (`remediation/cf-audit-2026-08-10`): claims correction, `/contact`, credit-refund
+bug. Merged to `main` and deployed 2026-08-10, verified live.
+
+**Pass 2** (`remediation/cf-audit-pass2`, this update): security headers, missing Stripe
+webhook handlers, first test suite. Not yet merged/deployed — see status of each item below.
 
 **How to read this file:** each requirement gets one of the six statuses the brief
 defines. Nothing is marked `COMPLETED_AND_VERIFIED` unless a real end-to-end test
@@ -152,15 +157,30 @@ trust boundary (if the app is behind Caddy, `X-Forwarded-For` trust needs to be 
 explicitly or rate limits can be bypassed by a forged header). None of this was touched
 this pass — real, non-trivial follow-up work.
 
-### CF-005: Payment, subscription and webhook integrity — 🟡 mostly sound, gaps noted
+### CF-005: Payment, subscription and webhook integrity — 🟡 improved this pass, gaps remain
 
 Signature verification via raw body: ✅ present (`stripe.webhooks.constructEvent`).
 Credits are not granted from a success-page redirect — only the webhook grants credits: ✅.
-Self-service billing portal: ✅ exists (`/api/stripe/portal`). Handles checkout
-completion, subscription update/delete, and `invoice.paid`; does **not** have explicit
-handlers for `invoice.payment_failed`, disputes (`charge.dispute.created`), or
-`customer.deleted` — 🔴 gap. No stored webhook-event-ID / reconciliation report comparing
-Stripe state vs local entitlement state — 🔴 gap. Tax/GST settings: ⚖️
+Self-service billing portal: ✅ exists (`/api/stripe/portal`).
+
+**Added this pass:** handlers for `invoice.payment_failed` (flags `User.billingIssue =
+"past_due"`, does *not* touch plan/credits — Stripe's own dunning retries handle
+recovery; a truly failed subscription still arrives as its own
+`customer.subscription.deleted` event, unchanged, which does downgrade to free),
+`charge.dispute.created` (retrieves the charge to find the customer, flags
+`billingIssue = "disputed"`, logs server-side), and `customer.deleted` (clears the
+now-dangling `stripeCustomerId`/`stripeSubscriptionId` and downgrades to free — rare,
+but a customer deleted from the Stripe dashboard would otherwise leave the account
+pointing at a nonexistent Stripe object, breaking the next checkout/portal attempt).
+`billingIssue` is cleared on `checkout.session.completed` and successful `invoice.paid`.
+Added a schema field (`User.billingIssue String?`, pushed via `prisma db push`) and a
+billing-page banner so an affected customer actually sees this instead of it being
+silent backend state. Covered by the migration's own inline comment for the "why"
+(doesn't touch plan/credits directly).
+
+**Still missing:** 🔴 no stored webhook-event-ID / reconciliation report comparing
+Stripe state vs local entitlement state (an out-of-order `customer.subscription.updated`
+arriving after a later state isn't protected against). Tax/GST settings: ⚖️
 `LEGAL_OR_ACCOUNTING_REVIEW_REQUIRED` — not something code should decide.
 
 ### CF-006: Voice-cloning safety and consent — 🟡 partial
@@ -232,22 +252,41 @@ warrant its own dedicated pass rather than a partial, risky edit bolted onto thi
   exists. Admin audit logging *does* exist and was verified end-to-end this session
   (`AdminAction` model, tested via real grant-credits/comp-plan/audit-log flow with
   disposable test accounts — see this session's admin-panel verification).
-- **CF-012** (SSRF / upload validation / sandboxing / CSP): a quick recon this pass did
-  not find an obvious raw-user-supplied-URL fetch (Repurpose's `sourcePath` and voice
-  clone's reference audio both come from files already uploaded to Clipforge's own
-  storage, not directly from user-typed URLs; Trend Radar only calls the official,
-  hardcoded YouTube Data API base URL). That is not the same as a full SSRF audit against
-  redirects/DNS-rebinding/private-IP-encoding per the brief's acceptance tests — that
-  hasn't been done. No CSP/HSTS/frame-protection headers were verified this pass. No
-  dependency/container/secret scanning in CI.
+- **CF-012** (SSRF / upload validation / sandboxing / CSP) — 🟡 partial, added this
+  pass: a real CSP, HSTS, X-Frame-Options/frame-ancestors, X-Content-Type-Options,
+  Referrer-Policy, and a Permissions-Policy denying camera/mic/geolocation, via
+  `next.config.js` `headers()`. The CSP is `default-src 'self'` with no wildcard host
+  allowances anywhere — verified this is actually correct for what the app loads (media
+  goes through the same-origin `/api/media/*` proxy, fonts are self-hosted via
+  `next/font`, there's no client-side Stripe.js, no analytics scripts, and a grep of
+  `components/` and `app/` found zero client-side `fetch()` calls to an absolute
+  external URL). `script-src`/`style-src` still allow `'unsafe-inline'` (Next.js
+  hydration and inline `style={}` attributes need it without a nonce plumbed through
+  middleware) — tightening to nonce-based CSP is real follow-up work, not done. Verified
+  locally: headers present via `curl -I`, zero CSP-violation console errors on a fresh
+  homepage load. A quick recon did not find an obvious raw-user-supplied-URL fetch
+  (Repurpose's `sourcePath` and voice clone's reference audio both come from files
+  already uploaded to Clipforge's own storage, not directly from user-typed URLs; Trend
+  Radar only calls the official, hardcoded YouTube Data API base URL) — that is not the
+  same as a full SSRF audit against redirects/DNS-rebinding/private-IP-encoding per the
+  brief's acceptance tests, which hasn't been done. No container scanning in CI.
 - **CF-013** (secrets/dependency inventory): no formal inventory document exists yet
   (this pass's VPS env checks were targeted, not exhaustive). Provider timeouts/circuit
   breakers are inconsistent across `lib/providers/*.ts` (spot-checked, not audited).
-- **CF-014** (deployment safety): CI (`.github/workflows/deploy.yml`) does run a
-  typecheck + production build gate before deploy — verified by reading the workflow
-  this pass. It does **not** run lint, unit tests, integration tests, or security
-  scanning — **there is no test suite in this repository at all** (`package.json` has no
-  `test` script; confirmed by direct check this pass). No staging environment.
+  `npm audit` run this pass found a real, currently-unpatched issue: Next.js 14.2.15 has
+  a known advisory (unauthenticated disclosure of internal Server Function endpoints,
+  GHSA-955p-x3mx-jcvp) plus transitively-vulnerable `postcss`. The fix requires Next.js
+  15/16, a breaking major-version upgrade — deliberately **not** done in this pass
+  (too large a change to bundle into an audit-fix commit without its own dedicated
+  regression pass) but flagged here as a real, specific, currently-open vulnerability
+  rather than left silently undiscovered.
+- **CF-014** (deployment safety) — 🟡 improved this pass: added `vitest` (first test
+  framework in this repo — there was none) with two real unit-test files
+  (`lib/credits.test.ts`, `lib/workspace.test.ts`, 6 tests, all passing) covering the
+  exact credit-charge/refund-atomicity and workspace-credit-owner-resolution logic
+  touched in pass 1. Wired `npm test` into `.github/workflows/deploy.yml` as a real gate
+  before deploy (was previously only typecheck + build). Still no lint step in CI, no
+  integration tests, no dependency/container/secret scanning, no staging environment.
 
 ---
 
@@ -296,13 +335,16 @@ created).
 
 ## Test matrix
 
-🔴 **Almost entirely unbuilt.** No test framework is installed in this repository. Every
-verification claimed as "done" earlier in this project (and in this remediation pass)
-was a real, manual, production/local end-to-end check — script runs, curl sessions,
-browser checks — not an automated regression test that will catch a future regression.
-This is worth being direct about: it means every fix in this document could be silently
-broken by a later change with nothing to catch it. Building even a minimal automated
-suite (credit charge/refund, webhook replay, cross-tenant access) is high-value follow-up.
+🟡 **Just started.** `vitest` is now installed and wired into the CI deploy gate
+(`npm test` runs before `deploy` in `.github/workflows/deploy.yml`), with 6 real unit
+tests covering credit charge/refund atomicity and workspace credit-owner resolution —
+the two pieces of logic this remediation program actually changed. Everything else
+claimed as "done" throughout this project (including most of this remediation pass) was
+still a real, manual, production/local end-to-end check — script runs, curl sessions,
+browser checks — not an automated regression test. That's worth being direct about: most
+of this codebase still has nothing to catch a future regression except a human running
+it by hand. Webhook-replay tests, cross-tenant IDOR tests, and integration tests against
+a real (non-production) database are the highest-value next additions.
 
 ---
 
@@ -315,12 +357,15 @@ Per the brief's own instruction not to collapse this into one irreversible deplo
   claims) done for social publishing. **This gate is realistically close** — remaining
   before merge: a human read-through of the new `/contact` and homepage copy, and a
   decision on the Terms jurisdiction question above.
-- **Gates 2–5:** not started. Each requires real, separate engineering effort (credit
-  ledger, worker separation, MFA, backup isolation, restore drills, unit economics) —
-  sequenced work, not something to compress into this pass.
+- **Gates 2–5:** not started in full. Pass 2 made real progress on pieces of Gate 3
+  (CSP/security headers, one Stripe webhook-integrity gap closed) and Gate 5 (first test
+  suite exists, wired into the deploy gate) — but the larger items in each (credit
+  ledger, worker separation, MFA, backup isolation, restore drills, unit economics)
+  remain sequenced future work, not something to compress into this pass.
 
-Nothing in this branch has been merged to `main` or deployed. `git checkout -b
-remediation/cf-audit-2026-08-10` was run before any edits, per the brief's rule 3.
+Pass 1 (`remediation/cf-audit-2026-08-10`) is merged to `main` and deployed. Pass 2
+(`remediation/cf-audit-pass2`) is committed on its own branch, typechecked, built, and
+test-suite-verified locally — not yet merged/deployed as of this update.
 
 ---
 
@@ -331,23 +376,33 @@ remediation/cf-audit-2026-08-10` was run before any edits, per the brief's rule 
    only — not the media bucket). Send me the new key ID/secret via your usual secrets
    process and I'll update `scripts/backup-db.sh` and the VPS `.env` to use it, then
    verify a real backup round-trip with the new credential.
-2. **Legal jurisdiction (CF-007).** Tell me the actual operating entity name and its
+2. **Next.js version decision (CF-013, found this pass).** Production runs Next.js
+   14.2.15, which has a known advisory (GHSA-955p-x3mx-jcvp — unauthenticated disclosure
+   of internal Server Function endpoints) plus a vulnerable transitive `postcss`. The fix
+   is a major-version upgrade to Next 15/16, which is a real breaking change across the
+   App Router — I did not do this in the same pass as the audit fixes, since bundling a
+   framework major-version bump into the same commit as claims/security-copy corrections
+   would make it much harder to isolate what broke if something did. Want me to scope
+   and run that upgrade as its own dedicated pass next?
+3. **Legal jurisdiction (CF-007).** Tell me the actual operating entity name and its
    real jurisdiction (country/state) so Terms §12 can say something true instead of a
    vague placeholder. If you don't have this decided yet, that's fine — it's flagged as
    `LEGAL_OR_ACCOUNTING_REVIEW_REQUIRED` and Gate 1 doesn't strictly require it, but it
    should not stay indefinitely vague once you're taking real payments.
-3. **Business identity for `/contact` and Terms** (CF-003/CF-024): legal name, ABN (or
+4. **Business identity for `/contact` and Terms** (CF-003/CF-024): legal name, ABN (or
    equivalent), and a service address, once you have them.
-4. **Decide social publishing's real timeline** — do you want to actually register
+5. **Decide social publishing's real timeline** — do you want to actually register
    TikTok/YouTube/Meta developer apps and pursue platform approval, or leave this as a
    permanent "beta / in approval" feature? The code now supports either outcome without
    further changes; this is a business decision, not a blocker.
-5. **Everything in CF-024** (ABN, GST/Stripe tax treatment, business banking, insurance,
+6. **Everything in CF-024** (ABN, GST/Stripe tax treatment, business banking, insurance,
    Australian tech-lawyer review, DMCA agent registration) — external, non-code, and not
    something I can complete or verify.
 
 ---
 
-*This document reflects the state after one remediation pass focused on P0 claims
-correction, contact routes, and the credit-refund bug. It intentionally does not claim
-completion of P1–P3 — those are real, separately-scoped engineering programs.*
+*This document reflects the state after two remediation passes: pass 1 (P0 claims
+correction, contact routes, the credit-refund bug — merged and live) and pass 2
+(security headers, Stripe webhook-integrity gaps, first test suite — committed, pending
+merge). It intentionally does not claim completion of P1–P3 in full — those remain real,
+separately-scoped engineering programs.*

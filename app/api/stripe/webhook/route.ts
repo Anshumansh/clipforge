@@ -48,6 +48,7 @@ export async function POST(req: Request) {
             stripeSubscriptionId: subscription.id,
             stripePriceId: priceId,
             stripeCurrentPeriodEnd: item ? new Date(item.current_period_end * 1000) : undefined,
+            billingIssue: null,
           },
         });
       }
@@ -64,9 +65,61 @@ export async function POST(req: Request) {
         if (user && plan) {
           await db.user.update({
             where: { id: user.id },
-            data: { credits: plan.monthlyCredits, plan: plan.id },
+            data: { credits: plan.monthlyCredits, plan: plan.id, billingIssue: null },
           });
         }
+      }
+      break;
+    }
+
+    // Stripe's own dunning retries a failed renewal several times before
+    // giving up -- this just flags it for a billing-page banner. Plan/credits
+    // are untouched here; a permanent failure eventually shows up as its own
+    // customer.subscription.deleted event, which does downgrade to free.
+    case "invoice.payment_failed": {
+      const invoice = event.data.object as Stripe.Invoice;
+      if (invoice.customer) {
+        const user = await findUserForCustomer(invoice.customer as string);
+        if (user) {
+          await db.user.update({ where: { id: user.id }, data: { billingIssue: "past_due" } });
+        }
+      }
+      break;
+    }
+
+    case "charge.dispute.created": {
+      const dispute = event.data.object as Stripe.Dispute;
+      const stripe = getStripe();
+      const charge =
+        typeof dispute.charge === "string" ? await stripe.charges.retrieve(dispute.charge) : dispute.charge;
+      const customerId = typeof charge.customer === "string" ? charge.customer : charge.customer?.id;
+      if (customerId) {
+        const user = await findUserForCustomer(customerId);
+        if (user) {
+          await db.user.update({ where: { id: user.id }, data: { billingIssue: "disputed" } });
+          console.error(`[stripe webhook] Dispute opened for user ${user.id} (${user.email}), charge ${dispute.charge}`);
+        }
+      }
+      break;
+    }
+
+    // Rare (usually only via manual action in the Stripe dashboard), but a
+    // dangling stripeCustomerId/stripeSubscriptionId after the customer
+    // itself is gone would break the next checkout/portal attempt.
+    case "customer.deleted": {
+      const customer = event.data.object as Stripe.Customer;
+      const user = await findUserForCustomer(customer.id);
+      if (user) {
+        await db.user.update({
+          where: { id: user.id },
+          data: {
+            plan: "free",
+            stripeCustomerId: null,
+            stripeSubscriptionId: null,
+            stripePriceId: null,
+            billingIssue: null,
+          },
+        });
       }
       break;
     }
