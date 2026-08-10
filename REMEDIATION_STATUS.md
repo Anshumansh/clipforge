@@ -11,6 +11,11 @@ handlers, first test suite. Merged to `main` and deployed 2026-08-10.
 **Pass 3** (`remediation/cf-audit-pass3`): TOTP MFA for the admin account. Merged and
 deployed 2026-08-10.
 
+**Pass 4** (`remediation/cf-audit-pass4`): automated cross-tenant/IDOR regression tests
+for the workspace credit/access boundary, a hardened vitest timeout for bcrypt-based
+tests (flaked once under heavy local load — see below), and a read-only Stripe
+reconciliation report on `/admin`.
+
 **Pass 2 hotfix** (direct to `main`, same day): the just-shipped CSP's `img-src 'self'
 data: blob:` missed one real external host — Trend Radar renders YouTube's own
 `i.ytimg.com` thumbnail URL directly rather than proxying it, so the CSP was silently
@@ -193,9 +198,23 @@ billing-page banner so an affected customer actually sees this instead of it bei
 silent backend state. Covered by the migration's own inline comment for the "why"
 (doesn't touch plan/credits directly).
 
-**Still missing:** 🔴 no stored webhook-event-ID / reconciliation report comparing
-Stripe state vs local entitlement state (an out-of-order `customer.subscription.updated`
-arriving after a later state isn't protected against). Tax/GST settings: ⚖️
+**Added in pass 4:** a read-only reconciliation report (`lib/stripe-reconciliation.ts`,
+`/api/admin/reconciliation`, a card on `/admin`). For every local user with a
+`stripeSubscriptionId`, it fetches the real subscription from Stripe and flags drift:
+local plan says paid but Stripe's status isn't active/trialing (a missed
+`customer.subscription.deleted`), Stripe's active price maps to a different plan than
+what's stored locally, or the price ID itself doesn't match. Makes no writes — an admin
+reviews and acts on what it finds. Verified against production with a disposable test
+admin: correctly returned `{checked: 0, issues: []}` (there are currently zero real
+paying subscribers to check), and a non-admin got a `403`. The "detects real drift" path
+is verified by code review and mirrors the already-tested webhook logic, but hasn't been
+exercised against an actual mismatched subscription since none exist yet to test with —
+worth re-confirming once there's a real subscriber.
+
+**Still missing:** 🔴 no stored webhook-event-ID table (an out-of-order
+`customer.subscription.updated` arriving after a later state isn't protected against —
+the reconciliation report above would catch the resulting drift after the fact, but
+nothing prevents it in the moment). Tax/GST settings: ⚖️
 `LEGAL_OR_ACCOUNTING_REVIEW_REQUIRED` — not something code should decide.
 
 ### CF-006: Voice-cloning safety and consent — 🟡 partial
@@ -275,10 +294,20 @@ warrant its own dedicated pass rather than a partial, risky edit bolted onto thi
   **Still not enabled** — the code exists and works, but nobody has actually completed
   enrollment on the real admin account yet. That's a manual step only you can do (visit
   `/admin` after this deploys, scan the QR code, save the backup codes somewhere safe).
-  Cross-tenant IDOR testing across projects, media, teams, brand kits, API keys was done
-  ad hoc during feature development this session (e.g., real two-account workspace
-  tests) but no automated regression suite exists. Admin audit logging *does* exist and
-  was verified end-to-end this session (`AdminAction` model, tested via real
+  **Cross-tenant boundary logic now has automated regression tests (pass 4)** —
+  `lib/workspace.test.ts` covers `getWorkspaceContext`, `resolveGenerationContext`, and
+  `projectAccessFilter`: a solo user resolves to `null` workspace context (never
+  silently inherits someone else's), a workspace member is always resolved to the
+  *owner's* credit balance and plan tier (not their own, even though they made the
+  request — this is the exact bug class that would let a free-tier member spend a
+  Business owner's credits while still rendering watermarked/lower-tier output), and a
+  member's project-access filter is scoped to a workspace ID that came from a DB lookup
+  keyed by their own userId — never something a caller could supply. 8 new tests, all
+  passing. This covers the workspace/credit boundary specifically; IDOR coverage for
+  media presigning, brand kits, and API keys is still ad hoc (real two-account tests
+  during feature development, not automated) — real follow-up work, not done here.
+  Admin audit logging *does* exist and was verified end-to-end this session (`AdminAction`
+  model, tested via real
   grant-credits/comp-plan/audit-log flow with disposable test accounts).
 - **CF-012** (SSRF / upload validation / sandboxing / CSP) — 🟡 partial, added this
   pass: a real CSP, HSTS, X-Frame-Options/frame-ancestors, X-Content-Type-Options,
@@ -374,6 +403,16 @@ of this codebase still has nothing to catch a future regression except a human r
 it by hand. Webhook-replay tests, cross-tenant IDOR tests, and integration tests against
 a real (non-production) database are the highest-value next additions.
 
+**Pass 4 added** 8 cross-tenant/IDOR tests for the workspace credit/access boundary
+(`lib/workspace.test.ts`) — 20 tests total now, all passing. Also: a full-suite run
+during pass 4 timed out 2 of the bcrypt-based `mfa.test.ts` tests at vitest's 5s default
+under heavy local system load (~30 concurrent `next build` worker processes at the
+time) — re-running that file alone passed in 4.54s, confirming it was a real but
+transient resource-contention issue, not a code bug. Raised `testTimeout` to 15s
+project-wide as a proactive hardening measure, since `bcryptjs` (chosen over native
+`bcrypt` to avoid a Docker build step) is slow enough that the same flake risk exists on
+a contended CI runner.
+
 ---
 
 ## Deployment gates
@@ -433,10 +472,11 @@ update.
 
 ---
 
-*This document reflects the state after three remediation passes, all merged and live:
-pass 1 (P0 claims correction, contact routes, the credit-refund bug), pass 2 (security
-headers, Stripe webhook-integrity gaps, first test suite, plus a same-day hotfix for a
-CSP regression it introduced), and pass 3 (admin MFA). It intentionally does not claim
-completion of P1–P3 in full — those remain real, separately-scoped engineering
-programs. A queued follow-up (pricing/credit system overhaul, see the user's own brief)
-will begin once this remediation program reaches a stable checkpoint.*
+*This document reflects the state after four remediation passes: pass 1 (P0 claims
+correction, contact routes, the credit-refund bug), pass 2 (security headers, Stripe
+webhook-integrity gaps, first test suite, plus a same-day hotfix for a CSP regression it
+introduced), pass 3 (admin MFA), and pass 4 (cross-tenant/IDOR regression tests, test
+timeout hardening, Stripe reconciliation report) — all merged and live. It intentionally
+does not claim completion of P1–P3 in full — those remain real, separately-scoped
+engineering programs. A queued follow-up (pricing/credit system overhaul, see the user's
+own brief) will begin once this remediation program reaches a stable checkpoint.*
