@@ -1,9 +1,11 @@
-// Every media/asset the app actually loads is same-origin: video/image previews go
+// Nearly every media/asset the app loads is same-origin: video/image previews go
 // through /api/media/*, fonts are self-hosted via next/font (no Google Fonts CDN
 // request at runtime), and there's no client-side Stripe.js (checkout is a
 // server-side redirect to a Stripe-hosted page, not Stripe Elements) and no
-// analytics/tracking scripts. That's what lets this CSP be this tight -- it isn't
-// a generic template, it matches what's actually on the page.
+// analytics/tracking scripts. The one real exception is Trend Radar's video
+// thumbnails, which render the YouTube Data API's own https://i.ytimg.com URL
+// directly (app/dashboard/trends/page.tsx) rather than proxying it -- that's the
+// only external host this CSP allows.
 const CSP = [
   "default-src 'self'",
   // Next.js hydration relies on inline scripts; a nonce-based CSP is the stronger
@@ -11,7 +13,7 @@ const CSP = [
   // 'unsafe-inline' still blocks loading a full attacker-controlled remote script.
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  "img-src 'self' data: blob: https://i.ytimg.com",
   "media-src 'self' blob:",
   "font-src 'self'",
   "connect-src 'self'",
