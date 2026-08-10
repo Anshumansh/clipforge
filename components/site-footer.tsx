@@ -22,7 +22,7 @@ export function SiteFooter() {
           <Link href="/trust" className="transition-colors hover:text-foreground">Trust</Link>
           <Link href="/privacy" className="transition-colors hover:text-foreground">Privacy</Link>
           <Link href="/terms" className="transition-colors hover:text-foreground">Terms</Link>
-          <a href="mailto:support@forgecut.app" className="transition-colors hover:text-foreground">Contact</a>
+          <Link href="/contact" className="transition-colors hover:text-foreground">Contact</Link>
         </div>
       </div>
     </footer>

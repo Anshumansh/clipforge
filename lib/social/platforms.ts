@@ -55,6 +55,41 @@ export function isPlatformConfigured(platform: SocialPlatform): boolean {
   return Boolean(process.env[config.clientIdEnv] && process.env[config.clientSecretEnv]);
 }
 
+export type PlatformCapabilityState = "unavailable" | "awaiting_approval" | "beta" | "live";
+
+/** Single source of truth for what marketing/product copy is allowed to claim
+ * about a platform's publishing capability -- every page should derive its
+ * wording from this instead of hardcoding "auto-publish everywhere" style
+ * claims that can drift out of sync with what's actually configured.
+ *
+ * - unavailable: explicitly disabled via SOCIAL_<PLATFORM>_DISABLED kill switch.
+ * - awaiting_approval: OAuth app credentials aren't configured on this server
+ *   yet (the common case pre-launch -- the developer app is still pending
+ *   platform review, or was never registered).
+ * - beta: credentials are configured (OAuth connect works) but nobody has
+ *   set SOCIAL_<PLATFORM>_VERIFIED_LIVE -- i.e. a real end-to-end publish
+ *   hasn't been manually confirmed yet.
+ * - live: configured AND manually confirmed working. Only ever set by
+ *   flipping the env var after an owner actually verifies a real publish --
+ *   never inferred automatically, so this can't silently claim "live"
+ *   the moment credentials are dropped in. */
+export function getPlatformCapability(platform: SocialPlatform): PlatformCapabilityState {
+  if (process.env[`SOCIAL_${platform.toUpperCase()}_DISABLED`] === "true") return "unavailable";
+  if (!isPlatformConfigured(platform)) return "awaiting_approval";
+  return process.env[`SOCIAL_${platform.toUpperCase()}_VERIFIED_LIVE`] === "true" ? "live" : "beta";
+}
+
+export function getLivePlatforms(): SocialPlatform[] {
+  return SOCIAL_PLATFORMS.filter((p) => getPlatformCapability(p) === "live");
+}
+
+export const PLATFORM_CAPABILITY_LABEL: Record<PlatformCapabilityState, string> = {
+  unavailable: "Temporarily unavailable",
+  awaiting_approval: "In platform approval",
+  beta: "Beta",
+  live: "Live",
+};
+
 export function getRedirectUri(platform: SocialPlatform): string {
   const base = (process.env.NEXTAUTH_URL ?? "http://localhost:3000").replace(/\/$/, "");
   return `${base}/api/social/callback/${platform}`;

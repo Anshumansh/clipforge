@@ -6,8 +6,8 @@ import { PhoneMockup } from "@/components/phone-showcase";
 import { HeroDemo } from "@/components/hero-demo";
 import { StatCounter } from "@/components/stat-counter";
 import { Marquee } from "@/components/marquee";
-import { TestimonialsSection } from "@/components/testimonials-section";
 import { db } from "@/lib/db";
+import { SOCIAL_PLATFORMS, PLATFORM_LABELS, getLivePlatforms } from "@/lib/social/platforms";
 import { unstable_cache } from "next/cache";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -54,8 +54,8 @@ const features = [
   },
   {
     icon: UserRound,
-    title: "UGC & avatar ads",
-    description: "Turn a product description into a talking-avatar ad script with voiceover — no camera, no actor.",
+    title: "UGC-style ad videos",
+    description: "Turn a product description into a voiced, captioned ad with matched b-roll — no camera, no actor, no studio.",
   },
   {
     icon: Mic2,
@@ -69,8 +69,9 @@ const features = [
   },
   {
     icon: Share2,
-    title: "Auto-post everywhere",
-    description: "Push a finished video straight to TikTok, Instagram Reels, or YouTube Shorts — no re-uploading.",
+    title: "Publish straight from the editor",
+    description:
+      "Connect TikTok, Instagram, and YouTube once — publishing goes live for each platform as its developer approval clears, no manual re-upload once it does.",
   },
   {
     icon: Captions,
@@ -93,7 +94,7 @@ const steps = [
 const stats = [
   { value: 3, suffix: "", label: "AI generation engines, one credit pool" },
   { value: 50, suffix: "", label: "free credits to start — no card" },
-  { value: 3, suffix: "", label: "platforms you can auto-publish to" },
+  { value: 3, suffix: "", label: "platforms in the social publishing pipeline" },
   { value: 0, prefix: "$", suffix: "", label: "extra cost for voice cloning on Business" },
 ];
 
@@ -108,12 +109,12 @@ const quickLinks = [
 const tickerItems = [
   "Script to video",
   "Podcast → Shorts",
-  "UGC avatar ads",
+  "UGC-style ad videos",
   "Voice cloning",
   "Auto captions",
   "Smart b-roll",
   "Hook scoring",
-  "Auto-publish to TikTok, Reels & Shorts",
+  "Social publishing (beta)",
   "Trend Radar",
 ];
 
@@ -130,7 +131,7 @@ const showcaseClips = [
   },
   {
     src: "https://forgecut.app/api/media/media/cmsfwpkun00005ln9ty9j1vqs/cmsfwtuq000065ln9yuuato5u/final.mp4",
-    label: "UGC / avatar ad",
+    label: "UGC-style ad",
   },
 ];
 
@@ -148,7 +149,7 @@ const differentiators = [
   {
     title: "Publishing built in, not bolted on",
     description:
-      "Connect TikTok, Instagram, and YouTube once and publish straight from the editor after a render finishes. No downloading a file just to re-upload it somewhere else five minutes later.",
+      "Connect TikTok, Instagram, and YouTube from the editor — no downloading a file just to re-upload it somewhere else. Publishing goes live per platform as developer approval clears; connected accounts are ready the moment it does.",
   },
   {
     title: "Built for a daily pipeline, not a demo",
@@ -168,7 +169,7 @@ const faqs = [
   },
   {
     q: "What's the difference between Script-to-Video, Repurpose, and UGC ads?",
-    a: "Script-to-Video turns a topic, script, or article into a finished short from scratch. Repurpose takes a long podcast or YouTube upload and automatically cuts it into vertical highlight clips, with the camera tracking whoever's speaking. UGC & avatar ads turn a product description into a talking-avatar ad script with voiceover — no camera or actor required.",
+    a: "Script-to-Video turns a topic, script, or article into a finished short from scratch. Repurpose takes a long podcast or YouTube upload and automatically cuts it into vertical highlight clips, with the camera tracking whoever's speaking. UGC ads turn a product description into a voiced, captioned ad with matched b-roll in a talking-to-camera script style — no camera or actor required.",
   },
   {
     q: "Can I really clone my own voice?",
@@ -176,7 +177,7 @@ const faqs = [
   },
   {
     q: "Which platforms can I auto-publish to?",
-    a: "TikTok, Instagram Reels, and YouTube Shorts. Connect an account once from your dashboard, and finished renders can publish directly without a manual re-upload.",
+    a: "TikTok, Instagram Reels, and YouTube Shorts publishing is built and connects from your dashboard settings. It goes live for each platform once that platform's developer app clears review — until then, downloading a finished render and posting it yourself takes seconds.",
   },
   {
     q: "Is Trend Radar just copying other creators' videos?",
@@ -243,8 +244,15 @@ const getVideosGeneratedCount = unstable_cache(
   { revalidate: 300 }
 );
 
+const PLATFORM_DOT: Record<(typeof SOCIAL_PLATFORMS)[number], string> = {
+  tiktok: "bg-[#25F4EE]",
+  instagram: "bg-gradient-to-br from-[#f09433] via-[#e6683c] to-[#bc1888]",
+  youtube: "bg-[#FF0000]",
+};
+
 export default async function LandingPage() {
   const videosGenerated = await getVideosGeneratedCount();
+  const livePlatforms = getLivePlatforms();
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -270,8 +278,8 @@ export default async function LandingPage() {
               </Reveal>
               <Reveal fast delay={0.1}>
                 <p className="mx-auto mt-6 max-w-xl text-lg text-muted-foreground lg:mx-0">
-                  Clipforge writes the script, generates the voiceover, cuts the b-roll, captions it, and can post it
-                  straight to TikTok, Reels, and Shorts — so you never touch an editor.
+                  Clipforge writes the script, generates the voiceover, cuts the b-roll, and captions it — connect
+                  TikTok, Reels, and Shorts for one-click publishing as each platform's approval clears.
                 </p>
               </Reveal>
               <Reveal fast delay={0.15}>
@@ -303,8 +311,14 @@ export default async function LandingPage() {
                   {[
                     { icon: Wand2, label: "3 generation engines" },
                     { icon: Mic2, label: "Free voice cloning" },
-                    { icon: Share2, label: "Auto-publish everywhere" },
-                    { icon: Coins, label: "One credit-based plan" },
+                    {
+                      icon: Share2,
+                      label:
+                        livePlatforms.length > 0
+                          ? `Auto-publish (${livePlatforms.length} live)`
+                          : "Connect & auto-publish (beta)",
+                    },
+                    { icon: Coins, label: "One shared credit pool" },
                   ].map((s) => (
                     <div
                       key={s.label}
@@ -318,22 +332,25 @@ export default async function LandingPage() {
               </Reveal>
 
               <Reveal delay={0.25}>
-                <div className="mx-auto mt-8 flex max-w-md flex-wrap items-center justify-center gap-2 lg:mx-0 lg:justify-start">
-                  <span className="text-xs text-muted-foreground">Publish straight to:</span>
-                  {[
-                    { label: "TikTok", dot: "bg-[#25F4EE]" },
-                    { label: "Instagram Reels", dot: "bg-gradient-to-br from-[#f09433] via-[#e6683c] to-[#bc1888]" },
-                    { label: "YouTube Shorts", dot: "bg-[#FF0000]" },
-                  ].map((p) => (
-                    <span
-                      key={p.label}
-                      className="flex items-center gap-1.5 rounded-full border border-border bg-card/60 px-3 py-1 text-xs font-medium"
-                    >
-                      <span className={`h-2 w-2 rounded-full ${p.dot}`} />
-                      {p.label}
-                    </span>
-                  ))}
-                </div>
+                {livePlatforms.length > 0 ? (
+                  <div className="mx-auto mt-8 flex max-w-md flex-wrap items-center justify-center gap-2 lg:mx-0 lg:justify-start">
+                    <span className="text-xs text-muted-foreground">Publish straight to:</span>
+                    {livePlatforms.map((p) => (
+                      <span
+                        key={p}
+                        className="flex items-center gap-1.5 rounded-full border border-border bg-card/60 px-3 py-1 text-xs font-medium"
+                      >
+                        <span className={`h-2 w-2 rounded-full ${PLATFORM_DOT[p]}`} />
+                        {PLATFORM_LABELS[p]}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mx-auto mt-8 max-w-md text-center text-xs text-muted-foreground lg:mx-0 lg:text-left">
+                    Social publishing (TikTok, Reels, Shorts) connects from your dashboard — going live per platform
+                    as developer approval clears.
+                  </p>
+                )}
               </Reveal>
             </div>
 
@@ -468,8 +485,6 @@ export default async function LandingPage() {
             ))}
           </RevealGroup>
         </section>
-
-        <TestimonialsSection />
 
         <section id="faq" className="border-y border-border/60 bg-secondary/30 px-6 py-20">
           <Reveal>

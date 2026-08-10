@@ -39,7 +39,7 @@ const config: VerticalConfig = {
     {
       icon: Share2,
       title: "Publish straight from the editor",
-      body: "Connect your show's TikTok, Reels, or Shorts account once and push a finished clip without downloading and re-uploading it.",
+      body: "Connect your show's TikTok, Reels, or Shorts account from the dashboard — publishing goes live per platform as developer approval clears, so a finished clip skips the download-and-re-upload step once it does.",
     },
     {
       icon: Calendar,

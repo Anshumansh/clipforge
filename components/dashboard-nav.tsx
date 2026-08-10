@@ -35,7 +35,7 @@ const links = [
   { href: "/dashboard/trends", label: "Trend Radar", icon: Radar },
   { href: "/dashboard/new/script", label: "Script to video", icon: Wand2 },
   { href: "/dashboard/new/repurpose", label: "Repurpose", icon: Scissors },
-  { href: "/dashboard/new/ugc", label: "UGC / Avatar ad", icon: UserRound },
+  { href: "/dashboard/new/ugc", label: "UGC ad", icon: UserRound },
   { href: "/dashboard/settings", label: "Connected accounts", icon: Share2, exact: true },
   { href: "/dashboard/settings/brand", label: "Brand kit", icon: Palette },
   { href: "/dashboard/settings/api-keys", label: "API keys", icon: KeyRound },

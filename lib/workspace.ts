@@ -46,6 +46,20 @@ export async function resolveCreditOwnerId(userId: string): Promise<string> {
   return ctx?.creditOwnerId ?? userId;
 }
 
+/** Resolves who was actually charged for a project's generation, using the
+ * workspace recorded ON THE PROJECT at charge time rather than re-resolving
+ * the caller's current workspace membership -- so a refund on job failure
+ * still reaches the right account even if the caller left the workspace (or
+ * it was disbanded) while the render was in flight. */
+export async function resolveProjectCreditOwnerId(project: {
+  userId: string;
+  workspaceId: string | null;
+}): Promise<string> {
+  if (!project.workspaceId) return project.userId;
+  const workspace = await db.workspace.findUnique({ where: { id: project.workspaceId }, select: { ownerId: true } });
+  return workspace?.ownerId ?? project.userId;
+}
+
 export interface GenerationContext {
   creditOwnerId: string;
   /** The plan whose feature gates (aspect ratio, voice cloning, watermark,

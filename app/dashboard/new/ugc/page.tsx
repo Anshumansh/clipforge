@@ -49,7 +49,7 @@ export default function NewUgcAdPage() {
           <UserRound className="h-5 w-5 text-primary" />
         </div>
         <div>
-          <h1 className="text-xl font-bold">UGC / Avatar ad</h1>
+          <h1 className="text-xl font-bold">UGC ad</h1>
           <p className="text-sm text-muted-foreground">
             A voiceover-led, UGC-style ad script with captions and a CTA end card. No camera needed.
           </p>

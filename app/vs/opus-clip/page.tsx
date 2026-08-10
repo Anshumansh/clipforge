@@ -10,7 +10,7 @@ const config: ComparisonConfig = {
   competitorName: "Opus Clip",
   badge: "Clipforge vs Opus Clip",
   headline: "Opus Clip repurposes what you already recorded. Clipforge also makes something from nothing.",
-  subhead: "Both cut long-form video into clips. Clipforge adds script-to-video from a bare idea and talking-avatar UGC ads in the same account, on the same credit pool.",
+  subhead: "Both cut long-form video into clips. Clipforge adds script-to-video from a bare idea and UGC-style ad generation in the same account, on the same credit pool.",
   rows: [
     {
       feature: "Generate a full video from just a topic or script",
@@ -25,7 +25,7 @@ const config: ComparisonConfig = {
       winner: "neutral",
     },
     {
-      feature: "UGC-style talking-avatar ad generation",
+      feature: "UGC-style ad generation (voiceover-led, no avatar)",
       us: "Yes, included on the Business plan",
       them: "Not listed as a feature",
       winner: "us",

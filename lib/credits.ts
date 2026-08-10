@@ -19,3 +19,11 @@ export async function chargeCredits(userId: string, amount: number) {
     throw new InsufficientCreditsError();
   }
 }
+
+/** Reverses a chargeCredits() call -- must be called from every job runner's
+ * failure path. Credits are charged up front (before queueing) so a job never
+ * starts unpaid, which means a terminal failure has to give that charge back
+ * explicitly; nothing does this automatically. */
+export async function refundCredits(userId: string, amount: number) {
+  await db.user.update({ where: { id: userId }, data: { credits: { increment: amount } } });
+}

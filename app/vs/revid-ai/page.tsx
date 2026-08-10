@@ -43,10 +43,10 @@ const config: ComparisonConfig = {
       winner: "neutral",
     },
     {
-      feature: "UGC-style talking-avatar ad generation",
-      us: "Yes, on the Business plan",
+      feature: "UGC-style ad generation",
+      us: "Voiceover-led ad videos with matched b-roll, no avatar, on the Business plan",
       them: "Yes — AI avatars and face swaps (Growth plan)",
-      winner: "neutral",
+      winner: "them",
     },
     {
       feature: "Track chosen channels for breakout content ideas",

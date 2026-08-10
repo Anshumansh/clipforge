@@ -1,0 +1,8 @@
+Contact: mailto:support@forgecut.app?subject=%5BSecurity%5D
+Preferred-Languages: en
+Canonical: https://forgecut.app/.well-known/security.txt
+Policy: https://forgecut.app/contact
+
+We don't currently run a paid bug bounty program. Please report vulnerabilities
+privately via the contact above and give us a reasonable window to fix the
+issue before any public disclosure.

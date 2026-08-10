@@ -70,10 +70,8 @@ type DemoState =
 
 const POLL_INTERVAL_MS = 3000;
 
-// Condensed version of the script-to-video engine's real steps (see
-// /how-it-works for the full mechanics) -- a short "how it works" rather
-// than a testimonial, since real customer quotes aren't ready yet (see
-// lib/testimonials.ts).
+// Condensed version of the script-to-video engine's real steps -- see
+// /how-it-works for the full mechanics.
 const tutorialSteps = [
   { icon: FileText, text: "Paste a topic, script, or article" },
   { icon: Wand2, text: "Clipforge writes, voices, captions, and cuts b-roll" },
