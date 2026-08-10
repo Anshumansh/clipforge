@@ -8,6 +8,9 @@ bug. Merged to `main` and deployed 2026-08-10, verified live.
 **Pass 2** (`remediation/cf-audit-pass2`): security headers, missing Stripe webhook
 handlers, first test suite. Merged to `main` and deployed 2026-08-10.
 
+**Pass 3** (`remediation/cf-audit-pass3`): TOTP MFA for the admin account. Merged and
+deployed 2026-08-10.
+
 **Pass 2 hotfix** (direct to `main`, same day): the just-shipped CSP's `img-src 'self'
 data: blob:` missed one real external host — Trend Radar renders YouTube's own
 `i.ytimg.com` thumbnail URL directly rather than proxying it, so the CSP was silently
@@ -256,14 +259,27 @@ warrant its own dedicated pass rather than a partial, risky edit bolted onto thi
   creating a second Backblaze B2 application key scoped to a backup-only bucket — a
   Backblaze-console action only you can take (see `OWNER ACTIONS REQUIRED`); I can update
   the backup script to use it once it exists. No monthly restore-drill exists.
-- **CF-011** (auth/session/authorization): no MFA on the admin account (confirmed —
-  `isAdmin` is a plain boolean gate behind normal password login, verified again this
-  session while testing the admin panel). Cross-tenant IDOR testing across projects,
-  media, teams, brand kits, API keys was done ad hoc during feature development this
-  session (e.g., real two-account workspace tests) but no automated regression suite
-  exists. Admin audit logging *does* exist and was verified end-to-end this session
-  (`AdminAction` model, tested via real grant-credits/comp-plan/audit-log flow with
-  disposable test accounts — see this session's admin-panel verification).
+- **CF-011** (auth/session/authorization) — 🟡 MFA added this pass (pass 3), rest
+  unchanged. TOTP two-factor is now built: `User.totpSecret` (AES-256-GCM encrypted,
+  same pattern as social OAuth tokens), `totpEnabledAt`, and bcrypt-hashed single-use
+  backup codes. `lib/auth.ts`'s `authorize()` requires a valid code once an account has
+  completed enrollment — deliberately opt-in (nothing is enforced until an admin
+  actually sets it up, so shipping this can't retroactively lock anyone out).
+  Enrollment/disable UI lives on `/admin` itself; disabling requires a current valid
+  code so a hijacked session cookie alone can't turn the protection off. **Verified
+  end-to-end against the real database** with a disposable test admin account (deleted
+  after): enrollment, correct-code login, wrong-code rejection, backup-code login,
+  single-use enforcement on reuse, and disable — all driven by real TOTP codes computed
+  from the actual issued secret via the `otpauth` library, not mocked or assumed. 6 new
+  unit tests cover the TOTP/backup-code logic in isolation.
+  **Still not enabled** — the code exists and works, but nobody has actually completed
+  enrollment on the real admin account yet. That's a manual step only you can do (visit
+  `/admin` after this deploys, scan the QR code, save the backup codes somewhere safe).
+  Cross-tenant IDOR testing across projects, media, teams, brand kits, API keys was done
+  ad hoc during feature development this session (e.g., real two-account workspace
+  tests) but no automated regression suite exists. Admin audit logging *does* exist and
+  was verified end-to-end this session (`AdminAction` model, tested via real
+  grant-credits/comp-plan/audit-log flow with disposable test accounts).
 - **CF-012** (SSRF / upload validation / sandboxing / CSP) — 🟡 partial, added this
   pass: a real CSP, HSTS, X-Frame-Options/frame-ancestors, X-Content-Type-Options,
   Referrer-Policy, and a Permissions-Policy denying camera/mic/geolocation, via
@@ -375,46 +391,52 @@ Per the brief's own instruction not to collapse this into one irreversible deplo
   ledger, worker separation, MFA, backup isolation, restore drills, unit economics)
   remain sequenced future work, not something to compress into this pass.
 
-Pass 1 (`remediation/cf-audit-2026-08-10`) is merged to `main` and deployed. Pass 2
-(`remediation/cf-audit-pass2`) is committed on its own branch, typechecked, built, and
-test-suite-verified locally — not yet merged/deployed as of this update.
+Pass 1, pass 2, and pass 3 (MFA) are all merged to `main` and deployed as of this
+update.
 
 ---
 
 ## OWNER ACTIONS REQUIRED, ordered by urgency
 
-1. **Backup credential isolation (CF-010).** Create a second Backblaze B2 application
+1. **Enable MFA on your real admin account (CF-011, ready now).** Two-factor auth is
+   built, tested, and deployed but opt-in — it does nothing until you turn it on. After
+   this deploys, log into `/admin` with your real account, click "Set up two-factor
+   authentication," scan the QR with an authenticator app (Google Authenticator,
+   1Password, Authy, etc.), and **save the 8 backup codes it shows you exactly once**
+   somewhere safe (password manager, not a screenshot on the same device). Takes about
+   two minutes.
+2. **Backup credential isolation (CF-010).** Create a second Backblaze B2 application
    key scoped only to a new `clipforge-backups` bucket (read/write/delete on that bucket
    only — not the media bucket). Send me the new key ID/secret via your usual secrets
    process and I'll update `scripts/backup-db.sh` and the VPS `.env` to use it, then
    verify a real backup round-trip with the new credential.
-2. **Next.js version decision (CF-013, found this pass).** Production runs Next.js
+3. **Next.js version decision (CF-013, found in pass 2).** Production runs Next.js
    14.2.15, which has a known advisory (GHSA-955p-x3mx-jcvp — unauthenticated disclosure
    of internal Server Function endpoints) plus a vulnerable transitive `postcss`. The fix
-   is a major-version upgrade to Next 15/16, which is a real breaking change across the
-   App Router — I did not do this in the same pass as the audit fixes, since bundling a
-   framework major-version bump into the same commit as claims/security-copy corrections
-   would make it much harder to isolate what broke if something did. Want me to scope
-   and run that upgrade as its own dedicated pass next?
-3. **Legal jurisdiction (CF-007).** Tell me the actual operating entity name and its
+   is a major-version upgrade to Next 15/16, a real breaking change across the App
+   Router. You already asked me to hold this and finish other P1 items first — still
+   correct, still open, deliberately not rushed.
+4. **Legal jurisdiction (CF-007).** Tell me the actual operating entity name and its
    real jurisdiction (country/state) so Terms §12 can say something true instead of a
    vague placeholder. If you don't have this decided yet, that's fine — it's flagged as
    `LEGAL_OR_ACCOUNTING_REVIEW_REQUIRED` and Gate 1 doesn't strictly require it, but it
    should not stay indefinitely vague once you're taking real payments.
-4. **Business identity for `/contact` and Terms** (CF-003/CF-024): legal name, ABN (or
+5. **Business identity for `/contact` and Terms** (CF-003/CF-024): legal name, ABN (or
    equivalent), and a service address, once you have them.
-5. **Decide social publishing's real timeline** — do you want to actually register
+6. **Decide social publishing's real timeline** — do you want to actually register
    TikTok/YouTube/Meta developer apps and pursue platform approval, or leave this as a
    permanent "beta / in approval" feature? The code now supports either outcome without
    further changes; this is a business decision, not a blocker.
-6. **Everything in CF-024** (ABN, GST/Stripe tax treatment, business banking, insurance,
+7. **Everything in CF-024** (ABN, GST/Stripe tax treatment, business banking, insurance,
    Australian tech-lawyer review, DMCA agent registration) — external, non-code, and not
    something I can complete or verify.
 
 ---
 
-*This document reflects the state after two remediation passes: pass 1 (P0 claims
-correction, contact routes, the credit-refund bug — merged and live) and pass 2
-(security headers, Stripe webhook-integrity gaps, first test suite — committed, pending
-merge). It intentionally does not claim completion of P1–P3 in full — those remain real,
-separately-scoped engineering programs.*
+*This document reflects the state after three remediation passes, all merged and live:
+pass 1 (P0 claims correction, contact routes, the credit-refund bug), pass 2 (security
+headers, Stripe webhook-integrity gaps, first test suite, plus a same-day hotfix for a
+CSP regression it introduced), and pass 3 (admin MFA). It intentionally does not claim
+completion of P1–P3 in full — those remain real, separately-scoped engineering
+programs. A queued follow-up (pricing/credit system overhaul, see the user's own brief)
+will begin once this remediation program reaches a stable checkpoint.*
