@@ -42,6 +42,8 @@
     "music-metadata": "^10.5.1",
     "next": "14.2.15",
     "next-auth": "^4.24.8",
+    "otpauth": "^9.5.1",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "remotion": "4.0.503",
@@ -52,6 +54,7 @@
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.7.4",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.10",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.20",
