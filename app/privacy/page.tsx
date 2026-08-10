@@ -103,7 +103,7 @@ export default function PrivacyPage() {
           <li>Microsoft Edge TTS — text-to-speech (free-tier fallback)</li>
           <li>Pexels — stock video/photo b-roll matching</li>
           <li>Stripe — payment processing and subscription billing</li>
-          <li>Cloudflare / Backblaze (or another S3-compatible provider) — storage of generated media files</li>
+          <li>Backblaze B2 — storage of generated media files</li>
           <li>Resend — delivery of transactional emails (e.g. password resets)</li>
           <li>Google (YouTube Data API) — Trend Radar's channel/video data, and YouTube publishing if you connect a YouTube account</li>
           <li>TikTok and Meta (Instagram) — publishing, if you connect those accounts</li>

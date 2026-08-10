@@ -61,7 +61,7 @@ const processors = [
   "Microsoft Edge TTS — free-tier text-to-speech fallback",
   "Pexels — stock b-roll matching",
   "Stripe — payment processing (we never see your card number)",
-  "Cloudflare / Backblaze — encrypted storage of generated media",
+  "Backblaze B2 — storage of generated media",
   "Resend — transactional email delivery only",
   "Google (YouTube Data API) — Trend Radar data, YouTube publishing",
 ];

@@ -6,6 +6,8 @@ import { chatJSON } from "@/lib/providers/llm";
 import { analyzeSubjectPan, prepareLocalSource } from "@/lib/providers/subject-tracking";
 import { recordActivity } from "@/lib/streaks";
 import { getBrandForRender } from "@/lib/brand-server";
+import { refundCredits, CREDITS_PER_VIDEO } from "@/lib/credits";
+import { resolveProjectCreditOwnerId } from "@/lib/workspace";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 
 async function setJobProgress(jobId: string, progress: number, log?: string) {
@@ -167,5 +169,9 @@ export async function runRepurposeJob(jobId: string) {
     const message = err instanceof Error ? err.message : "Unknown error";
     await db.project.update({ where: { id: project.id }, data: { status: "failed", errorMessage: message } });
     await db.job.update({ where: { id: jobId }, data: { status: "failed", log: message } });
+    const creditOwnerId = await resolveProjectCreditOwnerId(project);
+    await refundCredits(creditOwnerId, CREDITS_PER_VIDEO).catch((e) =>
+      console.error("[repurpose-runner] credit refund failed:", e instanceof Error ? e.message : e)
+    );
   }
 }

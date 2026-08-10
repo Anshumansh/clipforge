@@ -71,7 +71,7 @@ const plans = [
     description: "For agencies and brands running UGC ad campaigns.",
     features: [
       "~250 short videos / month",
-      "UGC / avatar ad generation",
+      "UGC-style ad generation",
       "4K export",
       "Multi-format export (9:16, 1:1, 16:9)",
       "AI voice cloning from a sample clip",
@@ -92,7 +92,8 @@ export default function PricingPage() {
           <div className="mx-auto max-w-2xl text-center">
             <h1 className="text-4xl font-bold tracking-tight">Simple, credit-based pricing</h1>
             <p className="mt-4 text-muted-foreground">
-              One credit ≈ one minute of rendered video. Upgrade, downgrade, or cancel any time.
+              Every generated video costs a flat 10 credits, regardless of length. One shared credit pool across all
+              three engines. Upgrade, downgrade, or cancel any time.
             </p>
           </div>
         </Reveal>

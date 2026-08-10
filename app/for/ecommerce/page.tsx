@@ -4,13 +4,13 @@ import { UserRound, Sparkles, Wand2, Lightbulb, Image as ImageIcon, Grid3x3 } fr
 
 export const metadata: Metadata = {
   title: "Clipforge for E-commerce & UGC Advertisers",
-  description: "Generate talking-avatar UGC ad creative — new hooks and angles on demand, no actors, no camera, no reshoot.",
+  description: "Generate voiceover-led UGC-style ad creative — new hooks and angles on demand, no actors, no camera, no reshoot.",
 };
 
 const config: VerticalConfig = {
   badge: "For e-commerce & UGC advertisers",
   headline: "UGC ad creative without the UGC creators",
-  subhead: "Describe your product once. Get a finished talking-avatar ad with voiceover — then generate three more hook variants before your coffee's cold.",
+  subhead: "Describe your product once. Get a finished voiceover-led UGC-style ad — then generate three more hook variants before your coffee's cold.",
   painPoint: {
     title: "Performance creative dies fast. Production can't keep up.",
     body: "A winning ad angle burns out in days, and booking a creator or reshooting for every new hook doesn't scale with how often you actually need fresh creative.",
@@ -18,8 +18,8 @@ const config: VerticalConfig = {
   features: [
     {
       icon: UserRound,
-      title: "Talking-avatar ads, no camera required",
-      body: "Turn a product description and selling points into a finished ad script with voiceover and avatar visuals — no actor, no studio, no shoot day.",
+      title: "UGC-style ads, no camera required",
+      body: "Turn a product description and selling points into a finished ad script with voiceover, captions, and matched b-roll — no actor, no studio, no shoot day. No synthetic avatar or face — this is a voiceover-led format, not a talking spokesperson.",
     },
     {
       icon: Lightbulb,

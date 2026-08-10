@@ -44,11 +44,11 @@ const engines = [
   },
   {
     icon: UserRound,
-    title: "UGC & avatar ads",
+    title: "UGC-style ad videos",
     steps: [
       "You describe a product and its selling points.",
       "An ad script is written in a talking-to-camera style, not a generic voiceover-over-b-roll format.",
-      "A voiceover is generated and paired with avatar visuals to produce a finished ad — no camera, no actor, no studio.",
+      "A voiceover is generated and paired with matched b-roll and captions to produce a finished ad — no camera, no actor, no studio.",
     ],
   },
 ];
