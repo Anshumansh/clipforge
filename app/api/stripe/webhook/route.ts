@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
+import { Prisma } from "@prisma/client";
 import { getStripe } from "@/lib/stripe";
 import { getPlanByPriceId } from "@/lib/plans";
 import { db } from "@/lib/db";
@@ -26,6 +27,24 @@ export async function POST(req: Request) {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Invalid signature";
     return NextResponse.json({ error: `Webhook signature verification failed: ${message}` }, { status: 400 });
+  }
+
+  // Idempotent event processing (pricing overhaul brief, section 8/9):
+  // Stripe retries any delivery that doesn't get a fast 2xx, so the same
+  // event can arrive more than once. The event id itself is the row's
+  // primary key -- a duplicate delivery's insert hits the unique
+  // constraint and is treated as already-handled, without re-running any
+  // handler logic below (some of which, like checkout.session.completed's
+  // credit grant, would otherwise be safe to replay only by coincidence).
+  try {
+    await db.stripeWebhookEvent.create({
+      data: { id: event.id, type: event.type, payloadSummary: JSON.stringify({ type: event.type }).slice(0, 500) },
+    });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      return NextResponse.json({ received: true, duplicate: true });
+    }
+    throw err;
   }
 
   switch (event.type) {
