@@ -28,6 +28,24 @@ Consolidated to `next.config.js` as the single source of truth (it's the layer t
 to know the real CSP allowances anyway) and added `https://i.ytimg.com` to `img-src`.
 Verified live: exactly one of each header now, correct values.
 
+**Ambient-glow restore + `media-src` CSP hotfix** (direct to `main`, 2026-08-11): reapplied
+a decorative animated background (`.ambient-glow` in `app/globals.css`) to the marketing
+hero/CTA sections that lost it when `hero-glow` was removed for the Edge GPU paint bug —
+deliberately avoids the `filter: blur()` + large-negative-inset combination that caused
+that bug (uses `background-position` animation on a radial-gradient instead). While
+verifying this in the browser, found a much more serious, unrelated regression: the
+Pass 2 CSP's `media-src 'self' blob:` had been silently blocking every video and
+thumbnail across the entire app — homepage reels, dashboard project previews, Trend
+Radar — since the day it shipped. `/api/media/*` was never a same-origin proxy; it
+307-redirects to a presigned Backblaze URL (`app/api/media/[...key]/route.ts`), and CSP
+matches the resource actually fetched after the redirect, not the initiating same-origin
+path. Fixed by adding the storage host to both `media-src` and `img-src` in
+`next.config.js` (hardcoded, not env-derived — `headers()` runs once during `next build`
+in the Docker builder stage, before `STORAGE_*` runtime env vars are ever injected).
+Verified live in a fresh browser tab: CSP response header carries the storage host,
+zero console errors, a homepage `<video>` element reports `readyState: 4` (HAVE_ENOUGH_DATA)
+with real dimensions and no `.error`.
+
 **How to read this file:** each requirement gets one of the six statuses the brief
 defines. Nothing is marked `COMPLETED_AND_VERIFIED` unless a real end-to-end test
 against production (or the local dev build) backs it up — code existing is not
