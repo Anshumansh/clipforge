@@ -54,7 +54,7 @@ export default function InvitePage() {
   const emailMismatch = loggedIn && invite && sessionEmail && sessionEmail.toLowerCase() !== invite.email.toLowerCase();
 
   return (
-    <div className="hero-glow grid-pattern flex min-h-screen items-center justify-center px-6">
+    <div className="flex min-h-screen items-center justify-center px-6 py-12">
       <Card className="w-full max-w-sm">
         <CardHeader className="items-center text-center">
           <Link href="/" className="mb-2 flex items-center gap-2 font-display font-semibold">
