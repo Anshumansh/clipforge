@@ -3,11 +3,19 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { isSocialPlatform, isPlatformConfigured, PLATFORM_OAUTH, getRedirectUri } from "@/lib/social/platforms";
+import { requireVerifiedEmail, EmailNotVerifiedError } from "@/lib/email-verification";
 
 export async function GET(req: Request, { params }: { params: { platform: string } }) {
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  try {
+    await requireVerifiedEmail(userId);
+  } catch (err) {
+    if (err instanceof EmailNotVerifiedError) return NextResponse.json({ error: err.message }, { status: 403 });
+    throw err;
+  }
 
   if (!isSocialPlatform(params.platform)) {
     return NextResponse.json({ error: "Unknown platform" }, { status: 400 });

@@ -48,10 +48,16 @@ model User {
   totpSecret             String?
   totpEnabledAt          DateTime?
   totpBackupCodes        String?
+  // Null = unverified. Existing users at the time this shipped were
+  // backfilled to their createdAt (grandfathered in, matching the MFA
+  // opt-in principle) -- only accounts registering after this feature
+  // exists are actually required to verify before using gated features.
+  emailVerifiedAt        DateTime?
   createdAt              DateTime  @default(now())
   projects               Project[]
   jobs                   Job[]
   passwordResetTokens    PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
   socialAccounts         SocialAccount[]
   socialPosts            SocialPost[]
   userNiche              UserNiche?
@@ -239,6 +245,18 @@ model Clip {
 }
 
 model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model EmailVerificationToken {
   id        String   @id @default(cuid())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
