@@ -54,7 +54,7 @@ export default async function DashboardPage() {
       </div>
 
       {projects.length === 0 ? (
-        <Card className="flex flex-col items-center gap-4 border-dashed py-16 text-center">
+        <Card className="ambient-glow relative flex flex-col items-center gap-4 border-dashed py-16 text-center">
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-accent/20">
             <Clapperboard className="h-7 w-7 text-primary" />
           </div>

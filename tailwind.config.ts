@@ -69,6 +69,10 @@ const config: Config = {
           from: { opacity: "0", transform: "translateY(6px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
+        "ambient-drift": {
+          "0%, 100%": { backgroundPosition: "0% 0%" },
+          "50%": { backgroundPosition: "8% 6%" },
+        },
       },
       animation: {
         shine: "shine 3s linear infinite",
