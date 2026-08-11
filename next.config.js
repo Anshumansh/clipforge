@@ -1,11 +1,23 @@
-// Nearly every media/asset the app loads is same-origin: video/image previews go
-// through /api/media/*, fonts are self-hosted via next/font (no Google Fonts CDN
-// request at runtime), and there's no client-side Stripe.js (checkout is a
-// server-side redirect to a Stripe-hosted page, not Stripe Elements) and no
-// analytics/tracking scripts. The one real exception is Trend Radar's video
-// thumbnails, which render the YouTube Data API's own https://i.ytimg.com URL
-// directly (app/dashboard/trends/page.tsx) rather than proxying it -- that's the
-// only external host this CSP allows.
+// Nearly every media/asset the app loads is nominally same-origin: video/image
+// previews are requested from /api/media/*, fonts are self-hosted via next/font
+// (no Google Fonts CDN request at runtime), and there's no client-side Stripe.js
+// (checkout is a server-side redirect to a Stripe-hosted page, not Stripe
+// Elements) and no analytics/tracking scripts.
+//
+// /api/media/* itself is a 307 redirect to a short-lived presigned URL on the
+// storage provider (see app/api/media/[...key]/route.ts) -- it never proxies the
+// bytes. CSP source matching applies to the resource actually fetched, so the
+// storage host has to be allowed directly here too, or every video/thumbnail
+// site-wide silently fails to load despite the redirecting route returning a
+// clean 307. Hardcoded (not derived from STORAGE_ENDPOINT) because next.config.js's
+// headers() runs once during `next build`, which happens in the Docker builder
+// stage before STORAGE_* runtime env vars are ever injected -- an env-derived
+// value here would read as undefined and silently ship the old, broken CSP.
+// The other real exception is Trend Radar's video thumbnails, which render the
+// YouTube Data API's own https://i.ytimg.com URL directly (app/dashboard/trends/
+// page.tsx) rather than proxying it.
+const STORAGE_HOST = "https://s3.us-west-004.backblazeb2.com";
+
 const CSP = [
   "default-src 'self'",
   // Next.js hydration relies on inline scripts; a nonce-based CSP is the stronger
@@ -13,8 +25,8 @@ const CSP = [
   // 'unsafe-inline' still blocks loading a full attacker-controlled remote script.
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://i.ytimg.com",
-  "media-src 'self' blob:",
+  `img-src 'self' data: blob: https://i.ytimg.com ${STORAGE_HOST}`,
+  `media-src 'self' blob: ${STORAGE_HOST}`,
   "font-src 'self'",
   "connect-src 'self'",
   "frame-src 'none'",
