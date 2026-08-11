@@ -11,66 +11,80 @@ datasource db {
 }
 
 model User {
-  id                     String    @id @default(cuid())
-  name                   String?
-  email                  String    @unique
-  passwordHash           String
-  credits                Int       @default(50)
-  plan                   String    @default("free")
-  stripeCustomerId       String?   @unique
-  stripeSubscriptionId   String?   @unique
-  stripePriceId          String?
-  stripeCurrentPeriodEnd DateTime?
+  id                      String                   @id @default(cuid())
+  name                    String?
+  email                   String                   @unique
+  passwordHash            String
+  credits                 Int                      @default(50)
+  plan                    String                   @default("free")
+  stripeCustomerId        String?                  @unique
+  stripeSubscriptionId    String?                  @unique
+  stripePriceId           String?
+  stripeCurrentPeriodEnd  DateTime?
   // "past_due" | "disputed" | null. Set by the Stripe webhook, shown as a
   // billing-page banner -- deliberately doesn't touch plan/credits itself
   // (Stripe's own dunning retries handle recovery; a real subscription
   // cancellation still comes through as its own customer.subscription.deleted
   // event, which does downgrade to free).
-  billingIssue           String?
-  currentStreak          Int       @default(0)
-  longestStreak          Int       @default(0)
-  lastActiveAt           DateTime?
+  billingIssue            String?
+  currentStreak           Int                      @default(0)
+  longestStreak           Int                      @default(0)
+  lastActiveAt            DateTime?
   // Gates the handful of founder-only actions that exist today (updating a
   // feature request's status, granting credits/trials). Deliberately a
   // single flag rather than a roles table -- there's exactly one admin
   // right now; build the real thing when there's an actual reason to.
-  isAdmin                Boolean   @default(false)
+  isAdmin                 Boolean                  @default(false)
   // Set by an admin-granted free trial (app/api/admin/comp-plan) -- a cron
   // (scripts/revert-expired-comps.sh) reverts `plan` back to whatever it
   // was before the comp once this passes. Null the rest of the time.
-  compPlanExpiresAt      DateTime?
+  compPlanExpiresAt       DateTime?
   // TOTP MFA -- currently only ever set for isAdmin accounts (see lib/auth.ts).
   // totpSecret is AES-256-GCM encrypted (lib/crypto.ts), same as social OAuth
   // tokens. totpEnabledAt null = not enrolled = login proceeds password-only;
   // the login gate only activates once this is actually set, so shipping the
   // enrollment flow can't retroactively lock anyone out. backupCodes is a
   // JSON array of bcrypt hashes, each consumed (removed) on use.
-  totpSecret             String?
-  totpEnabledAt          DateTime?
-  totpBackupCodes        String?
+  totpSecret              String?
+  totpEnabledAt           DateTime?
+  totpBackupCodes         String?
   // Null = unverified. Existing users at the time this shipped were
   // backfilled to their createdAt (grandfathered in, matching the MFA
   // opt-in principle) -- only accounts registering after this feature
   // exists are actually required to verify before using gated features.
-  emailVerifiedAt        DateTime?
-  createdAt              DateTime  @default(now())
-  projects               Project[]
-  jobs                   Job[]
-  passwordResetTokens    PasswordResetToken[]
+  emailVerifiedAt         DateTime?
+  // Pins an account to the PlanVersion.planId it actually signed up under
+  // (2026-08 pricing overhaul). Null = predates plan versioning entirely --
+  // resolvePlanConfig() (lib/pricing/plan-config.ts) treats null the same as
+  // the legacy hobby/creator/business definitions in lib/plans.ts, so
+  // existing subscribers see zero change until an owner-approved migration
+  // explicitly reassigns them. Never written to directly by checkout --
+  // only by the owner-approved migration script once one exists.
+  planVersionId           String?
+  billingIntervalMonths   Int? // 1 = monthly, 12 = annual. Null for free/legacy accounts.
+  seats                   Int                      @default(1) // Pro/Business seat add-ons (section 4) -- billed via a separate Stripe subscription item, not a new subscription.
+  createdAt               DateTime                 @default(now())
+  projects                Project[]
+  jobs                    Job[]
+  passwordResetTokens     PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
-  socialAccounts         SocialAccount[]
-  socialPosts            SocialPost[]
-  userNiche              UserNiche?
-  captureSessions        CaptureSession[]
-  disclaimerConfig       DisclaimerConfig?
-  featureRequests        FeatureRequest[]
-  featureVotes           FeatureVote[]
-  brandKit               BrandKit?
-  apiKeys                ApiKey[]
-  ownedWorkspace         Workspace?        @relation("WorkspaceOwner")
-  workspaceMembership    WorkspaceMember?  @relation("WorkspaceMembership")
-  adminActionsReceived   AdminAction[]     @relation("AdminActionTarget")
-  adminActionsPerformed  AdminAction[]     @relation("AdminActionAdmin")
+  socialAccounts          SocialAccount[]
+  socialPosts             SocialPost[]
+  userNiche               UserNiche?
+  captureSessions         CaptureSession[]
+  disclaimerConfig        DisclaimerConfig?
+  featureRequests         FeatureRequest[]
+  featureVotes            FeatureVote[]
+  brandKit                BrandKit?
+  brandPresets            BrandPreset[]
+  apiKeys                 ApiKey[]
+  ownedWorkspace          Workspace?               @relation("WorkspaceOwner")
+  workspaceMembership     WorkspaceMember?         @relation("WorkspaceMembership")
+  adminActionsReceived    AdminAction[]            @relation("AdminActionTarget")
+  adminActionsPerformed   AdminAction[]            @relation("AdminActionAdmin")
+  creditLedgerEntries     CreditLedgerEntry[]
+  creditReservations      CreditReservation[]
+  jobCostRecords          JobCostRecord[]
 }
 
 // Audit log for every admin credit-grant / plan-comp action -- who did what,
@@ -79,18 +93,18 @@ model User {
 // or just for your own later "wait, why does this account have 5000 credits"
 // question.
 model AdminAction {
-  id           String   @id @default(cuid())
-  adminId      String
-  admin        User     @relation("AdminActionAdmin", fields: [adminId], references: [id], onDelete: Cascade)
-  targetUserId String
-  targetUser   User     @relation("AdminActionTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
-  type         String // "credit_grant" | "plan_comp"
+  id             String   @id @default(cuid())
+  adminId        String
+  admin          User     @relation("AdminActionAdmin", fields: [adminId], references: [id], onDelete: Cascade)
+  targetUserId   String
+  targetUser     User     @relation("AdminActionTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+  type           String // "credit_grant" | "plan_comp"
   creditsGranted Int?
-  planGranted  String?
-  previousPlan String? // snapshot so a trial reverts to what the user actually had, not a hardcoded "free"
-  days         Int?
-  note         String
-  createdAt    DateTime @default(now())
+  planGranted    String?
+  previousPlan   String? // snapshot so a trial reverts to what the user actually had, not a hardcoded "free"
+  days           Int?
+  note           String
+  createdAt      DateTime @default(now())
 
   @@index([targetUserId])
 }
@@ -177,13 +191,13 @@ model BrandKit {
 // Anyone can view the board; submitting and voting require an account
 // (see app/api/roadmap routes) to keep it from being trivially spammed.
 model FeatureRequest {
-  id          String   @id @default(cuid())
+  id          String        @id @default(cuid())
   userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   title       String
   description String
-  status      String   @default("open") // open | planned | in_progress | shipped
-  createdAt   DateTime @default(now())
+  status      String        @default("open") // open | planned | in_progress | shipped
+  createdAt   DateTime      @default(now())
   votes       FeatureVote[]
 
   @@index([status])
@@ -203,67 +217,67 @@ model FeatureVote {
 // A project is one piece of content the user is generating:
 // script-to-video, repurpose (long-form -> clips), or ugc/avatar ad.
 model Project {
-  id          String   @id @default(cuid())
-  userId      String   // who actually generated it -- kept even for workspace projects, for attribution
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id           String     @id @default(cuid())
+  userId       String // who actually generated it -- kept even for workspace projects, for attribution
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   // Set when created by a workspace owner/member -- makes it visible to
   // every member of that workspace, not just its creator. Null for
   // everyone not in a workspace (the vast majority of projects). SetNull
   // (not Cascade) so a deleted workspace doesn't take a member's already-
   // generated videos down with it -- they just revert to personal projects.
-  workspaceId String?
-  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
-  type        String   // "script" | "repurpose" | "ugc"
-  title       String
-  status      String   @default("draft") // draft | queued | processing | ready | failed
-  input       String   // JSON blob of wizard input
-  script      String?
+  workspaceId  String?
+  workspace    Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  type         String // "script" | "repurpose" | "ugc"
+  title        String
+  status       String     @default("draft") // draft | queued | processing | ready | failed
+  input        String // JSON blob of wizard input
+  script       String?
   captionsJson String? // JSON word-timing captions
-  scenesJson  String?  // JSON b-roll scene timeline (SceneTimelineEntry[]) -- powers EDL/XML export
+  scenesJson   String? // JSON b-roll scene timeline (SceneTimelineEntry[]) -- powers EDL/XML export
   voiceoverUrl String?
-  videoUrl    String?
+  videoUrl     String?
   thumbnailUrl String?
   errorMessage String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  jobs        Job[]
-  clips       Clip[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  jobs         Job[]
+  clips        Clip[]
 }
 
 // Sub-clips produced by the "repurpose" flow from one long-form upload.
 model Clip {
-  id         String   @id @default(cuid())
-  projectId  String
-  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  title      String
-  startSec   Float
-  endSec     Float
-  score      Float    @default(0)
-  videoUrl   String?
-  status     String   @default("pending") // pending | processing | ready | failed
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title     String
+  startSec  Float
+  endSec    Float
+  score     Float    @default(0)
+  videoUrl  String?
+  status    String   @default("pending") // pending | processing | ready | failed
+  createdAt DateTime @default(now())
 }
 
 model PasswordResetToken {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash String   @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId])
 }
 
 model EmailVerificationToken {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash String   @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId])
 }
@@ -272,18 +286,18 @@ model EmailVerificationToken {
 // encrypted at rest (see lib/crypto.ts) — the DB should never hold a usable
 // token in plain text.
 model SocialAccount {
-  id             String    @id @default(cuid())
-  userId         String
-  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  platform       String    // "youtube" | "tiktok" | "instagram"
-  platformUserId String    // the account's ID on that platform
-  handle         String?   // display name/username, for UI
-  accessTokenEnc String    // encrypted
-  refreshTokenEnc String?  // encrypted
-  expiresAt      DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  posts          SocialPost[]
+  id              String       @id @default(cuid())
+  userId          String
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform        String // "youtube" | "tiktok" | "instagram"
+  platformUserId  String // the account's ID on that platform
+  handle          String? // display name/username, for UI
+  accessTokenEnc  String // encrypted
+  refreshTokenEnc String? // encrypted
+  expiresAt       DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  posts           SocialPost[]
 
   @@unique([userId, platform])
 }
@@ -292,37 +306,37 @@ model SocialAccount {
 // formally related to Project/Clip (a post only needs the final video URL),
 // which keeps this decoupled from the generation pipeline's own lifecycle.
 model SocialPost {
-  id              String    @id @default(cuid())
+  id              String        @id @default(cuid())
   userId          String
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   socialAccountId String
   socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
   projectId       String?
   clipId          String?
   videoUrl        String
   caption         String
-  status          String    @default("scheduled") // scheduled | posting | posted | failed
-  scheduledAt     DateTime  @default(now())
+  status          String        @default("scheduled") // scheduled | posting | posted | failed
+  scheduledAt     DateTime      @default(now())
   postedAt        DateTime?
-  platformPostId  String?   // the resulting post's ID/URL once published
+  platformPostId  String? // the resulting post's ID/URL once published
   errorMessage    String?
-  createdAt       DateTime  @default(now())
+  createdAt       DateTime      @default(now())
 
   @@index([status, scheduledAt])
 }
 
 model Job {
-  id         String   @id @default(cuid())
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  projectId  String
-  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  type       String   // "render" | "analyze"
-  status     String   @default("queued") // queued | processing | done | failed
-  progress   Int      @default(0)
-  log        String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type      String // "render" | "analyze"
+  status    String   @default("queued") // queued | processing | done | failed
+  progress  Int      @default(0)
+  log       String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // =====================================================================
@@ -333,12 +347,12 @@ model Job {
 // inspiration (spec: "up to ~10 inspiration channels"). One per user for
 // now — matches "user picks a niche" (singular) rather than multiple.
 model UserNiche {
-  id              String   @id @default(cuid())
-  userId          String   @unique
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              String           @id @default(cuid())
+  userId          String           @unique
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   niche           String
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
   trackedChannels TrackedChannel[]
 }
 
@@ -357,15 +371,15 @@ model TrackedChannel {
 // transcript/captions text is never persisted here or anywhere else (see
 // ExtractedPattern below); only derived pattern fields survive.
 model YoutubeVideo {
-  id              String   @id // the YouTube video ID itself
-  channelId       String   // the YouTube channel ID (external, not a local FK)
-  title           String
-  thumbnailUrl    String?
-  publishedAt     DateTime
-  createdAt       DateTime @default(now())
-  snapshots       TrendSnapshot[]
-  breakoutScores  BreakoutScore[]
-  pattern         ExtractedPattern?
+  id             String            @id // the YouTube video ID itself
+  channelId      String // the YouTube channel ID (external, not a local FK)
+  title          String
+  thumbnailUrl   String?
+  publishedAt    DateTime
+  createdAt      DateTime          @default(now())
+  snapshots      TrendSnapshot[]
+  breakoutScores BreakoutScore[]
+  pattern        ExtractedPattern?
 
   @@index([channelId])
 }
@@ -394,9 +408,9 @@ model BreakoutScore {
   id                    String       @id @default(cuid())
   videoId               String
   video                 YoutubeVideo @relation(fields: [videoId], references: [id], onDelete: Cascade)
-  velocity              Float        // views/hour at scoring time
-  channelMedianVelocity Float        // that channel's own historical median
-  score                 Float        // velocity / channelMedianVelocity
+  velocity              Float // views/hour at scoring time
+  channelMedianVelocity Float // that channel's own historical median
+  score                 Float // velocity / channelMedianVelocity
   computedAt            DateTime     @default(now())
 
   @@index([videoId, computedAt])
@@ -423,17 +437,17 @@ model ExtractedPattern {
 // =====================================================================
 
 model CaptureSession {
-  id              String   @id @default(cuid())
+  id              String           @id @default(cuid())
   userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sourceType      String   // "upload" | "rtmp" (rtmp is v2)
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceType      String // "upload" | "rtmp" (rtmp is v2)
   sourceUrl       String
-  personaType     String   @default("generic") // "generic" | "podcaster" | "trading" | "gaming"
+  personaType     String           @default("generic") // "generic" | "podcaster" | "trading" | "gaming"
   durationSec     Float?
-  status          String   @default("processing") // processing | ready | failed
+  status          String           @default("processing") // processing | ready | failed
   errorMessage    String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
   speakerSegments SpeakerSegment[]
   clipCandidates  ClipCandidate[]
   highlightScores HighlightScore[]
@@ -471,7 +485,7 @@ model HighlightScore {
   transcriptScore Float          @default(0)
   chatScore       Float          @default(0) // live chat spike; 0 for VOD-only sources
   totalScore      Float
-  signals         String?        // JSON: contributing signals, persona-specific extras
+  signals         String? // JSON: contributing signals, persona-specific extras
   createdAt       DateTime       @default(now())
 
   @@index([sessionId, totalScore])
@@ -489,9 +503,9 @@ model ClipCandidate {
   endSec         Float
   predictedScore Float
   status         String         @default("pending") // pending | approved | discarded | published
-  videoUrl       String?        // rendered clip, once approved + rendered
+  videoUrl       String? // rendered clip, once approved + rendered
   reframeMode    String         @default("center") // "center" | "face-tracked"
-  metadata       String?        // JSON, persona-specific
+  metadata       String? // JSON, persona-specific
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
@@ -505,20 +519,20 @@ model ClipCandidate {
 // A directional prediction detected in the transcript, timestamped so its
 // outcome can be checked later against real price history.
 model TradeCall {
-  id               String         @id @default(cuid())
-  sessionId        String
-  session          CaptureSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  asset            String         // e.g. "BTCUSDT", "AAPL"
-  direction        String         // "long" | "short"
-  targetPrice      Float?
-  calledAtPrice    Float?
-  calledAtSec      Float          // timestamp within the session
-  resolveAt        DateTime       // when the "called it" resolution job should check the outcome
-  resolvedAt       DateTime?
-  outcome          String?        // "correct" | "incorrect" | null while unresolved
-  resolvedPrice    Float?
-  clipCandidateId  String?        // the auto-generated "called it" clip, once created
-  createdAt        DateTime       @default(now())
+  id              String         @id @default(cuid())
+  sessionId       String
+  session         CaptureSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  asset           String // e.g. "BTCUSDT", "AAPL"
+  direction       String // "long" | "short"
+  targetPrice     Float?
+  calledAtPrice   Float?
+  calledAtSec     Float // timestamp within the session
+  resolveAt       DateTime // when the "called it" resolution job should check the outcome
+  resolvedAt      DateTime?
+  outcome         String? // "correct" | "incorrect" | null while unresolved
+  resolvedPrice   Float?
+  clipCandidateId String? // the auto-generated "called it" clip, once created
+  createdAt       DateTime       @default(now())
 
   @@index([resolveAt, outcome])
 }
@@ -558,9 +572,225 @@ model DisclaimerConfig {
 model GameTemplate {
   id               String   @id @default(cuid())
   gameName         String   @unique
-  hudRegion        String?  // JSON: {x,y,w,h} normalized killfeed region for OCR, once known
-  killfeedKeywords String?  // JSON array, e.g. ["ELIMINATED", "Victory Royale"]
+  hudRegion        String? // JSON: {x,y,w,h} normalized killfeed region for OCR, once known
+  killfeedKeywords String? // JSON array, e.g. ["ELIMINATED", "Victory Royale"]
   detectionMode    String   @default("audio") // "ocr" | "audio" | "hybrid"
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+}
+
+// =====================================================================
+// Pricing & credit system overhaul (2026-08-11 owner brief). Every model
+// below is purely additive -- the legacy flat CREDITS_PER_VIDEO charge in
+// lib/credits.ts keeps working unmodified until the canonical engine
+// (lib/pricing/*) is cut over behind a flag, per the brief's staged
+// rollout (never one uncontrolled deploy).
+// =====================================================================
+
+// The immutable source of truth for every credit movement -- charges,
+// refunds, admin grants, monthly renewals, expirations. User.credits stays
+// as the fast-read running balance (unchanged), but every write to it now
+// also appends one of these, so "why does this account have N credits" has
+// a real, queryable answer instead of just the current number. Never
+// updated or deleted after creation; a correction is a new offsetting row.
+model CreditLedgerEntry {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId    String? // set when spent from a workspace owner's pool by a member other than the owner
+  type           String // "charge" | "refund" | "monthly_grant" | "signup_grant" | "pack_purchase" | "admin_adjustment" | "expiry"
+  delta          Int // signed: negative for charges/expiry, positive for grants/refunds
+  balanceAfter   Int // User.credits immediately after this entry, for point-in-time audit without replaying history
+  projectId      String?
+  jobId          String?
+  reservationId  String? // links back to the CreditReservation this charge/refund settled, if any
+  idempotencyKey String   @unique // caller-supplied; a retried request with the same key is a no-op, not a double charge
+  note           String?
+  createdAt      DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// Formalizes the existing "charge up front, refund on failure" pattern into
+// an explicit reserve -> capture|release lifecycle, so a crash between
+// "credits deducted" and "job actually enqueued" is a detectable stuck
+// reservation instead of silently lost credits with no record. reserved =
+// held (User.credits already decremented, same as today's chargeCredits);
+// captured = job succeeded, hold is now permanent; released = job failed or
+// was never enqueued, credits were given back.
+model CreditReservation {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId    String?
+  jobId          String?   @unique // set once the reservation is linked to a real job; null briefly during creation
+  amount         Int
+  status         String    @default("reserved") // "reserved" | "captured" | "released"
+  idempotencyKey String    @unique
+  createdAt      DateTime  @default(now())
+  resolvedAt     DateTime?
+
+  @@index([userId, status])
+}
+
+// Per-generation expense record (brief section 6). One row per Job, created
+// once cost data is available (some fields fill in progressively as a job
+// runs: AI/TTS costs are known early, render/storage costs only after the
+// render completes). Every *CostUsd field is nullable and left null rather
+// than guessed when a provider doesn't expose per-call cost -- unit
+// economics math (lib/pricing/margin.ts) treats null as "unknown", never 0.
+model JobCostRecord {
+  id                     String   @id @default(cuid())
+  jobId                  String   @unique
+  projectId              String
+  userId                 String
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  aiProvider             String? // "openai" | "groq"
+  aiModel                String?
+  aiInputTokens          Int?
+  aiOutputTokens         Int?
+  aiCostUsd              Float?
+  transcriptionSeconds   Float?
+  transcriptionCostUsd   Float?
+  ttsCharacters          Int?
+  ttsSeconds             Float?
+  ttsCostUsd             Float?
+  voiceCloneComputeSec   Float?
+  voiceCloneCostUsd      Float?
+  renderSeconds          Float?
+  renderCostUsd          Float?
+  storageBytes           BigInt?
+  storageCostUsd         Float?
+  bandwidthBytes         BigInt?
+  bandwidthCostUsd       Float?
+  retryCount             Int      @default(0)
+  retryCostUsd           Float?
+  creditsCharged         Int      @default(0)
+  creditsRefunded        Int      @default(0)
+  netRevenueUsdAllocated Float? // this job's share of the plan's subscription revenue, per lib/pricing/margin.ts
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([userId, createdAt])
+}
+
+// Owner-entered monthly overhead (brief section 6) -- amountUsd is null and
+// isEstimate stays true until an owner fills it in via the admin dashboard.
+// Unit-economics reports must show these as "not yet provided", never
+// silently treat null as 0.
+model MonthlyExpense {
+  id              String   @id @default(cuid())
+  month           DateTime // stored as the 1st of the month, UTC
+  category        String // "hetzner" | "neon" | "backblaze" | "openai" | "groq" | "stripe_fees" | "resend" | "domain" | "monitoring" | "accounting" | "legal" | "insurance" | "support" | "development" | "marketing" | "refunds_chargebacks" | "tax" | "other"
+  amountUsd       Float?
+  isEstimate      Boolean  @default(true)
+  note            String?
+  updatedByUserId String?
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  @@unique([month, category])
+}
+
+// Dated competitor pricing benchmark (brief section 5) -- never used for
+// live claims after 30 days without re-verification; staleness is computed
+// from verifiedAt at read time (lib/pricing/competitors.ts), not stored.
+model CompetitorBenchmark {
+  id            String   @id @default(cuid())
+  competitor    String // "opusclip" | "revid" | "klap" | "vizard"
+  planName      String
+  priceUsd      Float?
+  billingPeriod String // "monthly" | "annual"
+  sourceUrl     String
+  verifiedAt    DateTime
+  note          String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([competitor, verifiedAt])
+}
+
+// Global and per-feature emergency switches (brief section 7). enabled =
+// false means the feature is OFF regardless of plan entitlement -- checked
+// in addition to, not instead of, the normal plan gate. "global" disables
+// all paid generation (demo/free path only) for a full incident stop.
+model KillSwitch {
+  id              String   @id @default(cuid())
+  feature         String   @unique // "global" | "demo" | "voice_clone" | "4k_export" | "repurpose" | "social_publishing"
+  enabled         Boolean  @default(true)
+  reason          String?
+  updatedByUserId String?
+  updatedAt       DateTime @updatedAt
+}
+
+// A triggered profitability/spend alert (brief section 7), persisted so the
+// admin dashboard shows history rather than only the current live
+// computation. `subject` is a planId, userId, or jobId depending on `type`.
+model MarginAlert {
+  id             String    @id @default(cuid())
+  type           String // "plan_margin_low" | "plan_margin_critical" | "job_loss" | "retry_rate_high" | "customer_cost_high" | "daily_spend_cap"
+  severity       String // "warning" | "critical"
+  subject        String
+  detail         String // JSON blob with the numbers that triggered it
+  acknowledgedAt DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([type, createdAt])
+}
+
+// A versioned, immutable snapshot of one plan's terms (brief section 8/11).
+// configJson is the canonical feature-gate + credit-cost config for that
+// version -- lib/pricing/plan-config.ts reads from here, not from scattered
+// booleans, once a User has a non-null planVersionId. Existing subscribers
+// keep whatever version they signed up under (User.planVersionId) until an
+// owner-approved migration reassigns them; effectiveUntil stays null for
+// the currently-sold version of each planId.
+model PlanVersion {
+  id              String    @id @default(cuid())
+  planId          String // "free" | "starter" | "creator" | "pro" | "business"
+  versionLabel    String // e.g. "2026-08-v1"
+  displayName     String
+  monthlyPriceUsd Float
+  annualPriceUsd  Float?
+  monthlyCredits  Int
+  configJson      String // full feature-gate/credit-cost config, see lib/pricing/plan-config.ts
+  effectiveFrom   DateTime  @default(now())
+  effectiveUntil  DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@unique([planId, versionLabel])
+  @@index([planId, effectiveFrom])
+}
+
+// Dedup record for Stripe webhook deliveries (brief section 8/9). The
+// Stripe event id itself is the primary key, so a retried delivery's insert
+// throws on the unique constraint before any handler logic re-runs --
+// prevents duplicate credit grants, duplicate plan changes, anything.
+model StripeWebhookEvent {
+  id             String   @id // the Stripe event id (evt_...), not a generated cuid
+  type           String
+  processedAt    DateTime @default(now())
+  payloadSummary String? // small JSON audit trail, not the full raw payload
+}
+
+// One saved brand configuration a user can apply to a render (brief
+// section 1: 1/2/5/10 presets per Starter/Creator/Pro/Business tier).
+// Additive alongside the legacy single BrandKit model, which the existing
+// render pipeline (lib/brand-server.ts) keeps reading from unchanged --
+// wiring preset selection into the generation flow and brand-kit UI is
+// tracked separately in OWNER_ACTIONS_REQUIRED.md, not silently assumed
+// done by this schema addition alone.
+model BrandPreset {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
+  logoUrl        String?
+  primaryColor   String?
+  secondaryColor String?
+  fontFamily     String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([userId])
 }
