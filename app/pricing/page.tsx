@@ -87,7 +87,7 @@ export default function PricingPage() {
   return (
     <div className="flex min-h-screen flex-col">
       <SiteHeader />
-      <main className="flex-1 px-6 py-20">
+      <main className="ambient-glow relative flex-1 px-6 py-20">
         <Reveal>
           <div className="mx-auto max-w-2xl text-center">
             <h1 className="text-4xl font-bold tracking-tight">Simple, credit-based pricing</h1>

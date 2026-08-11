@@ -263,7 +263,7 @@ export default async function LandingPage() {
       />
       <SiteHeader />
       <main className="flex-1">
-        <section id="try-it" className="relative overflow-hidden px-6 pb-14 pt-16">
+        <section id="try-it" className="ambient-glow relative overflow-hidden px-6 pb-14 pt-16">
           <div className="mx-auto grid max-w-6xl items-start gap-16 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="text-center lg:text-left">
               <Reveal fast>
@@ -509,7 +509,7 @@ export default async function LandingPage() {
           </RevealGroup>
         </section>
 
-        <section className="px-6 py-24">
+        <section className="ambient-glow relative px-6 py-24">
           <Reveal>
             <div className="glow-ring mx-auto max-w-4xl">
               <div className="rounded-2xl border border-transparent bg-card/60 px-6 py-16 text-center">

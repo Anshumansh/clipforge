@@ -41,7 +41,7 @@ export function ComparisonLandingPage({ config }: { config: ComparisonConfig }) 
     <div className="flex min-h-screen flex-col">
       <SiteHeader />
       <main className="flex-1">
-        <section className="px-6 py-20">
+        <section className="ambient-glow relative px-6 py-20">
           <Reveal>
             <div className="mx-auto max-w-2xl text-center">
               <Badge variant="outline" className="mx-auto mb-6 w-fit gap-1.5 border-primary/30 bg-primary/5">
@@ -100,7 +100,7 @@ export function ComparisonLandingPage({ config }: { config: ComparisonConfig }) 
           </Reveal>
         </section>
 
-        <section className="px-6 py-24">
+        <section className="ambient-glow relative px-6 py-24">
           <Reveal>
             <div className="glow-ring mx-auto max-w-2xl">
               <div className="rounded-2xl border border-transparent bg-card/60 px-6 py-16 text-center">
