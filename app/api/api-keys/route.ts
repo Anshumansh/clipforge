@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { generateApiKey } from "@/lib/api-keys";
 import { canUseApiAccess } from "@/lib/plans";
+import { requireVerifiedEmail, EmailNotVerifiedError } from "@/lib/email-verification";
 
 // Deliberately session-only, not resolveApiUser -- key management must not
 // be delegable to another API key. A leaked key should never be able to
@@ -29,6 +30,13 @@ export async function GET() {
 export async function POST(req: Request) {
   const userId = await requireSessionUserId();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  try {
+    await requireVerifiedEmail(userId);
+  } catch (err) {
+    if (err instanceof EmailNotVerifiedError) return NextResponse.json({ error: err.message }, { status: 403 });
+    throw err;
+  }
 
   const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
   if (!canUseApiAccess(user.plan)) {

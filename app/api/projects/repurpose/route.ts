@@ -9,6 +9,7 @@ import { uploadBuffer } from "@/lib/storage";
 import { rateLimit } from "@/lib/rate-limit";
 import { isAspectRatio, canUseAspectRatio, type AspectRatio } from "@/lib/aspect-ratio";
 import { resolveGenerationContext } from "@/lib/workspace";
+import { requireVerifiedEmail, EmailNotVerifiedError } from "@/lib/email-verification";
 
 export const runtime = "nodejs";
 
@@ -25,6 +26,13 @@ export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  try {
+    await requireVerifiedEmail(userId);
+  } catch (err) {
+    if (err instanceof EmailNotVerifiedError) return NextResponse.json({ error: err.message }, { status: 403 });
+    throw err;
+  }
 
   const { ok } = rateLimit(`generate:${userId}`, 5, 60 * 1000);
   if (!ok) return NextResponse.json({ error: "Too many requests. Slow down and try again shortly." }, { status: 429 });

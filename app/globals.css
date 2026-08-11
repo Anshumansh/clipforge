@@ -65,46 +65,6 @@
   color: transparent;
 }
 
-/* Layered, slowly-drifting radial gradients behind the hero — a soft "aurora"
-   instead of one flat radial glow, without a canvas/WebGL dependency. */
-.hero-glow {
-  position: relative;
-  isolation: isolate;
-}
-.hero-glow::before {
-  content: "";
-  position: absolute;
-  inset: -20% -10% auto -10%;
-  height: 140%;
-  z-index: -1;
-  pointer-events: none;
-  background:
-    radial-gradient(520px circle at 20% 10%, hsl(262 83% 66% / 0.36), transparent 60%),
-    radial-gradient(560px circle at 80% 15%, hsl(316 80% 62% / 0.30), transparent 60%),
-    radial-gradient(640px circle at 50% 0%, hsl(199 89% 62% / 0.20), transparent 65%);
-  animation: aurora 13s ease-in-out infinite;
-  filter: blur(40px);
-  /* Forces this onto its own stable GPU compositing layer. Without it, a
-     large blurred, negatively-inset, negative-z-indexed pseudo-element is a
-     known trigger for a Chromium/Edge tile-raster bug where content further
-     down the page silently fails to paint on some GPU drivers -- the page
-     is structurally fine (DOM/layout/accessibility tree all correct), it's
-     purely a paint bug. transform: translateZ(0) is the standard, long-
-     standing fix. */
-  transform: translateZ(0);
-  will-change: transform;
-}
-
-/* Faint grid, fading out toward the edges so it reads as texture, not a chart. */
-.grid-pattern {
-  background-image:
-    linear-gradient(hsl(var(--foreground) / 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, hsl(var(--foreground) / 0.06) 1px, transparent 1px);
-  background-size: 44px 44px;
-  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, black 40%, transparent 90%);
-  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, black 40%, transparent 90%);
-}
-
 .glass {
   background: hsl(var(--background) / 0.72);
   backdrop-filter: blur(14px) saturate(160%);

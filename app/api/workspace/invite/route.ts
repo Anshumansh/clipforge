@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
 import { sendWorkspaceInviteEmail, isEmailConfigured } from "@/lib/email";
+import { requireVerifiedEmail, EmailNotVerifiedError } from "@/lib/email-verification";
 
 const schema = z.object({ email: z.string().email() });
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -18,6 +19,13 @@ export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  try {
+    await requireVerifiedEmail(userId);
+  } catch (err) {
+    if (err instanceof EmailNotVerifiedError) return NextResponse.json({ error: err.message }, { status: 403 });
+    throw err;
+  }
 
   const { ok } = rateLimit(`workspace-invite:${userId}`, 10, 60 * 60 * 1000);
   if (!ok) return NextResponse.json({ error: "Too many invites sent. Try again later." }, { status: 429 });

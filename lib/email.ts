@@ -49,6 +49,21 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string): Prom
   );
 }
 
+export async function sendVerificationEmail(to: string, verifyUrl: string): Promise<void> {
+  await sendEmail(
+    to,
+    "Verify your Clipforge email",
+    `
+      <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+        <h2>Verify your email</h2>
+        <p>One more step before you can generate videos, clone your voice, or connect a social account — confirm this is really your inbox. This link expires in 24 hours.</p>
+        <p><a href="${verifyUrl}" style="display:inline-block;padding:10px 20px;background:#111;color:#fff;border-radius:6px;text-decoration:none;">Verify email</a></p>
+        <p>If you didn't create a Clipforge account, you can safely ignore this email.</p>
+      </div>
+    `
+  );
+}
+
 export async function sendWorkspaceInviteEmail(
   to: string,
   inviterName: string,

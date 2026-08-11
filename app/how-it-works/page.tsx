@@ -81,7 +81,7 @@ export default function HowItWorksPage() {
     <div className="flex min-h-screen flex-col">
       <SiteHeader />
       <main className="flex-1">
-        <section className="hero-glow grid-pattern px-6 py-20">
+        <section className="px-6 py-20">
           <Reveal>
             <div className="mx-auto max-w-2xl text-center">
               <h1 className="text-4xl font-bold tracking-tight">How Clipforge actually works</h1>
@@ -146,7 +146,7 @@ export default function HowItWorksPage() {
         <section className="px-6 py-24">
           <Reveal>
             <div className="glow-ring mx-auto max-w-2xl">
-              <div className="hero-glow rounded-2xl border border-transparent bg-card/60 px-6 py-16 text-center">
+              <div className="rounded-2xl border border-transparent bg-card/60 px-6 py-16 text-center">
                 <h2 className="text-2xl font-bold tracking-tight">See it work on your own idea</h2>
                 <p className="mx-auto mt-3 max-w-md text-sm text-muted-foreground">
                   Try a real generation on the homepage — no signup required — or create an account for the full

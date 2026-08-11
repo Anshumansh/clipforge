@@ -10,6 +10,7 @@ import { canUseVoiceClone } from "@/lib/plans";
 import { LANGUAGES } from "@/lib/languages";
 import { resolveApiUser } from "@/lib/api-auth";
 import { resolveGenerationContext } from "@/lib/workspace";
+import { requireVerifiedEmail, EmailNotVerifiedError } from "@/lib/email-verification";
 
 export const runtime = "nodejs";
 
@@ -19,6 +20,13 @@ export async function POST(req: Request) {
   const apiUser = await resolveApiUser(req);
   if (!apiUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const userId = apiUser.userId;
+
+  try {
+    await requireVerifiedEmail(userId);
+  } catch (err) {
+    if (err instanceof EmailNotVerifiedError) return NextResponse.json({ error: err.message }, { status: 403 });
+    throw err;
+  }
 
   const { ok } = rateLimit(`generate:${userId}`, 5, 60 * 1000);
   if (!ok) return NextResponse.json({ error: "Too many requests. Slow down and try again shortly." }, { status: 429 });
