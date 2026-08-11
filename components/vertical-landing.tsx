@@ -22,7 +22,7 @@ export function VerticalLandingPage({ config }: { config: VerticalConfig }) {
     <div className="flex min-h-screen flex-col">
       <SiteHeader />
       <main className="flex-1">
-        <section className="hero-glow grid-pattern px-6 py-20">
+        <section className="px-6 py-20">
           <Reveal>
             <div className="mx-auto max-w-2xl text-center">
               <Badge variant="outline" className="mx-auto mb-6 w-fit gap-1.5 border-primary/30 bg-primary/5">
@@ -70,7 +70,7 @@ export function VerticalLandingPage({ config }: { config: VerticalConfig }) {
         <section className="px-6 py-24">
           <Reveal>
             <div className="glow-ring mx-auto max-w-2xl">
-              <div className="hero-glow rounded-2xl border border-transparent bg-card/60 px-6 py-16 text-center">
+              <div className="rounded-2xl border border-transparent bg-card/60 px-6 py-16 text-center">
                 <h2 className="text-2xl font-bold tracking-tight">{config.ctaHeadline}</h2>
                 <p className="mx-auto mt-3 max-w-md text-sm text-muted-foreground">{config.ctaBody}</p>
                 <Button asChild size="lg" className="mt-6">

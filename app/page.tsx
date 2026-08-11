@@ -263,7 +263,7 @@ export default async function LandingPage() {
       />
       <SiteHeader />
       <main className="flex-1">
-        <section id="try-it" className="hero-glow grid-pattern relative overflow-hidden px-6 pb-14 pt-16">
+        <section id="try-it" className="relative overflow-hidden px-6 pb-14 pt-16">
           <div className="mx-auto grid max-w-6xl items-start gap-16 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="text-center lg:text-left">
               <Reveal fast>
@@ -512,7 +512,7 @@ export default async function LandingPage() {
         <section className="px-6 py-24">
           <Reveal>
             <div className="glow-ring mx-auto max-w-4xl">
-              <div className="hero-glow rounded-2xl border border-transparent bg-card/60 px-6 py-16 text-center">
+              <div className="rounded-2xl border border-transparent bg-card/60 px-6 py-16 text-center">
                 <Zap className="mx-auto mb-4 h-8 w-8 text-primary" />
                 <h2 className="text-3xl font-bold tracking-tight">
                   Stop paying an editor for content you can generate

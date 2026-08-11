@@ -49,10 +49,6 @@ const config: Config = {
         sm: "calc(var(--radius) - 4px)",
       },
       keyframes: {
-        aurora: {
-          "0%, 100%": { transform: "translate(0%, 0%) rotate(0deg)" },
-          "50%": { transform: "translate(-4%, 3%) rotate(8deg)" },
-        },
         shine: {
           "0%": { backgroundPosition: "200% center" },
           "100%": { backgroundPosition: "-200% center" },
@@ -75,7 +71,6 @@ const config: Config = {
         },
       },
       animation: {
-        aurora: "aurora 18s ease-in-out infinite",
         shine: "shine 3s linear infinite",
         "fade-up": "fade-up 0.6s ease-out both",
         marquee: "marquee 26s linear infinite",
