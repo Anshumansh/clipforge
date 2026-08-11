@@ -2,16 +2,24 @@
  * Canonical plan definitions (pricing overhaul brief, section 1 + 2) --
  * every number here is copied verbatim from PRICING_OVERHAUL_BRIEF.md.
  * This is the "2026-08-v1" version generation; it's created as PlanVersion
- * rows (see seedPlanVersions below) rather than left as bare constants, so
- * a future price change creates a NEW version instead of mutating this one
- * out from under existing subscribers (brief section 11).
+ * rows (see lib/pricing/plan-versions.ts's seedPlanVersions) rather than
+ * left as bare constants, so a future price change creates a NEW version
+ * instead of mutating this one out from under existing subscribers (brief
+ * section 11).
+ *
+ * Deliberately has NO server-only imports (no `@/lib/db`) -- this module is
+ * imported by the client component components/pricing-v2.tsx for
+ * PLAN_CONFIGS, and Next.js bundles a module's ENTIRE import graph into
+ * client JS the moment any client component imports anything from it.
+ * Pulling in Prisma here would ship "PrismaClient is unable to run in this
+ * browser environment" to every visitor. DB-backed helpers that need these
+ * types live in lib/pricing/plan-versions.ts instead.
  *
  * Nothing reads from this module for real charging yet -- see
  * lib/pricing/flags.ts's isPricingV2Enabled(). Until that's on, every user
  * resolves through the legacy lib/plans.ts hobby/creator/business
  * definitions exactly as today.
  */
-import { db } from "@/lib/db";
 
 export type StandardPlanId = "free" | "starter" | "creator" | "pro" | "business";
 
@@ -137,48 +145,3 @@ export const PLAN_CONFIGS: Record<StandardPlanId, PlanFeatureConfig> = {
 };
 
 export const CURRENT_PLAN_VERSION_LABEL = "2026-08-v1";
-
-/** Creates (or updates the still-open) PlanVersion row for every plan in
- * PLAN_CONFIGS. Safe to run repeatedly -- upserts on [planId, versionLabel],
- * so re-running after an edit to PLAN_CONFIGS updates the same open version
- * rather than creating duplicates. Does NOT touch any User row; assigning
- * existing or new accounts to these versions is a separate, explicit step
- * (see CUSTOMER_MIGRATION.md -- owner approval required for existing
- * subscribers). */
-export async function seedPlanVersions(): Promise<void> {
-  for (const config of Object.values(PLAN_CONFIGS)) {
-    await db.planVersion.upsert({
-      where: { planId_versionLabel: { planId: config.planId, versionLabel: CURRENT_PLAN_VERSION_LABEL } },
-      create: {
-        planId: config.planId,
-        versionLabel: CURRENT_PLAN_VERSION_LABEL,
-        displayName: config.displayName,
-        monthlyPriceUsd: config.monthlyPriceUsd,
-        annualPriceUsd: config.annualPriceUsd,
-        monthlyCredits: config.monthlyCredits,
-        configJson: JSON.stringify(config),
-      },
-      update: {
-        displayName: config.displayName,
-        monthlyPriceUsd: config.monthlyPriceUsd,
-        annualPriceUsd: config.annualPriceUsd,
-        monthlyCredits: config.monthlyCredits,
-        configJson: JSON.stringify(config),
-      },
-    });
-  }
-}
-
-/** Resolves the effective plan config for a user. A non-null
- * User.planVersionId always wins (an explicit, versioned assignment,
- * whether from new-customer signup or an owner-approved migration). A null
- * planVersionId falls back to null -- the caller (lib/pricing/legacy-plan.ts,
- * not written here) is responsible for mapping that to the pre-overhaul
- * hobby/creator/business definitions, since this module's whole purpose is
- * the NEW versioned config, not a compatibility shim for the old one. */
-export async function resolvePlanConfig(planVersionId: string | null): Promise<PlanFeatureConfig | null> {
-  if (!planVersionId) return null;
-  const version = await db.planVersion.findUnique({ where: { id: planVersionId } });
-  if (!version) return null;
-  return JSON.parse(version.configJson) as PlanFeatureConfig;
-}

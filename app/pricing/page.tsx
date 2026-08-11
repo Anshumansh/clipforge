@@ -1,12 +1,35 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { unstable_cache } from "next/cache";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { Reveal, RevealGroup, RevealItem } from "@/components/reveal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { SubscribeButton } from "@/components/subscribe-button";
+import { PricingV2 } from "@/components/pricing-v2";
 import { Check } from "lucide-react";
+import { isPricingV2Enabled } from "@/lib/pricing/flags";
+import { getActiveCompetitorBenchmarks } from "@/lib/pricing/competitors";
+
+// This page has no dynamic APIs, so Next statically prerenders it at build
+// time by default -- which would otherwise crash the build against CI's
+// intentionally unreachable dummy DATABASE_URL (see deploy.yml and
+// app/page.tsx's getVideosGeneratedCount for the same pattern). The try/catch
+// lets static generation succeed with an empty list rather than failing the
+// whole build; unstable_cache then revalidates against the real DB once the
+// page is actually serving live traffic.
+const getCachedCompetitorBenchmarks = unstable_cache(
+  async () => {
+    try {
+      return await getActiveCompetitorBenchmarks();
+    } catch {
+      return [];
+    }
+  },
+  ["pricing-v2-competitor-benchmarks"],
+  { revalidate: 3600 }
+);
 
 export const metadata: Metadata = {
   title: "Pricing",
@@ -83,7 +106,33 @@ const plans = [
   },
 ];
 
-export default function PricingPage() {
+export default async function PricingPage() {
+  const v2Enabled = isPricingV2Enabled();
+  const competitors = v2Enabled
+    ? (await getCachedCompetitorBenchmarks())
+        .filter((c): c is typeof c & { priceUsd: number } => c.priceUsd !== null)
+        .map((c) => ({ ...c, verifiedAt: c.verifiedAt.toISOString() }))
+    : [];
+
+  if (v2Enabled) {
+    return (
+      <div className="flex min-h-screen flex-col">
+        <SiteHeader />
+        <main className="ambient-glow relative flex-1 px-6 py-20">
+          <Reveal>
+            <div className="mx-auto max-w-2xl text-center">
+              <h1 className="text-4xl font-bold tracking-tight">Simple, credit-based pricing</h1>
+            </div>
+          </Reveal>
+          <div className="mt-14">
+            <PricingV2 competitors={competitors} />
+          </div>
+        </main>
+        <SiteFooter />
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen flex-col">
       <SiteHeader />
