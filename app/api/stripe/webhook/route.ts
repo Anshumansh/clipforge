@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { Prisma } from "@prisma/client";
 import { getStripe } from "@/lib/stripe";
-import { getPlanByPriceId } from "@/lib/plans";
+import { getPlanByPriceId, getPlanById } from "@/lib/plans";
+import { grantCredits } from "@/lib/pricing/ledger";
 import { db } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -59,16 +60,35 @@ export async function POST(req: Request) {
         const priceId = item?.price.id;
         const plan = priceId ? getPlanByPriceId(priceId) : undefined;
 
-        await db.user.update({
-          where: { id: userId },
-          data: {
-            plan: plan?.id ?? planId,
-            credits: plan?.monthlyCredits ?? undefined,
-            stripeSubscriptionId: subscription.id,
-            stripePriceId: priceId,
-            stripeCurrentPeriodEnd: item ? new Date(item.current_period_end * 1000) : undefined,
-            billingIssue: null,
-          },
+        // Update the user's plan and billing info, then write an audit-trail
+        // ledger entry for the initial subscription credit grant. The credits
+        // field is SET (not incremented) to the plan allocation — so the ledger
+        // entry records what was granted, not the net balance change.
+        await db.$transaction(async (tx) => {
+          await tx.user.update({
+            where: { id: userId },
+            data: {
+              plan: plan?.id ?? planId,
+              credits: plan?.monthlyCredits ?? undefined,
+              stripeSubscriptionId: subscription.id,
+              stripePriceId: priceId,
+              stripeCurrentPeriodEnd: item ? new Date(item.current_period_end * 1000) : undefined,
+              billingIssue: null,
+            },
+          });
+
+          if (plan) {
+            await tx.creditLedgerEntry.create({
+              data: {
+                userId,
+                type: "monthly_grant",
+                delta: plan.monthlyCredits,
+                balanceAfter: plan.monthlyCredits,
+                idempotencyKey: `stripe:initial-grant:${event.id}`,
+                note: `Initial ${plan.id} subscription grant`,
+              },
+            });
+          }
         });
       }
       break;
@@ -82,9 +102,23 @@ export async function POST(req: Request) {
         const priceId = typeof price === "string" ? price : price?.id;
         const plan = priceId ? getPlanByPriceId(priceId) : undefined;
         if (user && plan) {
-          await db.user.update({
-            where: { id: user.id },
-            data: { credits: plan.monthlyCredits, plan: plan.id, billingIssue: null },
+          // Monthly renewal: SET credits to plan allocation (same as initial grant)
+          // and write an audit ledger entry inside the same transaction.
+          await db.$transaction(async (tx) => {
+            await tx.user.update({
+              where: { id: user.id },
+              data: { credits: plan.monthlyCredits, plan: plan.id, billingIssue: null },
+            });
+            await tx.creditLedgerEntry.create({
+              data: {
+                userId: user.id,
+                type: "monthly_grant",
+                delta: plan.monthlyCredits,
+                balanceAfter: plan.monthlyCredits,
+                idempotencyKey: `stripe:renewal:${event.id}`,
+                note: `Monthly renewal grant for ${plan.id}`,
+              },
+            });
           });
         }
       }
@@ -148,16 +182,37 @@ export async function POST(req: Request) {
       const user = await findUserForCustomer(subscription.customer as string);
       const item = subscription.items.data[0];
       const priceId = item?.price.id;
-      const plan = priceId ? getPlanByPriceId(priceId) : undefined;
+      const newPlan = priceId ? getPlanByPriceId(priceId) : undefined;
       if (user) {
         await db.user.update({
           where: { id: user.id },
           data: {
-            plan: plan?.id ?? user.plan,
+            plan: newPlan?.id ?? user.plan,
             stripePriceId: priceId,
             stripeCurrentPeriodEnd: item ? new Date(item.current_period_end * 1000) : undefined,
           },
         });
+
+        // Grant the positive credit DIFFERENCE on an upgrade so the user
+        // receives the new tier's allocation immediately (pro-rated by diff,
+        // not a full reset — that comes at renewal via invoice.paid).
+        // Rules: never reduce on downgrade; exact-once via grantCredits' own
+        // idempotency key (second layer on top of the StripeWebhookEvent dedup).
+        if (newPlan && newPlan.id !== user.plan) {
+          const oldPlan = getPlanById(user.plan);
+          const creditDiff = Math.max(0, newPlan.monthlyCredits - (oldPlan?.monthlyCredits ?? 0));
+          if (creditDiff > 0) {
+            await grantCredits({
+              userId: user.id,
+              amount: creditDiff,
+              type: "upgrade_grant",
+              idempotencyKey: `stripe:upgrade:${event.id}`,
+              note: `Plan upgrade: ${user.plan} → ${newPlan.id} (+${creditDiff} credits)`,
+            }).catch((e) =>
+              console.error("[stripe webhook] upgrade credit grant failed:", e instanceof Error ? e.message : e)
+            );
+          }
+        }
       }
       break;
     }

@@ -60,8 +60,15 @@ Costs credits on your Clipforge account (charged immediately on call, same as ge
         if (language) form.set("language", language);
         if (aspect_ratio) form.set("aspectRatio", aspect_ratio);
 
+        // Each tool call is one intentional generation action (idempotentHint
+        // is deliberately false above), so a fresh operation id is minted
+        // every invocation -- the server-side idempotency this key drives is
+        // about protecting a SINGLE call's own retries (see
+        // lib/pricing/generation-idempotency.ts), not about deduping across
+        // separate tool calls.
         const data = await callApi<{ projectId: string }>(apiKey, "/api/projects/script", {
           method: "POST",
+          headers: { "Idempotency-Key": crypto.randomUUID() },
           body: form,
         });
         const output = { project_id: data.projectId, status: "queued" };

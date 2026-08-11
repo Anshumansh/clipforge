@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -20,12 +21,30 @@ export async function POST(req: Request) {
   const target = await db.user.findUnique({ where: { id: userId } });
   if (!target) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
-  const [updated] = await db.$transaction([
-    db.user.update({ where: { id: userId }, data: { credits: { increment: amount } } }),
-    db.adminAction.create({
+  // Wrap the credit increment, admin action log, and ledger entry in one
+  // transaction so all three succeed or none do. balanceAfter is read from
+  // the result of the update (the exact post-increment value) rather than
+  // target.credits + amount, which could be wrong under concurrent writes.
+  const updated = await db.$transaction(async (tx) => {
+    const result = await tx.user.update({
+      where: { id: userId },
+      data: { credits: { increment: amount } },
+    });
+    await tx.adminAction.create({
       data: { adminId, targetUserId: userId, type: "credit_grant", creditsGranted: amount, note },
-    }),
-  ]);
+    });
+    await tx.creditLedgerEntry.create({
+      data: {
+        userId,
+        type: "admin_adjustment",
+        delta: amount,
+        balanceAfter: result.credits,
+        idempotencyKey: `admin-grant:${crypto.randomUUID()}`,
+        note,
+      },
+    });
+    return result;
+  });
 
   return NextResponse.json({ ok: true, credits: updated.credits });
 }

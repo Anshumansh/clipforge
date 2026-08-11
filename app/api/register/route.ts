@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import { sendVerificationEmail, isEmailConfigured } from "@/lib/email";
@@ -39,9 +40,23 @@ export async function POST(req: Request) {
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
-  const user = await db.user.create({
-    data: { name, email: normalizedEmail, passwordHash },
-  });
+  let user: { id: string; email: string };
+  try {
+    user = await db.user.create({
+      data: { name, email: normalizedEmail, passwordHash },
+      select: { id: true, email: true },
+    });
+  } catch (err) {
+    // Two concurrent registrations with the same email can both pass the
+    // findUnique check above, then race to insert. The second insert hits the
+    // @unique constraint and Prisma throws P2002 — catch it here and return the
+    // same 409 the sequential duplicate check above would have returned, rather
+    // than letting it bubble up as an unhandled 500.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      return NextResponse.json({ error: "An account with that email already exists" }, { status: 409 });
+    }
+    throw err;
+  }
 
   // Best-effort -- a failed send shouldn't block account creation (matches
   // the forgot-password route's pattern). The user can always resend from

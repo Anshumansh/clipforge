@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { AspectRatioPicker } from "@/components/aspect-ratio-picker";
 import { Scissors, UploadCloud } from "lucide-react";
 import type { AspectRatio } from "@/lib/aspect-ratio";
+import { GenerationOperation } from "@/lib/generation-client";
 
 function readVideoDuration(file: File): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -31,46 +32,80 @@ export default function NewRepurposePage() {
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("9:16");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Owns this wizard's operation id across its full retry lifecycle -- see
+  // lib/generation-client.ts for exactly when it's retained vs cleared. A
+  // stable instance for the component's lifetime (never re-created, never
+  // triggers a re-render).
+  const [operation] = useState(() => new GenerationOperation());
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (loading) return; // re-entrancy guard against a double-click firing two submits
+
     const file = fileInputRef.current?.files?.[0];
     if (!file) {
       setError("Please choose a video file to upload");
       return;
     }
 
+    const operationId = operation.begin();
+
     setLoading(true);
     setError(null);
 
+    // Reading video metadata never leaves the browser -- no HTTP request has
+    // been sent yet, so a failure here provably never touched a reservation.
+    // Safe to clear and let the next click start a genuinely fresh attempt.
+    let durationSec: number;
     try {
-      const durationSec = await readVideoDuration(file);
-      if (durationSec < 10) {
-        setError("Video must be at least 10 seconds long");
-        setLoading(false);
-        return;
-      }
-
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("topic", topic);
-      formData.append("durationSec", String(durationSec));
-      formData.append("aspectRatio", aspectRatio);
-
-      const res = await fetch("/api/projects/repurpose", { method: "POST", body: formData });
-      const data = await res.json().catch(() => ({}));
-      setLoading(false);
-
-      if (!res.ok) {
-        setError(data.error ?? "Something went wrong");
-        return;
-      }
-
-      router.push(`/dashboard/projects/${data.projectId}`);
+      durationSec = await readVideoDuration(file);
     } catch {
+      operation.onPreRequestValidationError();
       setLoading(false);
       setError("Could not read that video file. Try a different format (mp4 recommended).");
+      return;
     }
+    if (durationSec < 10) {
+      operation.onPreRequestValidationError();
+      setLoading(false);
+      setError("Video must be at least 10 seconds long");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("topic", topic);
+    formData.append("durationSec", String(durationSec));
+    formData.append("aspectRatio", aspectRatio);
+
+    let res: Response;
+    try {
+      res = await fetch("/api/projects/repurpose", {
+        method: "POST",
+        headers: { "Idempotency-Key": operationId },
+        body: formData,
+      });
+    } catch {
+      // Network/transport failure -- we can't tell whether the server
+      // already reserved credits before the connection broke. Retain the
+      // operation id so a retry reuses the same Idempotency-Key instead of
+      // risking a second charge under a fresh one.
+      operation.onNetworkError();
+      setLoading(false);
+      setError("Network error. Check your connection and try again.");
+      return;
+    }
+
+    const data = await res.json().catch(() => ({}));
+    setLoading(false);
+    operation.onResponse(res.status, data.code);
+
+    if (!res.ok) {
+      setError(data.error ?? "Something went wrong");
+      return;
+    }
+
+    router.push(`/dashboard/projects/${data.projectId}`);
   }
 
   return (

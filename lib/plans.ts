@@ -66,3 +66,15 @@ export function canUseApiAccess(plan: string): boolean {
 export function canCreateWorkspace(plan: string): boolean {
   return plan === "business";
 }
+
+/** Repurpose (long-form → highlight clips) -- available on any paid plan.
+ * Free accounts cannot access this workflow. */
+export function canUseRepurpose(plan: string): boolean {
+  return plan === "hobby" || plan === "creator" || plan === "business";
+}
+
+/** UGC ad generator -- Creator and Business plans only.
+ * Hobby accounts get the script-to-video workflow only. */
+export function canUseUgc(plan: string): boolean {
+  return plan === "creator" || plan === "business";
+}

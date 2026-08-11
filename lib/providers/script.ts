@@ -1,4 +1,4 @@
-import { chatJSON, chatJSONFree } from "./llm";
+import { chatJSON, chatJSONFree, chatJSONWithMeta } from "./llm";
 import type { ScriptResult } from "./types";
 
 /** Models asked for "plain spoken text, no stage directions" sometimes ignore
@@ -44,6 +44,9 @@ function mockScript(topic: string): ScriptResult {
     title: clean.slice(0, 60) || "Untitled video",
     script,
     sceneKeywords,
+    provider: "mock",
+    inputTokens: null,
+    outputTokens: null,
   };
 }
 
@@ -65,28 +68,15 @@ function mockAdScript(productName: string, sellingPoints: string): ScriptResult 
     title: `${productName} — UGC ad`,
     script,
     sceneKeywords: [productName, ...points].slice(0, 5),
+    provider: "mock",
+    inputTokens: null,
+    outputTokens: null,
   };
 }
 
-export async function generateAdScript(productName: string, sellingPoints: string): Promise<ScriptResult> {
-  const fallback = mockAdScript(productName, sellingPoints);
-
-  const parsed = await chatJSON(
-    [
-      {
-        role: "system",
-        content:
-          "You write short, authentic-sounding UGC-style ad voiceover scripts (like a real customer talking to camera), " +
-          "for a 20-30 second vertical ad. Return strict JSON with keys: title (<60 chars), script (plain spoken text, " +
-          "60-90 words, first person, no stage directions), sceneKeywords (4-5 short visual keywords for stock footage).",
-      },
-      { role: "user", content: `Product: ${productName}\nKey selling points: ${sellingPoints}` },
-    ],
-    0.9
-  );
-
-  if (!parsed) return fallback;
-
+/** Extracts the typed fields from a parsed LLM JSON response, falling back to
+ * the provided fallback for any field that is missing or the wrong type. */
+function parseScriptResult(parsed: Record<string, unknown>, fallback: ScriptResult): Omit<ScriptResult, "provider" | "inputTokens" | "outputTokens"> {
   return {
     title: typeof parsed.title === "string" ? parsed.title : fallback.title,
     script: stripStageDirections(typeof parsed.script === "string" ? parsed.script : fallback.script),
@@ -94,6 +84,30 @@ export async function generateAdScript(productName: string, sellingPoints: strin
       Array.isArray(parsed.sceneKeywords) && parsed.sceneKeywords.length > 0
         ? (parsed.sceneKeywords as string[])
         : fallback.sceneKeywords,
+  };
+}
+
+export async function generateAdScript(productName: string, sellingPoints: string): Promise<ScriptResult> {
+  const fallback = mockAdScript(productName, sellingPoints);
+  const messages: { role: "system" | "user"; content: string }[] = [
+    {
+      role: "system",
+      content:
+        "You write short, authentic-sounding UGC-style ad voiceover scripts (like a real customer talking to camera), " +
+        "for a 20-30 second vertical ad. Return strict JSON with keys: title (<60 chars), script (plain spoken text, " +
+        "60-90 words, first person, no stage directions), sceneKeywords (4-5 short visual keywords for stock footage).",
+    },
+    { role: "user", content: `Product: ${productName}\nKey selling points: ${sellingPoints}` },
+  ];
+
+  const meta = await chatJSONWithMeta(messages, 0.9);
+  if (!meta) return fallback;
+
+  return {
+    ...parseScriptResult(meta.data, fallback),
+    provider: meta.provider,
+    inputTokens: meta.inputTokens,
+    outputTokens: meta.outputTokens,
   };
 }
 
@@ -117,6 +131,8 @@ export async function generateScriptFromPattern(
 ): Promise<ScriptResult> {
   const fallback = mockScript(niche);
 
+  // chatJSON (not chatJSONWithMeta) intentionally — this is a Trend Radar
+  // background feature that doesn't need per-call cost tracking today.
   const parsed = await chatJSON(
     [
       {
@@ -147,12 +163,8 @@ export async function generateScriptFromPattern(
   if (!parsed) return fallback;
 
   return {
-    title: typeof parsed.title === "string" ? parsed.title : fallback.title,
-    script: stripStageDirections(typeof parsed.script === "string" ? parsed.script : fallback.script),
-    sceneKeywords:
-      Array.isArray(parsed.sceneKeywords) && parsed.sceneKeywords.length > 0
-        ? (parsed.sceneKeywords as string[])
-        : fallback.sceneKeywords,
+    ...parseScriptResult(parsed, fallback),
+    // provider/tokens not tracked for background Trend Radar calls
   };
 }
 
@@ -162,11 +174,9 @@ export async function generateScript(
   languageLabel = "English"
 ): Promise<ScriptResult> {
   const fallback = mockScript(topic);
-  const chat = useFreeOnly ? chatJSONFree : chatJSON;
   const languageInstruction =
     languageLabel === "English" ? "" : ` Write the script itself entirely in ${languageLabel}.`;
-
-  const parsed = await chat([
+  const messages: { role: "system" | "user"; content: string }[] = [
     {
       role: "system",
       content:
@@ -176,16 +186,22 @@ export async function generateScript(
         `regardless of the script's language, since they're used for an English-only stock footage search).${languageInstruction}`,
     },
     { role: "user", content: `Topic or source text:\n\n${topic}` },
-  ]);
+  ];
 
-  if (!parsed) return fallback;
+  if (useFreeOnly) {
+    // Groq-only path — chatJSONFree never touches the paid OpenAI key.
+    // Token counts aren't surfaced here; provider is fixed as "groq".
+    const parsed = await chatJSONFree(messages);
+    if (!parsed) return fallback;
+    return { ...parseScriptResult(parsed, fallback), provider: "groq", inputTokens: null, outputTokens: null };
+  }
 
+  const meta = await chatJSONWithMeta(messages);
+  if (!meta) return fallback;
   return {
-    title: typeof parsed.title === "string" ? parsed.title : fallback.title,
-    script: stripStageDirections(typeof parsed.script === "string" ? parsed.script : fallback.script),
-    sceneKeywords:
-      Array.isArray(parsed.sceneKeywords) && parsed.sceneKeywords.length > 0
-        ? (parsed.sceneKeywords as string[])
-        : fallback.sceneKeywords,
+    ...parseScriptResult(meta.data, fallback),
+    provider: meta.provider,
+    inputTokens: meta.inputTokens,
+    outputTokens: meta.outputTokens,
   };
 }

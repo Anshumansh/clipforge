@@ -9,11 +9,21 @@ import { getLanguage } from "@/lib/languages";
 import { computeSceneTimeline } from "@/lib/timeline";
 import { getBrandForRender } from "@/lib/brand-server";
 import { refundCredits, CREDITS_PER_VIDEO } from "@/lib/credits";
+import { captureReservation, releaseReservation } from "@/lib/pricing/ledger";
 import { resolveProjectCreditOwnerId } from "@/lib/workspace";
+import { upsertCostRecord } from "@/lib/jobs/cost-tracker";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 
 async function setJobProgress(jobId: string, progress: number, log?: string) {
   await db.job.update({ where: { id: jobId }, data: { progress, ...(log ? { log } : {}) } });
+}
+
+/** Looks up the CreditReservation linked to a job (set in the API route via
+ * attachReservationToJob). Returns null for demo jobs and legacy jobs that
+ * predate the reservation system. */
+async function findReservationId(jobId: string): Promise<string | null> {
+  const res = await db.creditReservation.findUnique({ where: { jobId } }).catch(() => null);
+  return res?.id ?? null;
 }
 
 export async function runScriptJob(jobId: string) {
@@ -27,7 +37,7 @@ export async function runScriptJob(jobId: string) {
     const input = JSON.parse(project.input) as {
       topic: string;
       voice?: string;
-      language?: string; // ISO-ish short code, see lib/languages.ts -- defaults to English
+      language?: string;
       aspectRatio?: AspectRatio;
       voiceSampleUrl?: string;
       watermark?: boolean;
@@ -72,6 +82,7 @@ export async function runScriptJob(jobId: string) {
     });
 
     await setJobProgress(jobId, 60, "Rendering video…");
+    const renderStart = Date.now();
     const videoUrl = await renderScriptVideo(
       {
         words: voiceover.words,
@@ -84,24 +95,67 @@ export async function runScriptJob(jobId: string) {
       },
       `${mediaKeyPrefix}/final.mp4`,
       (percent) => {
-        // Map render progress (0-100) onto the remaining 60-95 job range.
         void setJobProgress(jobId, 60 + Math.round(percent * 0.35));
       }
     );
+    const renderSeconds = (Date.now() - renderStart) / 1000;
 
-    await db.project.update({
-      where: { id: project.id },
-      data: { status: "ready", videoUrl },
-    });
+    await db.project.update({ where: { id: project.id }, data: { status: "ready", videoUrl } });
     await db.job.update({ where: { id: jobId }, data: { status: "done", progress: 100, log: "Done" } });
+
+    // Settle the credit reservation (exact-once — no-op if already captured).
+    const reservationId = await findReservationId(jobId);
+    if (reservationId) {
+      await captureReservation(reservationId).catch((e) =>
+        console.error("[script-runner] reservation capture failed:", e instanceof Error ? e.message : e)
+      );
+    }
+
+    // Record measurable usage for cost tracking (best-effort — never throws).
+    await upsertCostRecord({
+      jobId,
+      projectId: project.id,
+      userId: project.userId,
+      aiProvider: scriptResult.provider ?? null,
+      aiModel:
+        scriptResult.provider === "openai" ? "gpt-4o-mini"
+        : scriptResult.provider === "groq" ? "llama-3.3-70b-versatile"
+        : null,
+      aiInputTokens: scriptResult.inputTokens ?? null,
+      aiOutputTokens: scriptResult.outputTokens ?? null,
+      ttsCharacters: voiceover.characterCount ?? null,
+      ttsSeconds: voiceover.durationSec,
+      renderSeconds,
+      creditsCharged: CREDITS_PER_VIDEO,
+    }).catch((e) => console.error("[script-runner] cost record write failed:", e instanceof Error ? e.message : e));
+
     await recordActivity(project.userId);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     await db.project.update({ where: { id: project.id }, data: { status: "failed", errorMessage: message } });
     await db.job.update({ where: { id: jobId }, data: { status: "failed", log: message } });
-    const creditOwnerId = await resolveProjectCreditOwnerId(project);
-    await refundCredits(creditOwnerId, CREDITS_PER_VIDEO).catch((e) =>
-      console.error("[script-runner] credit refund failed:", e instanceof Error ? e.message : e)
-    );
+
+    // Release the credit reservation idempotently (exact-once: already-released
+    // reservations are a no-op). Falls back to direct refundCredits() for demo
+    // jobs and any legacy jobs that predate the reservation system.
+    const reservationId = await findReservationId(jobId).catch(() => null);
+    if (reservationId) {
+      await releaseReservation(reservationId, message).catch((e) =>
+        console.error("[script-runner] reservation release failed:", e instanceof Error ? e.message : e)
+      );
+    } else {
+      const creditOwnerId = await resolveProjectCreditOwnerId(project).catch(() => project.userId);
+      await refundCredits(creditOwnerId, CREDITS_PER_VIDEO).catch((e) =>
+        console.error("[script-runner] legacy credit refund failed:", e instanceof Error ? e.message : e)
+      );
+    }
+
+    // Record that credits were refunded in the cost record.
+    await upsertCostRecord({
+      jobId,
+      projectId: project.id,
+      userId: project.userId,
+      creditsRefunded: CREDITS_PER_VIDEO,
+    }).catch(() => {});
   }
 }

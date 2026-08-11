@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { AspectRatioPicker } from "@/components/aspect-ratio-picker";
 import { UserRound } from "lucide-react";
 import type { AspectRatio } from "@/lib/aspect-ratio";
+import { GenerationOperation } from "@/lib/generation-client";
 
 export default function NewUgcAdPage() {
   const router = useRouter();
@@ -19,20 +20,42 @@ export default function NewUgcAdPage() {
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("9:16");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Owns this wizard's operation id across its full retry lifecycle -- see
+  // lib/generation-client.ts for exactly when it's retained vs cleared. A
+  // stable instance for the component's lifetime (never re-created, never
+  // triggers a re-render).
+  const [operation] = useState(() => new GenerationOperation());
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (loading) return; // re-entrancy guard against a double-click firing two submits
+
+    const operationId = operation.begin();
+
     setLoading(true);
     setError(null);
 
-    const res = await fetch("/api/projects/ugc", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ productName, sellingPoints, ctaText, aspectRatio }),
-    });
+    let res: Response;
+    try {
+      res = await fetch("/api/projects/ugc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": operationId },
+        body: JSON.stringify({ productName, sellingPoints, ctaText, aspectRatio }),
+      });
+    } catch {
+      // Network/transport failure -- we can't tell whether the server
+      // already reserved credits before the connection broke. Retain the
+      // operation id so a retry reuses the same Idempotency-Key instead of
+      // risking a second charge under a fresh one.
+      operation.onNetworkError();
+      setLoading(false);
+      setError("Network error. Check your connection and try again.");
+      return;
+    }
 
     const data = await res.json().catch(() => ({}));
     setLoading(false);
+    operation.onResponse(res.status, data.code);
 
     if (!res.ok) {
       setError(data.error ?? "Something went wrong");

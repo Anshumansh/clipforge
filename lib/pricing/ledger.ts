@@ -190,7 +190,7 @@ export async function releaseReservation(reservationId: string, note?: string): 
 export async function grantCredits(input: {
   userId: string;
   amount: number;
-  type: "signup_grant" | "monthly_grant" | "pack_purchase" | "admin_adjustment";
+  type: "signup_grant" | "monthly_grant" | "pack_purchase" | "admin_adjustment" | "upgrade_grant";
   idempotencyKey: string;
   note?: string;
 }): Promise<{ isNew: boolean }> {

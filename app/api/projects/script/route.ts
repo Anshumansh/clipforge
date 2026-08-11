@@ -1,7 +1,15 @@
 import path from "node:path";
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import { chargeCredits, CREDITS_PER_VIDEO, InsufficientCreditsError } from "@/lib/credits";
+import { CREDITS_PER_VIDEO } from "@/lib/credits";
+import { InsufficientCreditsError, releaseReservation } from "@/lib/pricing/ledger";
+import {
+  reserveGenerationCredits,
+  getProjectIdForJob,
+  isValidClientOperationId,
+  type GenerationReservationResult,
+} from "@/lib/pricing/generation-idempotency";
 import { enqueueJob } from "@/lib/jobs/queue";
 import { uploadBuffer } from "@/lib/storage";
 import { rateLimit } from "@/lib/rate-limit";
@@ -30,6 +38,11 @@ export async function POST(req: Request) {
 
   const { ok } = rateLimit(`generate:${userId}`, 5, 60 * 1000);
   if (!ok) return NextResponse.json({ error: "Too many requests. Slow down and try again shortly." }, { status: 429 });
+
+  const clientOperationId = req.headers.get("Idempotency-Key");
+  if (!isValidClientOperationId(clientOperationId)) {
+    return NextResponse.json({ error: "Idempotency-Key header is required" }, { status: 400 });
+  }
 
   const form = await req.formData().catch(() => null);
   if (!form) return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
@@ -75,8 +88,23 @@ export async function POST(req: Request) {
     voiceSampleFile = voiceSample;
   }
 
+  // Reserve credits keyed to THIS operation id (see
+  // lib/pricing/generation-idempotency.ts) -- a double-click, a browser/
+  // network retry, or a concurrent duplicate POST all reuse the same
+  // client-minted operation id and so collapse onto the same reservation
+  // instead of charging twice. A new intentional Generate click always
+  // carries a fresh operation id and is charged normally, even with
+  // identical content.
+  let genResult: GenerationReservationResult;
   try {
-    await chargeCredits(genCtx.creditOwnerId, CREDITS_PER_VIDEO);
+    genResult = await reserveGenerationCredits({
+      type: "script",
+      requestingUserId: userId,
+      creditOwnerId: genCtx.creditOwnerId,
+      workspaceId: genCtx.workspaceId ?? null,
+      amount: CREDITS_PER_VIDEO,
+      clientOperationId,
+    });
   } catch (err) {
     if (err instanceof InsufficientCreditsError) {
       return NextResponse.json({ error: err.message }, { status: 402 });
@@ -84,40 +112,104 @@ export async function POST(req: Request) {
     throw err;
   }
 
-  const project = await db.project.create({
-    data: {
-      userId,
-      workspaceId: genCtx.workspaceId,
-      type: "script",
-      title: topic.slice(0, 60),
-      status: "queued",
-      input: "{}",
-    },
-  });
-
-  let voiceSampleUrl: string | undefined;
-  if (voiceSampleFile) {
-    const ext = path.extname(voiceSampleFile.name || "") || ".mp3";
-    const buffer = Buffer.from(await voiceSampleFile.arrayBuffer());
-    voiceSampleUrl = await uploadBuffer(
-      buffer,
-      `media/${userId}/${project.id}/voice-sample${ext}`,
-      voiceSampleFile.type || "audio/mpeg"
+  // A duplicate of an in-flight or already-completed identical request --
+  // return the existing project rather than creating (and charging for) a
+  // second one. This is what makes a lost HTTP response after the original
+  // reservation succeeded safely retryable.
+  if (genResult.status === "in-flight" || genResult.status === "already-completed") {
+    const existingProjectId = genResult.jobId ? await getProjectIdForJob(genResult.jobId) : null;
+    if (existingProjectId) {
+      return NextResponse.json({ projectId: existingProjectId, duplicate: true });
+    }
+    return NextResponse.json(
+      { error: "A duplicate request is already being processed. Please check your dashboard.", code: "OPERATION_PENDING" },
+      { status: 409 }
     );
   }
 
-  await db.project.update({
-    where: { id: project.id },
-    data: {
-      input: JSON.stringify({ topic, voice, language, aspectRatio, voiceSampleUrl, watermark: genCtx.effectivePlan === "free" }),
-    },
-  });
+  // This exact operation already failed (its reservation was released). A
+  // client only ever reuses an operation id while retrying a still-pending
+  // or just-succeeded action, never after observing a terminal failure --
+  // so this means a stale/replayed retry arrived after the fact. Refuse it
+  // rather than silently starting a new charge under an id the client
+  // considers dead; the caller must start a new generation (new operation
+  // id) to try again.
+  if (genResult.status === "failed") {
+    return NextResponse.json(
+      { error: "This generation request already failed and cannot be retried. Please start a new generation.", code: "OPERATION_FAILED" },
+      { status: 409 }
+    );
+  }
 
-  const job = await db.job.create({
-    data: { userId, projectId: project.id, type: "render", status: "queued" },
-  });
+  // "new" or "recoverable" (a crashed prior attempt that never finished
+  // creating its project/job) both proceed identically from here, reusing
+  // the same reservationId rather than reserving again.
+  const reservationId = genResult.reservationId;
 
-  enqueueJob(job.id, "script");
+  try {
+    // project + job creation + attaching the reservation to the job all
+    // happen in one transaction, so a crash anywhere in this block leaves
+    // the reservation exactly as "reserved, no job" -- safely recoverable
+    // by a retry with the same content, never a duplicate project or job.
+    const { project, job } = await db.$transaction(async (tx) => {
+      const project = await tx.project.create({
+        data: {
+          userId,
+          workspaceId: genCtx.workspaceId,
+          type: "script",
+          title: topic.slice(0, 60),
+          status: "queued",
+          input: "{}",
+        },
+      });
+      const job = await tx.job.create({
+        data: { userId, projectId: project.id, type: "render", status: "queued" },
+      });
+      await tx.creditReservation.update({ where: { id: reservationId }, data: { jobId: job.id } });
+      return { project, job };
+    });
 
-  return NextResponse.json({ projectId: project.id });
+    let voiceSampleUrl: string | undefined;
+    if (voiceSampleFile) {
+      const ext = path.extname(voiceSampleFile.name || "") || ".mp3";
+      const buffer = Buffer.from(await voiceSampleFile.arrayBuffer());
+      voiceSampleUrl = await uploadBuffer(
+        buffer,
+        `media/${userId}/${project.id}/voice-sample${ext}`,
+        voiceSampleFile.type || "audio/mpeg"
+      );
+    }
+
+    await db.project.update({
+      where: { id: project.id },
+      data: {
+        input: JSON.stringify({ topic, voice, language, aspectRatio, voiceSampleUrl, watermark: genCtx.effectivePlan === "free" }),
+      },
+    });
+
+    enqueueJob(job.id, "script");
+    return NextResponse.json({ projectId: project.id });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      // Lost a race to attach this reservation to a job -- a concurrent
+      // identical request already won it. That request owns the outcome now;
+      // return its project instead of releasing a reservation we don't own.
+      const winner = await db.creditReservation.findUnique({ where: { id: reservationId } });
+      const winnerProjectId = winner?.jobId ? await getProjectIdForJob(winner.jobId) : null;
+      if (winnerProjectId) {
+        return NextResponse.json({ projectId: winnerProjectId, duplicate: true });
+      }
+      return NextResponse.json(
+        { error: "A duplicate request is already being processed. Please check your dashboard." },
+        { status: 409 }
+      );
+    }
+
+    // Project/job creation failed AFTER credits were reserved — release the
+    // hold immediately so the user isn't left with a phantom charge.
+    await releaseReservation(reservationId, "Project creation failed after credit reservation").catch((e) =>
+      console.error("[script-route] failed to release reservation after project-creation error:", e)
+    );
+    throw err;
+  }
 }

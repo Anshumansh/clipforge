@@ -7,11 +7,18 @@ import { analyzeSubjectPan, prepareLocalSource } from "@/lib/providers/subject-t
 import { recordActivity } from "@/lib/streaks";
 import { getBrandForRender } from "@/lib/brand-server";
 import { refundCredits, CREDITS_PER_VIDEO } from "@/lib/credits";
+import { captureReservation, releaseReservation } from "@/lib/pricing/ledger";
 import { resolveProjectCreditOwnerId } from "@/lib/workspace";
+import { upsertCostRecord } from "@/lib/jobs/cost-tracker";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 
 async function setJobProgress(jobId: string, progress: number, log?: string) {
   await db.job.update({ where: { id: jobId }, data: { progress, ...(log ? { log } : {}) } });
+}
+
+async function findReservationId(jobId: string): Promise<string | null> {
+  const res = await db.creditReservation.findUnique({ where: { jobId } }).catch(() => null);
+  return res?.id ?? null;
 }
 
 function planSegmentsByDuration(durationSec: number): HighlightClip[] {
@@ -19,8 +26,6 @@ function planSegmentsByDuration(durationSec: number): HighlightClip[] {
   const clipLength = Math.min(45, Math.max(15, durationSec / count - 2));
   const segments: HighlightClip[] = [];
 
-  // No transcript to judge these against — flat, neutral score rather than a fake
-  // ranking (this path only runs when transcription/highlight-planning is unavailable).
   for (let i = 0; i < count; i++) {
     const slot = durationSec / count;
     const start = i * slot + Math.max(0, (slot - clipLength) / 2);
@@ -106,9 +111,6 @@ export async function runRepurposeJob(jobId: string) {
       )
     );
 
-    // Remotion's bundled ffmpeg can't read the remote source URL directly (no
-    // network protocol support in that build) — download once and reuse the
-    // local copy for every clip's analysis, rather than re-fetching per clip.
     await setJobProgress(jobId, 22, "Preparing for subject tracking…");
     const { localPath: localSourcePath, cleanup: cleanupLocalSource } = await prepareLocalSource(input.sourcePath).catch(
       (err) => {
@@ -120,6 +122,7 @@ export async function runRepurposeJob(jobId: string) {
     const brand = await getBrandForRender(project.userId);
 
     let completed = 0;
+    let totalRenderSeconds = 0;
     for (const clip of clips) {
       await db.clip.update({ where: { id: clip.id }, data: { status: "processing" } });
       try {
@@ -131,6 +134,7 @@ export async function runRepurposeJob(jobId: string) {
             })
           : null;
 
+        const clipRenderStart = Date.now();
         const videoUrl = await renderRepurposeClip(
           {
             sourcePath: input.sourcePath,
@@ -147,6 +151,7 @@ export async function runRepurposeJob(jobId: string) {
             void setJobProgress(jobId, Math.round(overallPercent));
           }
         );
+        totalRenderSeconds += (Date.now() - clipRenderStart) / 1000;
         await db.clip.update({ where: { id: clip.id }, data: { status: "ready", videoUrl } });
       } catch {
         await db.clip.update({ where: { id: clip.id }, data: { status: "failed" } });
@@ -157,21 +162,52 @@ export async function runRepurposeJob(jobId: string) {
     await cleanupLocalSource();
 
     const readyClips = await db.clip.count({ where: { projectId: project.id, status: "ready" } });
-
     if (readyClips === 0) {
       throw new Error("All clip renders failed");
     }
 
     await db.project.update({ where: { id: project.id }, data: { status: "ready" } });
     await db.job.update({ where: { id: jobId }, data: { status: "done", progress: 100, log: "Done" } });
+
+    const reservationId = await findReservationId(jobId);
+    if (reservationId) {
+      await captureReservation(reservationId).catch((e) =>
+        console.error("[repurpose-runner] reservation capture failed:", e instanceof Error ? e.message : e)
+      );
+    }
+
+    await upsertCostRecord({
+      jobId,
+      projectId: project.id,
+      userId: project.userId,
+      transcriptionSeconds: input.durationSec,
+      renderSeconds: totalRenderSeconds,
+      creditsCharged: CREDITS_PER_VIDEO,
+    }).catch((e) => console.error("[repurpose-runner] cost record write failed:", e instanceof Error ? e.message : e));
+
     await recordActivity(project.userId);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     await db.project.update({ where: { id: project.id }, data: { status: "failed", errorMessage: message } });
     await db.job.update({ where: { id: jobId }, data: { status: "failed", log: message } });
-    const creditOwnerId = await resolveProjectCreditOwnerId(project);
-    await refundCredits(creditOwnerId, CREDITS_PER_VIDEO).catch((e) =>
-      console.error("[repurpose-runner] credit refund failed:", e instanceof Error ? e.message : e)
-    );
+
+    const reservationId = await findReservationId(jobId).catch(() => null);
+    if (reservationId) {
+      await releaseReservation(reservationId, message).catch((e) =>
+        console.error("[repurpose-runner] reservation release failed:", e instanceof Error ? e.message : e)
+      );
+    } else {
+      const creditOwnerId = await resolveProjectCreditOwnerId(project).catch(() => project.userId);
+      await refundCredits(creditOwnerId, CREDITS_PER_VIDEO).catch((e) =>
+        console.error("[repurpose-runner] legacy credit refund failed:", e instanceof Error ? e.message : e)
+      );
+    }
+
+    await upsertCostRecord({
+      jobId,
+      projectId: project.id,
+      userId: project.userId,
+      creditsRefunded: CREDITS_PER_VIDEO,
+    }).catch(() => {});
   }
 }

@@ -1,15 +1,24 @@
 import path from "node:path";
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { chargeCredits, CREDITS_PER_VIDEO, InsufficientCreditsError } from "@/lib/credits";
+import { CREDITS_PER_VIDEO } from "@/lib/credits";
+import { InsufficientCreditsError, releaseReservation } from "@/lib/pricing/ledger";
+import {
+  reserveGenerationCredits,
+  getProjectIdForJob,
+  isValidClientOperationId,
+  type GenerationReservationResult,
+} from "@/lib/pricing/generation-idempotency";
 import { enqueueJob } from "@/lib/jobs/queue";
 import { uploadBuffer } from "@/lib/storage";
 import { rateLimit } from "@/lib/rate-limit";
 import { isAspectRatio, canUseAspectRatio, type AspectRatio } from "@/lib/aspect-ratio";
 import { resolveGenerationContext } from "@/lib/workspace";
 import { requireVerifiedEmail, EmailNotVerifiedError } from "@/lib/email-verification";
+import { canUseRepurpose } from "@/lib/plans";
 
 export const runtime = "nodejs";
 
@@ -37,6 +46,11 @@ export async function POST(req: Request) {
   const { ok } = rateLimit(`generate:${userId}`, 5, 60 * 1000);
   if (!ok) return NextResponse.json({ error: "Too many requests. Slow down and try again shortly." }, { status: 429 });
 
+  const clientOperationId = req.headers.get("Idempotency-Key");
+  if (!isValidClientOperationId(clientOperationId)) {
+    return NextResponse.json({ error: "Idempotency-Key header is required" }, { status: 400 });
+  }
+
   const form = await req.formData().catch(() => null);
   if (!form) return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
 
@@ -55,12 +69,28 @@ export async function POST(req: Request) {
 
   const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
   const genCtx = await resolveGenerationContext(userId, user.plan);
+
+  if (!canUseRepurpose(genCtx.effectivePlan)) {
+    return NextResponse.json(
+      { error: "Repurpose is available on Hobby, Creator, and Business plans. Upgrade to get started." },
+      { status: 403 }
+    );
+  }
+
   if (aspectRatio && !canUseAspectRatio(genCtx.effectivePlan, aspectRatio)) {
     return NextResponse.json({ error: "Multi-format export is a Business-plan feature" }, { status: 403 });
   }
 
+  let genResult: GenerationReservationResult;
   try {
-    await chargeCredits(genCtx.creditOwnerId, CREDITS_PER_VIDEO);
+    genResult = await reserveGenerationCredits({
+      type: "repurpose",
+      requestingUserId: userId,
+      creditOwnerId: genCtx.creditOwnerId,
+      workspaceId: genCtx.workspaceId ?? null,
+      amount: CREDITS_PER_VIDEO,
+      clientOperationId,
+    });
   } catch (err) {
     if (err instanceof InsufficientCreditsError) {
       return NextResponse.json({ error: err.message }, { status: 402 });
@@ -68,31 +98,72 @@ export async function POST(req: Request) {
     throw err;
   }
 
-  const project = await db.project.create({
-    data: {
-      userId,
-      workspaceId: genCtx.workspaceId,
-      type: "repurpose",
-      title: topic || file.name || "Repurposed video",
-      status: "queued",
-      input: "{}",
-    },
-  });
+  if (genResult.status === "in-flight" || genResult.status === "already-completed") {
+    const existingProjectId = genResult.jobId ? await getProjectIdForJob(genResult.jobId) : null;
+    if (existingProjectId) {
+      return NextResponse.json({ projectId: existingProjectId, duplicate: true });
+    }
+    return NextResponse.json(
+      { error: "A duplicate request is already being processed. Please check your dashboard.", code: "OPERATION_PENDING" },
+      { status: 409 }
+    );
+  }
 
-  const ext = extensionFor(file);
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const sourcePath = await uploadBuffer(buffer, `media/${userId}/${project.id}/source.${ext}`, file.type || "video/mp4");
+  if (genResult.status === "failed") {
+    return NextResponse.json(
+      { error: "This generation request already failed and cannot be retried. Please start a new generation.", code: "OPERATION_FAILED" },
+      { status: 409 }
+    );
+  }
 
-  await db.project.update({
-    where: { id: project.id },
-    data: { input: JSON.stringify({ durationSec, sourcePath, topic, aspectRatio }) },
-  });
+  const reservationId = genResult.reservationId;
 
-  const job = await db.job.create({
-    data: { userId, projectId: project.id, type: "render", status: "queued" },
-  });
+  try {
+    const { project, job } = await db.$transaction(async (tx) => {
+      const project = await tx.project.create({
+        data: {
+          userId,
+          workspaceId: genCtx.workspaceId,
+          type: "repurpose",
+          title: topic || file.name || "Repurposed video",
+          status: "queued",
+          input: "{}",
+        },
+      });
+      const job = await tx.job.create({
+        data: { userId, projectId: project.id, type: "render", status: "queued" },
+      });
+      await tx.creditReservation.update({ where: { id: reservationId }, data: { jobId: job.id } });
+      return { project, job };
+    });
 
-  enqueueJob(job.id, "repurpose");
+    const ext = extensionFor(file);
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const sourcePath = await uploadBuffer(buffer, `media/${userId}/${project.id}/source.${ext}`, file.type || "video/mp4");
 
-  return NextResponse.json({ projectId: project.id });
+    await db.project.update({
+      where: { id: project.id },
+      data: { input: JSON.stringify({ durationSec, sourcePath, topic, aspectRatio }) },
+    });
+
+    enqueueJob(job.id, "repurpose");
+    return NextResponse.json({ projectId: project.id });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      const winner = await db.creditReservation.findUnique({ where: { id: reservationId } });
+      const winnerProjectId = winner?.jobId ? await getProjectIdForJob(winner.jobId) : null;
+      if (winnerProjectId) {
+        return NextResponse.json({ projectId: winnerProjectId, duplicate: true });
+      }
+      return NextResponse.json(
+        { error: "A duplicate request is already being processed. Please check your dashboard." },
+        { status: 409 }
+      );
+    }
+
+    await releaseReservation(reservationId, "Project creation failed after credit reservation").catch((e) =>
+      console.error("[repurpose-route] failed to release reservation after project-creation error:", e)
+    );
+    throw err;
+  }
 }

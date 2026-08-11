@@ -124,20 +124,27 @@ export async function synthesizeVoiceover(
 ): Promise<VoiceoverResult> {
   if (process.env.OPENAI_API_KEY && !useFreeOnly) {
     try {
-      return await withTimeout(synthesizeWithOpenAI(script, mediaKeyPrefix, voice), PROVIDER_TIMEOUT_MS, "OpenAI TTS");
+      const result = await withTimeout(synthesizeWithOpenAI(script, mediaKeyPrefix, voice), PROVIDER_TIMEOUT_MS, "OpenAI TTS");
+      return { ...result, provider: "openai" as const, characterCount: script.length };
     } catch (err) {
       console.error("[tts] OpenAI TTS failed, falling back:", err instanceof Error ? err.message : err);
     }
   }
 
   try {
-    return await withTimeout(
+    const result = await withTimeout(
       synthesizeWithEdge(script, mediaKeyPrefix, voice, languageCode),
       PROVIDER_TIMEOUT_MS,
       "Edge TTS"
     );
+    return { ...result, provider: "edge" as const, characterCount: script.length };
   } catch (err) {
-    console.error("[tts] Edge TTS failed, falling back to mock:", err instanceof Error ? err.message : err);
-    return mockVoiceover(script);
+    console.error("[tts] Edge TTS failed:", err instanceof Error ? err.message : err);
+    // All available providers have been exhausted. Throwing here propagates to
+    // the job runner's catch block, which marks the job failed, surfaces an
+    // error message to the user, and refunds their credits. Returning the mock
+    // (audioUrl: null) instead would silently produce a soundless video while
+    // still consuming credits.
+    throw new Error("All TTS providers failed — voiceover could not be generated. Please try again.");
   }
 }
