@@ -19,20 +19,35 @@ Caddy (reverse proxy, auto TLS)  ──┐  container: clipforge-caddy-1
      │  internal Docker network    │
      ▼                             │
 Next.js app (port 3000)  ──────────┘  container: clipforge-app-1
+     │  auth, Stripe/billing, dashboard, API, generation-request
+     │  acceptance (validate → reserve credits → create Project + queued Job)
      │
-     ├─→ Neon Postgres        (accounts, projects, jobs, credits)
-     ├─→ Backblaze B2         (rendered videos, uploaded source files)
+     ├─→ Neon Postgres        (accounts, credits, Projects, durable Job queue)
+     ├─→ Backblaze B2         (serves rendered media via short-lived presigned URLs)
+     ├─→ Stripe                (checkout, subscriptions, billing portal)
+     └─→ Resend                (password reset emails)
+
+Render worker (polls Postgres directly, on its own schedule) container: clipforge-worker-1
+     │  claims queued jobs atomically, runs the whole generation pipeline,
+     │  captures/releases the job's credit reservation, writes cost records
+     │
+     ├─→ Neon Postgres        (same database -- claims Job rows, writes results)
      ├─→ OpenAI / Groq        (script writing, transcription, voice)
      ├─→ Microsoft Edge TTS   (free voiceover fallback)
      ├─→ Pexels               (stock b-roll footage)
-     ├─→ Stripe                (checkout, subscriptions, billing portal)
-     └─→ Resend                (password reset emails)
+     ├─→ Remotion / headless Chrome / ffmpeg   (video rendering, in-process)
+     └─→ Backblaze B2         (uploads the finished render)
 ```
 
-Both containers run on a single Hetzner VPS via Docker Compose
-(`/opt/clipforge/docker-compose.yml`). Video rendering happens **inside** the app
-container using a headless Chrome instance (Remotion) — this is the reason the VPS
-needs real RAM (7.6GB), not a minimal box.
+All three containers (`app`, `worker`, `caddy`) run on a single Hetzner VPS via Docker
+Compose (`/opt/clipforge/docker-compose.yml`). **Video rendering happens inside the
+`worker` container, not the web (`app`) container** — this was the point of the Phase 3
+render-worker split (2026-08-12, see §12/§12a below): a Remotion/Chromium/ffmpeg crash or
+OOM in `worker` can no longer take auth, Stripe, or the dashboard down with it, because
+they're a separate process in a separate container. The VPS still needs real RAM
+(7.6GB total) for the same underlying reason as before — rendering itself didn't get any
+lighter, it just moved into its own container (`worker`'s `mem_limit: 4g` in
+`docker-compose.yml` bounds it specifically, see §12).
 
 ---
 
@@ -395,6 +410,75 @@ smaller risk explicitly).
   the already-uploaded video object in B2 is orphaned (never linked to any `Project`,
   never shown to the user, storage cost only). There's no exactly-once external-upload
   reconciliation here, and none is claimed.
+
+### 12b. Rolling back the worker architecture
+
+> **⚠️ DO NOT RESTORE THE OLD WEB ARCHITECTURE WHILE THE NEW WORKER IS STILL RUNNING.**
+> The pre-Phase-3 web process has its own startup reconciliation
+> (`reconcileOrphanedJobs`, deleted from the codebase in Phase 3 but still present at
+> the `aad9e908` checkpoint) that unconditionally fails and refunds **both** `"queued"`
+> **and** `"processing"` jobs the moment it starts up — unlike the current worker's
+> reconciliation, which only ever touches `"processing"`. If the new `worker` container
+> is still alive and rendering when the old web code comes back up, you get two
+> processes racing to finalize the same jobs: the old code refunding a job the new
+> worker is still actively (and successfully) rendering. Stopping the worker first
+> removes that race entirely — there's nothing left running that doesn't know about the
+> old architecture's assumptions.
+
+A simple `git revert` + redeploy is **not sufficient on its own** for this reason. Use
+this exact sequence:
+
+1. **Inspect what's currently in flight** before touching anything, so you know what to
+   expect the old reconciliation to refund:
+   ```bash
+   # From a machine with DATABASE_URL pointed at production (read-only inspection)
+   npx prisma studio
+   # or, via psql:
+   psql "$DATABASE_URL" -c "SELECT id, status, \"projectId\", \"createdAt\" FROM \"Job\" WHERE status IN ('queued', 'processing') ORDER BY \"createdAt\";"
+   ```
+2. **Stop the worker first, before any code/container changes**:
+   ```bash
+   cd /opt/clipforge && docker compose stop worker
+   ```
+3. **Confirm it actually stopped** before proceeding:
+   ```bash
+   docker compose ps worker   # should show no running container / "exited"
+   ```
+4. **Restore the desired previous checkpoint.** The known pre-worker-split commit is
+   `aad9e9084067808d5805d78f2f5f93ac9a32e9b7` (Phase 1–2.1, the last commit before the
+   `worker` service and `lib/jobs/claim.ts` existed):
+   ```bash
+   git fetch origin && git reset --hard aad9e9084067808d5805d78f2f5f93ac9a32e9b7
+   ```
+5. **Rebuild/restart using the project's normal deploy mechanism** — same command the
+   GitHub Actions workflow itself runs, so there's no special-cased rollback tooling to
+   maintain separately:
+   ```bash
+   docker compose up -d --build
+   docker compose up -d --force-recreate caddy   # bind-mounted Caddyfile, see §4
+   ```
+   Because the restored `docker-compose.yml` at that checkpoint has no `worker:` service
+   block at all, Compose won't recreate one — the rolled-back stack really is back to
+   just `app` + `caddy`, matching the old architecture exactly.
+6. **Expect outstanding jobs to be refunded, not resumed.** The old code's
+   `reconcileOrphanedJobs()` runs automatically at its own module-load time (i.e. the
+   moment the new `app` container starts) and will fail + refund every job that was
+   still `"queued"` or `"processing"` at that moment, per its original (correct, for
+   that architecture) behavior — this is not data loss or a stuck state, it's the same
+   safe fail-and-refund behavior that already existed at that checkpoint. Any user whose
+   generation was queued or in progress at rollback time needs to be told it was
+   refunded and resubmit.
+7. **Verify the rollback landed cleanly**:
+   - `docker compose ps` — only `app` and `caddy` should be listed; no `worker` entry at
+     all (not "stopped," genuinely absent from the compose file).
+   - `curl -sS https://forgecut.app/api/health` — expect `200`/`"ok"`.
+   - `docker logs clipforge-caddy-1 --tail 50` — no proxy errors.
+   - Re-run the query from step 1 — every job that was `queued`/`processing` before the
+     rollback should now be `failed`, and (via `CreditReservation.status`) `released`,
+     not still `reserved`. If any row is still `reserved` after the old code's
+     reconciliation has run, that's a genuine problem worth investigating before trusting
+     the rollback is fully settled — do not manually adjust credit balances without
+     understanding that specific row first.
 
 **Incident (2026-08-08)**: during a live production regression test, a script-to-video
 render was OOM-killed mid-render (confirmed via `dmesg`: kernel killed the `remotion`

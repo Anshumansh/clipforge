@@ -27,6 +27,14 @@ jobs:
         run: |
           npx prisma generate
           npm run build
+      # Bundles worker/index.ts the exact same way the Dockerfile's builder stage
+      # does (esbuild, not tsc) -- catches a broken worker bundle (e.g. an import
+      # esbuild can't resolve, or a native-binding package that needs a new
+      # --external entry) here, on a fast CI runner, instead of mid-deploy when
+      # `docker build` runs the same command on the VPS. No env vars needed:
+      # esbuild only statically bundles imports, it never executes app code.
+      - name: Worker build
+        run: npm run build:worker
       - name: Unit tests
         run: npm test
 

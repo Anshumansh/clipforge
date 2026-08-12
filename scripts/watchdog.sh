@@ -49,7 +49,15 @@ if [ "$HEALTH_CODE" != "200" ]; then
 fi
 
 # --- Container status ---
-for entry in "clipforge-app-1:app" "clipforge-caddy-1:caddy"; do
+# Includes the render worker (clipforge-worker-1) alongside app/Caddy: /api/health
+# deliberately never checks the worker (a web-only health probe shouldn't fail
+# just because rendering is temporarily down), so this loop is the only thing
+# that would ever notice a crashed/stopped worker and both restart it and alert
+# on it -- same mechanism, same alerting path as app/Caddy already use, just one
+# more entry. This catches the worker being crashed or stopped; it does NOT
+# catch a worker that's still running but hung (no heartbeat/lease exists yet --
+# see OPERATIONS.md's render-worker section for that known, accepted gap).
+for entry in "clipforge-app-1:app" "clipforge-caddy-1:caddy" "clipforge-worker-1:worker"; do
   name="${entry%%:*}"
   service="${entry##*:}"
   STATUS=$(docker inspect -f '{{.State.Status}}' "$name" 2>/dev/null || echo "missing")
