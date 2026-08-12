@@ -10,6 +10,8 @@ vi.mock("@/lib/db", () => ({ db: { $queryRaw: vi.fn() } }));
 vi.mock("@/lib/jobs/claim", () => ({
   claimNextQueuedJob: vi.fn(),
   reconcileAbandonedProcessingJobs: vi.fn(),
+  renewLease: vi.fn(),
+  LEASE_DURATION_MS: 45_000,
 }));
 vi.mock("@/lib/jobs/script-runner", () => ({ runScriptJob: vi.fn() }));
 vi.mock("@/lib/jobs/repurpose-runner", () => ({ runRepurposeJob: vi.fn() }));
@@ -253,6 +255,104 @@ describe("Worker", () => {
       await worker.shutdown("SIGTERM");
       await vi.advanceTimersByTimeAsync(5000);
       expect(claim).toHaveBeenCalledTimes(2); // no more polling after shutdown
+    });
+  });
+
+  describe("lease heartbeat renewal (in-flight jobs keep their lease alive)", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it("renews the lease periodically while a job is in flight", async () => {
+      const claim = vi.fn().mockResolvedValueOnce({ id: "job-1", type: "script" as const }).mockResolvedValue(null);
+      const runner = vi.fn().mockReturnValue(new Promise<void>(() => {})); // never resolves during this test
+      const renewLeaseFn = vi.fn().mockResolvedValue(undefined);
+
+      const worker = new Worker({
+        concurrency: 1,
+        pollIntervalMs: 60_000,
+        claim,
+        renewLease: renewLeaseFn,
+        runners: { script: runner, repurpose: runner, ugc: runner },
+        onLog,
+      });
+
+      await worker.tick();
+      expect(renewLeaseFn).not.toHaveBeenCalled(); // not yet -- only after the first heartbeat interval elapses
+
+      // Heartbeat interval is LEASE_DURATION_MS / 3 = 15_000ms here.
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(renewLeaseFn).toHaveBeenCalledWith("job-1", worker.instanceId);
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(renewLeaseFn).toHaveBeenCalledTimes(2);
+    });
+
+    it("stops renewing once the job completes -- no leaked interval", async () => {
+      const { promise: runnerPromise, resolve: finishRunner } = deferred<void>();
+      const claim = vi.fn().mockResolvedValueOnce({ id: "job-1", type: "script" as const }).mockResolvedValue(null);
+      const runner = vi.fn().mockReturnValue(runnerPromise);
+      const renewLeaseFn = vi.fn().mockResolvedValue(undefined);
+
+      const worker = new Worker({
+        concurrency: 1,
+        pollIntervalMs: 60_000,
+        claim,
+        renewLease: renewLeaseFn,
+        runners: { script: runner, repurpose: runner, ugc: runner },
+        onLog,
+      });
+
+      await worker.tick();
+      finishRunner();
+      await vi.advanceTimersByTimeAsync(0); // let the .finally() clear the heartbeat interval
+
+      renewLeaseFn.mockClear();
+      await vi.advanceTimersByTimeAsync(60_000); // well past several heartbeat intervals
+      expect(renewLeaseFn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("periodic reconciliation (catches a lease going stale mid-run, not just at startup)", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it("runs the injected reconcile function on its own interval, independent of polling", async () => {
+      const claim = vi.fn().mockResolvedValue(null);
+      const reconcile = vi.fn().mockResolvedValue(undefined);
+      const worker = new Worker({ concurrency: 1, pollIntervalMs: 60_000, reconcileIntervalMs: 5_000, claim, reconcile, onLog });
+
+      worker.start();
+      expect(reconcile).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(reconcile).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(reconcile).toHaveBeenCalledTimes(2);
+    });
+
+    it("stops on shutdown", async () => {
+      const claim = vi.fn().mockResolvedValue(null);
+      const reconcile = vi.fn().mockResolvedValue(undefined);
+      const worker = new Worker({ concurrency: 1, pollIntervalMs: 60_000, reconcileIntervalMs: 5_000, claim, reconcile, onLog });
+
+      worker.start();
+      await worker.shutdown("SIGTERM");
+      reconcile.mockClear();
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(reconcile).not.toHaveBeenCalled();
+    });
+
+    it("a reconciliation failure is logged and does not crash the worker or stop future ticks", async () => {
+      const claim = vi.fn().mockResolvedValue(null);
+      const reconcile = vi.fn().mockRejectedValue(new Error("DB blip"));
+      const worker = new Worker({ concurrency: 1, pollIntervalMs: 60_000, reconcileIntervalMs: 5_000, claim, reconcile, onLog });
+
+      worker.start();
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(logs.some((l) => l.includes("periodic reconciliation failed"))).toBe(true);
     });
   });
 });

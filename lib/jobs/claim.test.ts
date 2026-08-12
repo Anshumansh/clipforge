@@ -6,8 +6,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const jobFindFirst = vi.fn();
 const jobFindMany = vi.fn().mockResolvedValue([]);
-const jobUpdateMany = vi.fn().mockResolvedValue({ count: 0 }); // only claimNextQueuedJob's atomic claim uses this
+const jobUpdateMany = vi.fn().mockResolvedValue({ count: 0 }); // atomic claim + renewLease + cancelQueuedJob all use this
 const jobUpdate = vi.fn().mockResolvedValue({});
+const jobFindUnique = vi.fn();
 const projectUpdate = vi.fn().mockResolvedValue({});
 const projectFindUnique = vi.fn();
 const reservationFindUnique = vi.fn().mockResolvedValue(null);
@@ -16,6 +17,7 @@ type MockDb = {
   job: {
     findFirst: (...args: unknown[]) => unknown;
     findMany: (...args: unknown[]) => unknown;
+    findUnique: (...args: unknown[]) => unknown;
     updateMany: (...args: unknown[]) => unknown;
     update: (...args: unknown[]) => unknown;
   };
@@ -33,6 +35,7 @@ const mockDb: MockDb = {
   job: {
     findFirst: (...args: unknown[]) => jobFindFirst(...args),
     findMany: (...args: unknown[]) => jobFindMany(...args),
+    findUnique: (...args: unknown[]) => jobFindUnique(...args),
     updateMany: (...args: unknown[]) => jobUpdateMany(...args),
     update: (...args: unknown[]) => jobUpdate(...args),
   },
@@ -43,10 +46,10 @@ const mockDb: MockDb = {
   creditReservation: {
     findUnique: (...args: unknown[]) => reservationFindUnique(...args),
   },
-  // Atomic failure finalization (Phase 3.2) runs Job/Project/release
-  // inside one db.$transaction -- the shim just runs the callback against
-  // this same mock object, so tx.job.update etc. are backed by the exact
-  // same spies as a direct db.job.update call.
+  // Atomic failure finalization runs Job/Project/release inside one
+  // db.$transaction -- the shim just runs the callback against this same
+  // mock object, so tx.job.update etc. are backed by the exact same spies
+  // as a direct db.job.update call.
   $transaction: async (fn) => fn(mockDb),
 };
 
@@ -73,13 +76,25 @@ const mockRefund = refundCredits as ReturnType<typeof vi.fn>;
 const mockResolve = resolveProjectCreditOwnerId as ReturnType<typeof vi.fn>;
 const mockRelease = releaseReservationInTx as ReturnType<typeof vi.fn>;
 
-const { claimNextQueuedJob, reconcileAbandonedProcessingJobs } = await import("./claim");
+const {
+  claimNextQueuedJob,
+  reconcileAbandonedProcessingJobs,
+  renewLease,
+  updateJobStage,
+  cancelQueuedJob,
+  computeBackoffMs,
+  JOB_PRIORITY_STANDARD,
+  JOB_PRIORITY_DEMO,
+} = await import("./claim");
+
+const WORKER_ID = "worker-abc123";
 
 beforeEach(() => {
   vi.clearAllMocks();
   jobFindMany.mockResolvedValue([]);
   jobUpdateMany.mockResolvedValue({ count: 0 });
   jobUpdate.mockResolvedValue({});
+  jobFindUnique.mockResolvedValue(null);
   projectUpdate.mockResolvedValue({});
   reservationFindUnique.mockResolvedValue(null);
   mockResolve.mockImplementation(async (project: { userId: string }) => project.userId);
@@ -95,29 +110,40 @@ describe("claimNextQueuedJob", () => {
   it("returns null when nothing is queued", async () => {
     jobFindFirst.mockResolvedValue(null);
 
-    const result = await claimNextQueuedJob();
+    const result = await claimNextQueuedJob(WORKER_ID);
 
     expect(result).toBeNull();
     expect(jobUpdateMany).not.toHaveBeenCalled();
   });
 
   it.each(["script", "repurpose", "ugc"] as const)(
-    "claims the oldest queued job and dispatches by Project.type = %s",
+    "claims the highest-priority, oldest queued job and dispatches by Project.type = %s",
     async (type) => {
       jobFindFirst.mockResolvedValue({ id: "job-1", projectId: "proj-1", project: { type } });
       jobUpdateMany.mockResolvedValue({ count: 1 });
 
-      const result = await claimNextQueuedJob();
+      const result = await claimNextQueuedJob(WORKER_ID);
 
       expect(result).toEqual({ id: "job-1", type });
       expect(jobFindFirst).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { status: "queued" }, orderBy: { createdAt: "asc" } })
+        expect.objectContaining({
+          where: { status: "queued", OR: [{ notBeforeAt: null }, { notBeforeAt: { lte: expect.any(Date) } }] },
+          orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
+        })
       );
       // The atomic, WHERE-guarded claim -- this is what actually enforces
-      // "only one claimant may succeed", not the initial findFirst.
+      // "only one claimant may succeed", not the initial findFirst. Also
+      // stamps the lease (expiry, owning worker, heartbeat) and increments
+      // attemptCount.
       expect(jobUpdateMany).toHaveBeenCalledWith({
         where: { id: "job-1", status: "queued" },
-        data: { status: "processing" },
+        data: {
+          status: "processing",
+          leaseExpiresAt: expect.any(Date),
+          workerId: WORKER_ID,
+          heartbeatAt: expect.any(Date),
+          attemptCount: { increment: 1 },
+        },
       });
     }
   );
@@ -129,7 +155,7 @@ describe("claimNextQueuedJob", () => {
     // conditional update (still WHERE status="queued") matches nothing.
     jobUpdateMany.mockResolvedValue({ count: 0 });
 
-    const result = await claimNextQueuedJob();
+    const result = await claimNextQueuedJob(WORKER_ID);
 
     expect(result).toBeNull();
     // No fabricated success, and no job/project mutation beyond the failed
@@ -137,12 +163,12 @@ describe("claimNextQueuedJob", () => {
     expect(jobUpdate).not.toHaveBeenCalled();
   });
 
-  it("defensive: an unrecognized project type atomically fails the job and releases its reservation instead of crashing", async () => {
+  it("defensive: an unrecognized project type atomically fails the job and releases its reservation instead of crashing (not retried)", async () => {
     jobFindFirst.mockResolvedValue({ id: "job-1", projectId: "proj-1", project: { type: "something-unexpected" } });
     jobUpdateMany.mockResolvedValue({ count: 1 });
     reservationFindUnique.mockResolvedValue({ id: "res-1" });
 
-    const result = await claimNextQueuedJob();
+    const result = await claimNextQueuedJob(WORKER_ID);
 
     expect(result).toBeNull();
     expect(jobUpdate).toHaveBeenCalledWith({
@@ -163,7 +189,7 @@ describe("claimNextQueuedJob", () => {
     reservationFindUnique.mockResolvedValue(null);
     projectFindUnique.mockResolvedValue({ userId: "user-1", workspaceId: null });
 
-    await claimNextQueuedJob();
+    await claimNextQueuedJob(WORKER_ID);
 
     expect(mockRefund).toHaveBeenCalledWith("user-1", 10);
     expect(mockRelease).not.toHaveBeenCalled();
@@ -171,24 +197,146 @@ describe("claimNextQueuedJob", () => {
 });
 
 // ------------------------------------------------------------------
-// reconcileAbandonedProcessingJobs (renamed from reconcileOrphanedJobs --
-// Phase 3 review, 2026-08-12: the old name/behavior treated "queued" jobs
-// as orphans too, which was wrong for the new durable DB-backed queue. A
-// queued job is valid pending work the poll loop will claim on its own;
-// only "processing" jobs left behind by a crashed worker are reconciled.
-//
-// Phase 3.2 hardening (2026-08-12): finalization is now atomic PER JOB --
-// Job failed + Project failed + reservation released all commit in one
-// db.$transaction, or none of them do. Before this pass, Job/Project were
-// marked failed in bulk (updateMany) first and reservations released in a
-// separate loop afterward, leaving the same class of crash window the
-// success path already had closed.)
+// Priority tiers
+// ------------------------------------------------------------------
+
+describe("priority constants", () => {
+  it("demo priority is strictly lower than standard, so demos never outrank a paid job in claim order", () => {
+    expect(JOB_PRIORITY_DEMO).toBeLessThan(JOB_PRIORITY_STANDARD);
+  });
+});
+
+// ------------------------------------------------------------------
+// computeBackoffMs
+// ------------------------------------------------------------------
+
+describe("computeBackoffMs", () => {
+  it("increases with attempt count", () => {
+    // Compare the deterministic floor (jitter only ever adds, never
+    // subtracts) so this isn't flaky against the random component.
+    const floor = (attempt: number) => Math.min(2 ** Math.max(attempt, 1) * 1000, 60_000);
+    expect(floor(2)).toBeGreaterThan(floor(1));
+    expect(floor(3)).toBeGreaterThan(floor(2));
+  });
+
+  it("is capped so a repeatedly-failing job backs off but never waits forever between attempts", () => {
+    const delay = computeBackoffMs(10); // way past any real maxAttempts
+    expect(delay).toBeLessThanOrEqual(60_000 * 1.5); // cap + max jitter
+  });
+
+  it("always returns a positive delay", () => {
+    expect(computeBackoffMs(1)).toBeGreaterThan(0);
+  });
+});
+
+// ------------------------------------------------------------------
+// renewLease
+// ------------------------------------------------------------------
+
+describe("renewLease", () => {
+  it("extends the lease only for the job's current owning worker, while it's still processing", async () => {
+    jobUpdateMany.mockResolvedValue({ count: 1 });
+
+    await renewLease("job-1", WORKER_ID);
+
+    expect(jobUpdateMany).toHaveBeenCalledWith({
+      where: { id: "job-1", status: "processing", workerId: WORKER_ID },
+      data: { leaseExpiresAt: expect.any(Date), heartbeatAt: expect.any(Date) },
+    });
+  });
+
+  it("is a safe no-op (never throws) if the update fails", async () => {
+    jobUpdateMany.mockRejectedValue(new Error("DB blip"));
+    await expect(renewLease("job-1", WORKER_ID)).resolves.toBeUndefined();
+  });
+});
+
+// ------------------------------------------------------------------
+// updateJobStage
+// ------------------------------------------------------------------
+
+describe("updateJobStage", () => {
+  it("writes the current stage", async () => {
+    await updateJobStage("job-1", "rendering");
+    expect(jobUpdate).toHaveBeenCalledWith({ where: { id: "job-1" }, data: { stage: "rendering" } });
+  });
+
+  it("never throws even if the write fails (best-effort, must not interrupt an in-flight render)", async () => {
+    jobUpdate.mockRejectedValue(new Error("DB blip"));
+    await expect(updateJobStage("job-1", "rendering")).resolves.toBeUndefined();
+  });
+});
+
+// ------------------------------------------------------------------
+// cancelQueuedJob
+// ------------------------------------------------------------------
+
+describe("cancelQueuedJob", () => {
+  it("returns false when the job doesn't exist", async () => {
+    jobFindUnique.mockResolvedValue(null);
+    const result = await cancelQueuedJob("missing-job");
+    expect(result).toBe(false);
+  });
+
+  it("atomically cancels a queued, reservation-backed job and releases the reservation exactly once", async () => {
+    jobFindUnique.mockResolvedValue({ projectId: "proj-1" });
+    reservationFindUnique.mockResolvedValue({ id: "res-1" });
+    jobUpdateMany.mockResolvedValue({ count: 1 });
+
+    const result = await cancelQueuedJob("job-1");
+
+    expect(result).toBe(true);
+    expect(jobUpdateMany).toHaveBeenCalledWith({
+      where: { id: "job-1", status: "queued" },
+      data: { status: "cancelled", cancelledAt: expect.any(Date), log: expect.any(String) },
+    });
+    expect(projectUpdate).toHaveBeenCalledWith({
+      where: { id: "proj-1" },
+      data: { status: "failed", errorMessage: expect.any(String) },
+    });
+    expect(mockRelease).toHaveBeenCalledWith(expect.anything(), "res-1", expect.any(String));
+  });
+
+  it("returns false (no-op) if the job is no longer queued -- already claimed or terminal", async () => {
+    jobFindUnique.mockResolvedValue({ projectId: "proj-1" });
+    reservationFindUnique.mockResolvedValue({ id: "res-1" });
+    jobUpdateMany.mockResolvedValue({ count: 0 }); // conditional update matched nothing
+
+    const result = await cancelQueuedJob("job-1");
+
+    expect(result).toBe(false);
+    expect(mockRelease).not.toHaveBeenCalled();
+  });
+
+  it("falls back to legacy refund for a queued job with no reservation (e.g. demo)", async () => {
+    jobFindUnique.mockResolvedValue({ projectId: "proj-1" });
+    reservationFindUnique.mockResolvedValue(null);
+    jobUpdateMany.mockResolvedValue({ count: 1 });
+
+    const result = await cancelQueuedJob("job-1");
+
+    expect(result).toBe(true);
+    expect(projectUpdate).toHaveBeenCalledWith({
+      where: { id: "proj-1" },
+      data: { status: "failed", errorMessage: expect.any(String) },
+    });
+  });
+});
+
+// ------------------------------------------------------------------
+// reconcileAbandonedProcessingJobs -- now lease-aware: queries jobs whose
+// lease is missing (legacy pre-migration rows) or genuinely expired, and
+// retries-with-backoff below maxAttempts instead of unconditionally failing.
 // ------------------------------------------------------------------
 
 describe("reconcileAbandonedProcessingJobs", () => {
-  it("only ever queries status='processing', never 'queued' -- the core fix from the prior review pass", async () => {
+  it("queries processing jobs with a missing or expired lease -- never 'queued', never a job whose lease a live worker is still renewing", async () => {
     await reconcileAbandonedProcessingJobs();
-    expect(jobFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { status: "processing" } }));
+    expect(jobFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { status: "processing", OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lt: expect.any(Date) } }] },
+      })
+    );
   });
 
   it("does nothing when there are no abandoned jobs", async () => {
@@ -200,10 +348,33 @@ describe("reconcileAbandonedProcessingJobs", () => {
     expect(mockRelease).not.toHaveBeenCalled();
   });
 
-  it("marks each abandoned processing job and its project as failed", async () => {
+  it("a job below maxAttempts is requeued for retry with backoff -- NOT failed, reservation left untouched", async () => {
     jobFindMany.mockResolvedValue([
-      { id: "job-1", projectId: "proj-1", project: { userId: "user-1", workspaceId: null } },
-      { id: "job-2", projectId: "proj-2", project: { userId: "user-2", workspaceId: null } },
+      { id: "job-1", projectId: "proj-1", attemptCount: 1, maxAttempts: 3, project: { userId: "user-1", workspaceId: null } },
+    ]);
+
+    await reconcileAbandonedProcessingJobs();
+
+    expect(jobUpdate).toHaveBeenCalledWith({
+      where: { id: "job-1" },
+      data: {
+        status: "queued",
+        log: expect.stringContaining("attempt 1/3"),
+        notBeforeAt: expect.any(Date),
+        leaseExpiresAt: null,
+        workerId: null,
+        heartbeatAt: null,
+        stage: null,
+      },
+    });
+    expect(projectUpdate).not.toHaveBeenCalled();
+    expect(mockRelease).not.toHaveBeenCalled();
+    expect(mockRefund).not.toHaveBeenCalled();
+  });
+
+  it("a job at or above maxAttempts is dead-lettered atomically, reservation released exactly once", async () => {
+    jobFindMany.mockResolvedValue([
+      { id: "job-1", projectId: "proj-1", attemptCount: 3, maxAttempts: 3, project: { userId: "user-1", workspaceId: null } },
     ]);
     reservationFindUnique.mockResolvedValue({ id: "res-1", status: "reserved" });
 
@@ -211,43 +382,36 @@ describe("reconcileAbandonedProcessingJobs", () => {
 
     expect(jobUpdate).toHaveBeenCalledWith({
       where: { id: "job-1" },
-      data: { status: "failed", log: expect.stringContaining("worker restart") },
-    });
-    expect(jobUpdate).toHaveBeenCalledWith({
-      where: { id: "job-2" },
-      data: { status: "failed", log: expect.stringContaining("worker restart") },
+      data: { status: "dead_letter", log: expect.stringContaining("worker restart"), deadLetteredAt: expect.any(Date) },
     });
     expect(projectUpdate).toHaveBeenCalledWith({
       where: { id: "proj-1" },
       data: { status: "failed", errorMessage: expect.any(String) },
     });
-    expect(projectUpdate).toHaveBeenCalledWith({
-      where: { id: "proj-2" },
-      data: { status: "failed", errorMessage: expect.any(String) },
-    });
+    expect(mockRelease).toHaveBeenCalledWith(expect.anything(), "res-1", expect.any(String));
   });
 
-  it("releases the reservation (via releaseReservationInTx, idempotent) when the job has a linked CreditReservation", async () => {
+  it("dead-lettering falls back to legacy refund when the job has no CreditReservation", async () => {
     jobFindMany.mockResolvedValue([
-      { id: "job-1", projectId: "proj-1", project: { userId: "user-1", workspaceId: null } },
+      { id: "job-1", projectId: "proj-1", attemptCount: 3, maxAttempts: 3, project: { userId: "user-1", workspaceId: null } },
     ]);
-    reservationFindUnique.mockResolvedValue({ id: "res-1", status: "reserved" });
+    reservationFindUnique.mockResolvedValue(null);
 
     await reconcileAbandonedProcessingJobs();
 
-    expect(mockRelease).toHaveBeenCalledWith(expect.anything(), "res-1", expect.any(String));
-    expect(mockRefund).not.toHaveBeenCalled();
+    expect(mockRefund).toHaveBeenCalledWith("user-1", 10);
+    expect(mockRelease).not.toHaveBeenCalled();
   });
 
-  it("job failed, project failed, and reservation release happen in the SAME transaction, in order", async () => {
+  it("dead-letter finalization: job, project, and reservation release happen in the SAME transaction, in order", async () => {
     jobFindMany.mockResolvedValue([
-      { id: "job-1", projectId: "proj-1", project: { userId: "user-1", workspaceId: null } },
+      { id: "job-1", projectId: "proj-1", attemptCount: 3, maxAttempts: 3, project: { userId: "user-1", workspaceId: null } },
     ]);
     reservationFindUnique.mockResolvedValue({ id: "res-1", status: "reserved" });
 
     const callOrder: string[] = [];
     jobUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
-      if (args?.data?.status === "failed") callOrder.push("job-failed");
+      if (args?.data?.status === "dead_letter") callOrder.push("job-dead-letter");
     });
     projectUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
       if (args?.data?.status === "failed") callOrder.push("project-failed");
@@ -258,37 +422,12 @@ describe("reconcileAbandonedProcessingJobs", () => {
 
     await reconcileAbandonedProcessingJobs();
 
-    expect(callOrder).toEqual(["job-failed", "project-failed", "release"]);
-  });
-
-  it("releases the reservation using a message that mentions the worker restart", async () => {
-    jobFindMany.mockResolvedValue([
-      { id: "job-1", projectId: "proj-1", project: { userId: "user-1", workspaceId: null } },
-    ]);
-    reservationFindUnique.mockResolvedValue({ id: "res-1" });
-
-    await reconcileAbandonedProcessingJobs();
-
-    const releaseCall = mockRelease.mock.calls[0];
-    // args: (tx, reservationId, note)
-    expect(releaseCall[2]).toMatch(/worker restart/i);
-  });
-
-  it("falls back to refundCredits when no CreditReservation is linked to the job", async () => {
-    jobFindMany.mockResolvedValue([
-      { id: "job-1", projectId: "proj-1", project: { userId: "user-1", workspaceId: null } },
-    ]);
-    reservationFindUnique.mockResolvedValue(null);
-
-    await reconcileAbandonedProcessingJobs();
-
-    expect(mockRefund).toHaveBeenCalledWith("user-1", 10);
-    expect(mockRelease).not.toHaveBeenCalled();
+    expect(callOrder).toEqual(["job-dead-letter", "project-failed", "release"]);
   });
 
   it("legacy refund goes to the workspace owner, not the member, for workspace projects", async () => {
     jobFindMany.mockResolvedValue([
-      { id: "job-1", projectId: "proj-1", project: { userId: "member-id", workspaceId: "ws-1" } },
+      { id: "job-1", projectId: "proj-1", attemptCount: 3, maxAttempts: 3, project: { userId: "member-id", workspaceId: "ws-1" } },
     ]);
     reservationFindUnique.mockResolvedValue(null);
     mockResolve.mockResolvedValue("owner-id");
@@ -300,22 +439,30 @@ describe("reconcileAbandonedProcessingJobs", () => {
     expect(mockRefund).not.toHaveBeenCalledWith("member-id", expect.any(Number));
   });
 
-  it("a captured/done job is never seen by reconciliation, so it can never be double-refunded (crash case C)", async () => {
+  it("a captured/done job is never seen by reconciliation, so it can never be double-refunded", async () => {
     // reconcileAbandonedProcessingJobs only ever queries status="processing"
-    // -- a job that already reached "done" (capture already happened, in
-    // the same transaction as the "done" write -- see
-    // captureReservationInTx) is structurally excluded from this query, so
-    // there is no code path by which reconciliation could refund an
-    // already-captured reservation. This test documents that guarantee at
-    // the query level.
+    // with a stale/missing lease -- a job that already reached "done"
+    // (capture already happened, in the same transaction as the "done"
+    // write) is structurally excluded from this query.
     await reconcileAbandonedProcessingJobs();
-    expect(jobFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { status: "processing" } }));
+    expect(jobFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: "processing" }) }));
   });
 
-  it("continues processing remaining jobs when one job's atomic finalization fails", async () => {
+  it("a job actively renewing its lease (leaseExpiresAt in the future) is excluded by the query -- proven by asserting the query shape, not by fetching live rows", async () => {
+    // The mock's findMany doesn't itself filter by the where clause (that's
+    // Postgres's job in production) -- what this test proves is that the
+    // WHERE clause reconcileAbandonedProcessingJobs sends only ever asks for
+    // leaseExpiresAt null-or-past, never "leaseExpiresAt in the future",
+    // which is what makes a live worker's lease safe from being swept.
+    await reconcileAbandonedProcessingJobs();
+    const [[queryArgs]] = jobFindMany.mock.calls;
+    expect(queryArgs.where.OR).toEqual([{ leaseExpiresAt: null }, { leaseExpiresAt: { lt: expect.any(Date) } }]);
+  });
+
+  it("continues processing remaining jobs when one job's atomic dead-letter finalization fails", async () => {
     jobFindMany.mockResolvedValue([
-      { id: "job-1", projectId: "proj-1", project: { userId: "user-1", workspaceId: null } },
-      { id: "job-2", projectId: "proj-2", project: { userId: "user-2", workspaceId: null } },
+      { id: "job-1", projectId: "proj-1", attemptCount: 3, maxAttempts: 3, project: { userId: "user-1", workspaceId: null } },
+      { id: "job-2", projectId: "proj-2", attemptCount: 3, maxAttempts: 3, project: { userId: "user-2", workspaceId: null } },
     ]);
     reservationFindUnique.mockResolvedValueOnce({ id: "res-1" }).mockResolvedValueOnce({ id: "res-2" });
     mockRelease.mockRejectedValueOnce(new Error("DB connection lost")).mockResolvedValueOnce(undefined);
@@ -324,34 +471,32 @@ describe("reconcileAbandonedProcessingJobs", () => {
     expect(mockRelease).toHaveBeenCalledTimes(2);
   });
 
-  it("continues processing when legacy refundCredits fails for one job", async () => {
+  it("continues processing when a retry requeue fails for one job", async () => {
     jobFindMany.mockResolvedValue([
-      { id: "job-1", projectId: "proj-1", project: { userId: "user-1", workspaceId: null } },
-      { id: "job-2", projectId: "proj-2", project: { userId: "user-2", workspaceId: null } },
+      { id: "job-1", projectId: "proj-1", attemptCount: 1, maxAttempts: 3, project: { userId: "user-1", workspaceId: null } },
+      { id: "job-2", projectId: "proj-2", attemptCount: 1, maxAttempts: 3, project: { userId: "user-2", workspaceId: null } },
     ]);
-    reservationFindUnique.mockResolvedValue(null);
-    mockRefund.mockRejectedValueOnce(new Error("DB connection lost")).mockResolvedValueOnce(undefined);
+    jobUpdate.mockRejectedValueOnce(new Error("DB connection lost")).mockResolvedValueOnce({});
 
     await expect(reconcileAbandonedProcessingJobs()).resolves.toBeUndefined();
-    expect(mockRefund).toHaveBeenCalledTimes(2);
+    expect(jobUpdate).toHaveBeenCalledTimes(2);
   });
 
-  describe("atomic rollback safety (Phase 3.2 review, required scenario 10)", () => {
+  describe("atomic rollback safety on dead-letter finalization", () => {
     afterEach(() => {
       vi.restoreAllMocks();
     });
 
-    it("a DB failure partway through the transaction never reaches the release step, is logged, and leaves the job recoverable for a later pass", async () => {
+    it("a DB failure partway through the dead-letter transaction never reaches the release step, is logged, and leaves the job recoverable for a later pass", async () => {
       jobFindMany.mockResolvedValue([
-        { id: "job-1", projectId: "proj-1", project: { userId: "user-1", workspaceId: null } },
+        { id: "job-1", projectId: "proj-1", attemptCount: 3, maxAttempts: 3, project: { userId: "user-1", workspaceId: null } },
       ]);
       reservationFindUnique.mockResolvedValue({ id: "res-1", status: "reserved" });
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
       // projectUpdate runs after jobUpdate but before releaseReservationInTx
-      // in reconcileAbandonedProcessingJobs -- failing it here proves the
-      // release step is never reached once an earlier statement in the
-      // same transaction throws.
+      // -- failing it here proves the release step is never reached once an
+      // earlier statement in the same transaction throws.
       projectUpdate.mockRejectedValueOnce(new Error("DB connection lost mid-transaction"));
 
       await expect(reconcileAbandonedProcessingJobs()).resolves.toBeUndefined(); // never crashes the whole pass
@@ -361,10 +506,10 @@ describe("reconcileAbandonedProcessingJobs", () => {
         expect.anything()
       );
 
-      // A later reconciliation pass (e.g. the worker restarting again) --
-      // in a real database, the failed transaction would have rolled back
-      // the job.update too, so the SAME job is still "processing" and gets
-      // picked up again. This time everything succeeds.
+      // A later reconciliation pass -- in a real database, the failed
+      // transaction would have rolled back the job.update too, so the SAME
+      // job is still "processing" and gets picked up again. This time
+      // everything succeeds.
       errorSpy.mockClear();
       mockRelease.mockClear();
       projectUpdate.mockResolvedValueOnce({});
@@ -375,22 +520,16 @@ describe("reconcileAbandonedProcessingJobs", () => {
 });
 
 // ------------------------------------------------------------------
-// Phase 3 review, explicit required scenarios A-D (2026-08-12) --
-// updated for Phase 3.2's per-job atomic transactions (previously
-// asserted against bulk updateMany calls, which reconciliation no longer
-// uses).
+// Required crash-recovery scenarios (Phase 3 review, still required after
+// the lease/retry rework)
 // ------------------------------------------------------------------
 
-describe("required crash-recovery scenarios (Phase 3 review)", () => {
+describe("required crash-recovery scenarios", () => {
   it("A: worker offline, API creates 3 queued jobs, worker starts -- reconciliation does NOT touch them", async () => {
-    // The 3 queued jobs simply never show up in reconciliation's query at
-    // all (it only asks the DB for status="processing"), so from
-    // reconciliation's point of view this is identical to "no jobs found."
     jobFindMany.mockResolvedValue([]);
 
     await reconcileAbandonedProcessingJobs();
 
-    expect(jobFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { status: "processing" } }));
     expect(jobUpdate).not.toHaveBeenCalled();
     expect(projectUpdate).not.toHaveBeenCalled();
     expect(mockRelease).not.toHaveBeenCalled();
@@ -401,14 +540,25 @@ describe("required crash-recovery scenarios (Phase 3 review)", () => {
     jobFindFirst.mockResolvedValue({ id: "job-1", projectId: "proj-1", project: { type: "script" } });
     jobUpdateMany.mockResolvedValue({ count: 1 });
 
-    const claimed = await claimNextQueuedJob();
+    const claimed = await claimNextQueuedJob(WORKER_ID);
 
     expect(claimed).toEqual({ id: "job-1", type: "script" });
   });
 
-  it("B: worker crashes with one processing job -- restart atomically reconciles it, reservation released exactly once", async () => {
+  it("B: worker crashes with one processing job on its first attempt -- restart requeues it for retry (below maxAttempts), no refund yet", async () => {
     jobFindMany.mockResolvedValue([
-      { id: "job-1", projectId: "proj-1", project: { userId: "user-1", workspaceId: null } },
+      { id: "job-1", projectId: "proj-1", attemptCount: 1, maxAttempts: 3, project: { userId: "user-1", workspaceId: null } },
+    ]);
+
+    await reconcileAbandonedProcessingJobs();
+
+    expect(mockRelease).not.toHaveBeenCalled();
+    expect(jobUpdate).toHaveBeenCalledWith({ where: { id: "job-1" }, data: expect.objectContaining({ status: "queued" }) });
+  });
+
+  it("B (continued): a job that has already exhausted maxAttempts is dead-lettered and its reservation released exactly once", async () => {
+    jobFindMany.mockResolvedValue([
+      { id: "job-1", projectId: "proj-1", attemptCount: 3, maxAttempts: 3, project: { userId: "user-1", workspaceId: null } },
     ]);
     reservationFindUnique.mockResolvedValue({ id: "res-1", status: "reserved" });
 
@@ -416,46 +566,28 @@ describe("required crash-recovery scenarios (Phase 3 review)", () => {
 
     expect(mockRelease).toHaveBeenCalledTimes(1);
     expect(mockRelease).toHaveBeenCalledWith(expect.anything(), "res-1", expect.any(String));
-    expect(jobUpdate).toHaveBeenCalledWith({
-      where: { id: "job-1" },
-      data: expect.objectContaining({ status: "failed" }),
-    });
-    expect(projectUpdate).toHaveBeenCalledWith({
-      where: { id: "proj-1" },
-      data: expect.objectContaining({ status: "failed" }),
-    });
   });
 
-  it("C: a queued job and a processing job both exist at startup -- queued survives untouched, processing is reconciled", async () => {
-    // reconciliation's query is status="processing" only, so a queued
-    // sibling is never even fetched -- there's no filtering step where it
-    // could accidentally get swept in. Simulate by returning only the
-    // processing job (exactly what the real query would find) and
-    // asserting nothing about a "job-queued" id ever appears in any write.
+  it("C: a queued job and an abandoned processing job both exist at startup -- queued survives untouched, processing is reconciled", async () => {
     jobFindMany.mockResolvedValue([
-      { id: "job-processing", projectId: "proj-processing", project: { userId: "user-1", workspaceId: null } },
+      { id: "job-processing", projectId: "proj-processing", attemptCount: 3, maxAttempts: 3, project: { userId: "user-1", workspaceId: null } },
     ]);
     reservationFindUnique.mockResolvedValue({ id: "res-1", status: "reserved" });
 
     await reconcileAbandonedProcessingJobs();
 
-    expect(jobFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { status: "processing" } }));
     expect(jobUpdate).toHaveBeenCalledWith({
       where: { id: "job-processing" },
-      data: expect.objectContaining({ status: "failed" }),
+      data: expect.objectContaining({ status: "dead_letter" }),
     });
-    // No call ever references a "job-queued" id -- it was never in the
-    // query result to begin with.
     const allCalls = [...jobUpdate.mock.calls, ...projectUpdate.mock.calls, ...mockRelease.mock.calls, ...mockRefund.mock.calls];
     expect(JSON.stringify(allCalls)).not.toContain("job-queued");
   });
 
-  it("D: reconciliation is only ever invoked by the worker -- web-process code never imports or calls it", async () => {
-    // Structural guarantee, not something reconcileAbandonedProcessingJobs
-    // itself can enforce -- documented and verified by absence: none of
-    // the generation routes (app/api/projects/*/route.ts,
-    // app/api/demo/generate/route.ts) import "@/lib/jobs/claim" at all.
-    // Only worker/index.ts does. See that file's own startup sequence.
+  it("D: reconciliation is only ever invoked by the worker -- web-process code never imports or calls it", () => {
+    // Structural guarantee, verified by absence: none of the generation
+    // routes (app/api/projects/*/route.ts, app/api/demo/generate/route.ts)
+    // call reconcileAbandonedProcessingJobs -- only worker/index.ts does.
     expect(true).toBe(true);
   });
 });

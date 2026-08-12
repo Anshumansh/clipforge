@@ -297,6 +297,17 @@ smaller risk explicitly).
 
 ### 12a. Render worker architecture, job claiming, and its single-worker limitation
 
+> **Pending, not yet live**: the `scale/100-user-readiness` branch adds lease-based
+> claiming, worker heartbeats, retry-with-backoff, dead-lettering, and priority — a real
+> redesign of the reconciliation behavior described below, built specifically to remove
+> the "unconditionally fails every processing job" limitation this section documents.
+> **None of it is deployed** as of this writing; everything below still accurately
+> describes what's actually running in production today. See `QUEUE_RECOVERY.md` for the
+> new design, its exact migration steps (additive, backward-compatible), and its rollback
+> plan. This section should be rewritten to describe the new behavior as current once
+> that branch is merged and `npx prisma db push` has actually been run against production
+> — until then, treat this note as the pointer, not the new section text.
+
 - **Web side**: a generation route (`/api/projects/{script,repurpose,ugc}`,
   `/api/demo/generate`) validates the request, reserves credits, creates the `Project` +
   `Job` rows (`Job.status = "queued"`) in one transaction, and returns immediately. It does

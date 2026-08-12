@@ -14,19 +14,30 @@ interface Clip {
 
 /** A small real-output preview tile -- same production render URLs as the
  * "Real output, not mockups" section further down the page, just shown
- * immediately in the hero. preload="metadata" only fetches enough to
- * decode the first frame (not the whole 10-30MB file), and playback only
- * starts on hover/tap -- three more always-autoplaying videos above the
- * fold would meaningfully add to page-load bandwidth for no real benefit
- * to a visitor who never looks at them. */
+ * immediately in the hero. The <video>'s `src` isn't set until the first
+ * hover/tap/focus (not merely `preload="metadata"` on mount) -- three tiles
+ * eagerly fetching metadata for a 10-30MB file each, on every homepage load,
+ * regardless of whether a visitor ever interacts with them, is exactly the
+ * "load real video before the user acts" pattern the perf brief calls out.
+ * Once loaded, `preload="metadata"` still applies so the first hover/tap
+ * only needs to start playback, not begin a fresh negotiation. */
 function ClipTile({ clip }: { clip: Clip }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [interacted, setInteracted] = useState(false);
+
+  function loadThenPlay() {
+    setInteracted(true);
+    // The video element isn't in the DOM with its `src` set until this same
+    // render commits -- defer .play() a tick so the ref is attached first.
+    requestAnimationFrame(() => videoRef.current?.play());
+  }
 
   return (
     <button
       type="button"
       className="group relative aspect-[9/16] w-full overflow-hidden rounded-lg border border-border bg-black"
-      onMouseEnter={() => videoRef.current?.play()}
+      onMouseEnter={loadThenPlay}
+      onFocus={loadThenPlay}
       onMouseLeave={() => {
         const v = videoRef.current;
         if (!v) return;
@@ -34,23 +45,30 @@ function ClipTile({ clip }: { clip: Clip }) {
         v.currentTime = 0;
       }}
       onClick={(e) => {
-        const v = videoRef.current;
-        if (!v) return;
-        if (v.paused) void v.play();
-        else v.pause();
+        if (!interacted) {
+          loadThenPlay();
+        } else {
+          const v = videoRef.current;
+          if (v) {
+            if (v.paused) void v.play();
+            else v.pause();
+          }
+        }
         e.currentTarget.blur();
       }}
       aria-label={`Preview: ${clip.label}`}
     >
-      <video
-        ref={videoRef}
-        src={clip.src}
-        muted
-        loop
-        playsInline
-        preload="metadata"
-        className="h-full w-full object-cover"
-      />
+      {interacted && (
+        <video
+          ref={videoRef}
+          src={clip.src}
+          muted
+          loop
+          playsInline
+          preload="metadata"
+          className="h-full w-full object-cover"
+        />
+      )}
       <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 transition-opacity group-hover:opacity-100">
         <Play className="h-5 w-5 fill-white text-white" />
       </div>
@@ -226,7 +244,7 @@ export function HeroDemo({ clips }: { clips: Clip[] }) {
       )}
 
       <div className="mt-5">
-        <p className="text-center text-xs text-muted-foreground lg:text-left">Real output, hover to preview:</p>
+        <p className="text-center text-xs text-muted-foreground lg:text-left">Real output — tap or hover to preview:</p>
         <div className="mt-2 grid grid-cols-3 gap-2">
           {clips.map((clip) => (
             <ClipTile key={clip.src} clip={clip} />

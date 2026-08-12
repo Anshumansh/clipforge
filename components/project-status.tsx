@@ -86,18 +86,54 @@ function VideoCard({
   );
 }
 
+// Base poll interval: 3-5s per the perf brief, picked once per component
+// mount (not per tick) so a given viewer's requests don't all land in the
+// same instant as everyone else's -- with 100 concurrent users on an active
+// job, unjittered fixed-interval polling would otherwise synchronize into
+// periodic bursts against the DB rather than spreading load evenly.
+const POLL_BASE_MS = 4000;
+const POLL_JITTER_MS = 1000;
+// After this long spent continuously queued/processing, back off toward the
+// slower end of the brief's 10-15s range -- a job that's been sitting for
+// minutes doesn't need the same responsiveness as one that just started.
+const SLOWDOWN_AFTER_MS = 60_000;
+const SLOW_POLL_MS = 12_000;
+
+function nextPollDelay(pollingSinceMs: number): number {
+  const elapsed = Date.now() - pollingSinceMs;
+  const base = elapsed > SLOWDOWN_AFTER_MS ? SLOW_POLL_MS : POLL_BASE_MS;
+  return base + Math.random() * POLL_JITTER_MS;
+}
+
 export function ProjectStatus({ initial }: { initial: ProjectData }) {
   const [data, setData] = useState<ProjectData>(initial);
 
   useEffect(() => {
     if (data.status !== "queued" && data.status !== "processing") return;
 
-    const interval = setInterval(async () => {
-      const res = await fetch(`/api/projects/${data.id}`);
-      if (res.ok) setData(await res.json());
-    }, 2000);
+    const pollingSince = Date.now();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
 
-    return () => clearInterval(interval);
+    async function tick() {
+      // Skip the network round trip entirely while the tab isn't visible --
+      // there's no UI to update, and it's needless DB load for a viewer
+      // who's switched away. Polling resumes on its own next scheduled tick
+      // after the tab becomes visible again (checked fresh each time, so no
+      // separate visibilitychange listener/backlog of missed ticks to
+      // reconcile).
+      if (!document.hidden) {
+        const res = await fetch(`/api/projects/${data.id}`).catch(() => null);
+        if (!cancelled && res?.ok) setData(await res.json());
+      }
+      if (!cancelled) timer = setTimeout(tick, nextPollDelay(pollingSince));
+    }
+
+    timer = setTimeout(tick, nextPollDelay(pollingSince));
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [data.status, data.id]);
 
   const isRendering = data.status === "queued" || data.status === "processing";

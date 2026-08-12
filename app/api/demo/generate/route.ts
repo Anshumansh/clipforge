@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import { getDemoUserId } from "@/lib/demo-user";
+import { JOB_PRIORITY_DEMO } from "@/lib/jobs/claim";
 
 export const runtime = "nodejs";
 
@@ -91,8 +92,12 @@ export async function POST(req: Request) {
     },
   });
 
+  // priority: JOB_PRIORITY_DEMO -- demos must never outrank a paying
+  // customer's job in the claim order (section 13 of the scale-readiness
+  // brief). See lib/jobs/claim.ts's claimNextQueuedJob, which orders by
+  // priority DESC before createdAt ASC.
   const job = await db.job.create({
-    data: { userId: demoUserId, projectId: project.id, type: "render", status: "queued" },
+    data: { userId: demoUserId, projectId: project.id, type: "render", status: "queued", priority: JOB_PRIORITY_DEMO },
   });
 
   // No local enqueue step -- the worker process picks up this queued job

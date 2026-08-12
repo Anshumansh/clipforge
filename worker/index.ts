@@ -19,9 +19,23 @@
  * conditional UPDATE in claimNextQueuedJob only ever lets one claimant win
  * a given row) -- it's specifically startup reconciliation that assumes no
  * other worker is concurrently, legitimately processing a "processing" job.
+ *
+ * Queue-lifecycle hardening (scale/100-user-readiness branch, 2026-08-13):
+ * a claimed job's lease is now renewed periodically for as long as it's in
+ * flight (see the heartbeat interval in `tick()` below) and
+ * reconcileAbandonedProcessingJobs now also runs on a recurring timer, not
+ * just at startup -- a lease can go stale mid-run (a hang, not just a
+ * crash-before-restart), not only at the moment this process boots.
  */
 import { db } from "@/lib/db";
-import { claimNextQueuedJob, reconcileAbandonedProcessingJobs, type ClaimedJob, type JobType } from "@/lib/jobs/claim";
+import {
+  claimNextQueuedJob,
+  reconcileAbandonedProcessingJobs,
+  renewLease,
+  LEASE_DURATION_MS,
+  type ClaimedJob,
+  type JobType,
+} from "@/lib/jobs/claim";
 import { runScriptJob } from "@/lib/jobs/script-runner";
 import { runRepurposeJob } from "@/lib/jobs/repurpose-runner";
 import { runUgcJob } from "@/lib/jobs/ugc-runner";
@@ -29,8 +43,15 @@ import { runUgcJob } from "@/lib/jobs/ugc-runner";
 export interface WorkerOptions {
   concurrency: number;
   pollIntervalMs: number;
+  /** How often a periodic reconciliation sweep runs while the worker is
+   * live, in addition to the mandatory startup sweep. Defaults to a third
+   * of LEASE_DURATION_MS, so a stale lease is typically caught well before
+   * a second full lease period elapses. */
+  reconcileIntervalMs?: number;
   runners?: Record<JobType, (jobId: string) => Promise<void>>;
   claim?: () => Promise<ClaimedJob | null>;
+  renewLease?: (jobId: string, workerId: string) => Promise<void>;
+  reconcile?: () => Promise<void>;
   onLog?: (line: string) => void;
 }
 
@@ -62,19 +83,30 @@ export function readWorkerConfigFromEnv(): { concurrency: number; pollIntervalMs
  * with mocked `claim`/`runners`/`onLog` and drive `tick()`/`shutdown()`
  * directly instead of needing real timers, a real DB, or real OS signals.
  */
+const DEFAULT_HEARTBEAT_INTERVAL_MS = Math.floor(LEASE_DURATION_MS / 3);
+
 export class Worker {
   private active = 0;
   private shuttingDown = false;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconcileTimer: ReturnType<typeof setInterval> | null = null;
   private readonly inFlight = new Set<Promise<void>>();
   private readonly runners: Record<JobType, (jobId: string) => Promise<void>>;
   private readonly claim: () => Promise<ClaimedJob | null>;
+  private readonly renewLeaseFn: (jobId: string, workerId: string) => Promise<void>;
+  private readonly reconcileFn: () => Promise<void>;
   private readonly log: (line: string) => void;
   readonly instanceId = crypto.randomUUID().slice(0, 8);
 
   constructor(private readonly options: WorkerOptions) {
     this.runners = options.runners ?? DEFAULT_RUNNERS;
-    this.claim = options.claim ?? claimNextQueuedJob;
+    // Bound to this.instanceId, not passed separately -- claimNextQueuedJob
+    // needs to know which worker is claiming so it can stamp the lease.
+    // instanceId is a field declared above the constructor, so it's already
+    // initialized by the time this runs.
+    this.claim = options.claim ?? (() => claimNextQueuedJob(this.instanceId));
+    this.renewLeaseFn = options.renewLease ?? renewLease;
+    this.reconcileFn = options.reconcile ?? reconcileAbandonedProcessingJobs;
     this.log = options.onLog ?? ((line: string) => console.log(line));
   }
 
@@ -112,6 +144,17 @@ export class Worker {
       const start = Date.now();
       this.log(`[worker:${this.instanceId}] job claimed id=${claimed.id} type=${claimed.type}`);
 
+      // Renews this job's lease periodically for as long as it's in
+      // flight, independent of whatever internal step the runner is on --
+      // simpler and safer than threading heartbeat calls through each
+      // runner's own AI-gen/voiceover/broll/render/upload steps, and still
+      // gives the core safety property: a live worker's lease never goes
+      // stale, so reconciliation never mistakes an actually-running job for
+      // an abandoned one.
+      const heartbeat = setInterval(() => {
+        void this.renewLeaseFn(claimed.id, this.instanceId);
+      }, DEFAULT_HEARTBEAT_INTERVAL_MS);
+
       const runner = this.runners[claimed.type];
       const jobPromise: Promise<void> = runner(claimed.id)
         .then(() => {
@@ -131,6 +174,7 @@ export class Worker {
           );
         })
         .finally(() => {
+          clearInterval(heartbeat);
           this.active--;
           this.inFlight.delete(jobPromise);
           // A slot just freed up -- look for more work immediately rather
@@ -145,7 +189,9 @@ export class Worker {
 
   /** Starts the poll loop. Uses setTimeout (re-armed after each tick
    * completes), not setInterval, so overlapping ticks can't stack up if a
-   * claim attempt is ever slow. */
+   * claim attempt is ever slow. Also starts a separate, slower periodic
+   * reconciliation sweep -- catches a lease that goes stale mid-run (a
+   * hang), not just one that was already stale at startup. */
   start(): void {
     this.log(
       `[worker:${this.instanceId}] polling started -- concurrency=${this.options.concurrency} pollIntervalMs=${this.options.pollIntervalMs}`
@@ -158,6 +204,13 @@ export class Worker {
     };
     void this.tick();
     scheduleNext();
+
+    const reconcileIntervalMs = this.options.reconcileIntervalMs ?? Math.floor(LEASE_DURATION_MS / 1.5);
+    this.reconcileTimer = setInterval(() => {
+      void this.reconcileFn().catch((e) =>
+        this.log(`[worker:${this.instanceId}] periodic reconciliation failed: ${e instanceof Error ? e.message : String(e)}`)
+      );
+    }, reconcileIntervalMs);
   }
 
   /** Stops claiming new jobs immediately, then waits for whatever's
@@ -171,6 +224,7 @@ export class Worker {
       `[worker:${this.instanceId}] received ${signal} -- draining ${this.inFlight.size} in-flight job(s), no new jobs will be claimed`
     );
     if (this.pollTimer) clearTimeout(this.pollTimer);
+    if (this.reconcileTimer) clearInterval(this.reconcileTimer);
     await Promise.allSettled([...this.inFlight]);
     this.log(`[worker:${this.instanceId}] shutdown complete`);
   }
@@ -205,7 +259,7 @@ async function main(): Promise<void> {
   await waitForDb();
 
   console.log(
-    "[worker] reconciling processing jobs abandoned by a previous crash (queued jobs are left alone -- single-worker assumption)"
+    "[worker] reconciling processing jobs with a stale/missing lease (queued jobs are left alone -- single-worker assumption)"
   );
   await reconcileAbandonedProcessingJobs();
 
