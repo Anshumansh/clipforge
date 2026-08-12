@@ -12,7 +12,6 @@ import {
   isValidClientOperationId,
   type GenerationReservationResult,
 } from "@/lib/pricing/generation-idempotency";
-import { enqueueJob } from "@/lib/jobs/queue";
 import { rateLimit } from "@/lib/rate-limit";
 import { ASPECT_RATIOS, canUseAspectRatio } from "@/lib/aspect-ratio";
 import { resolveGenerationContext } from "@/lib/workspace";
@@ -120,7 +119,9 @@ export async function POST(req: Request) {
       return { project, job };
     });
 
-    enqueueJob(job.id, "ugc");
+    // No local enqueue step -- the worker process picks up this queued
+    // job on its own poll loop. See app/api/projects/script/route.ts for
+    // the fuller comment; identical reasoning applies here.
     return NextResponse.json({ projectId: project.id });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {

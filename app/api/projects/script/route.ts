@@ -10,7 +10,6 @@ import {
   isValidClientOperationId,
   type GenerationReservationResult,
 } from "@/lib/pricing/generation-idempotency";
-import { enqueueJob } from "@/lib/jobs/queue";
 import { uploadBuffer } from "@/lib/storage";
 import { rateLimit } from "@/lib/rate-limit";
 import { ASPECT_RATIOS, isAspectRatio, canUseAspectRatio, type AspectRatio } from "@/lib/aspect-ratio";
@@ -187,7 +186,10 @@ export async function POST(req: Request) {
       },
     });
 
-    enqueueJob(job.id, "script");
+    // No local enqueue step -- the Job row was just created with
+    // status="queued" inside the transaction above, and the worker
+    // process (worker/index.ts) picks it up on its own poll loop via
+    // lib/jobs/claim.ts. This web process never executes runners.
     return NextResponse.json({ projectId: project.id });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {

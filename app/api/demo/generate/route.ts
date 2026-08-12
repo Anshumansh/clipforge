@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import { getDemoUserId } from "@/lib/demo-user";
-import { enqueueJob } from "@/lib/jobs/queue";
 
 export const runtime = "nodejs";
 
@@ -62,7 +61,7 @@ export async function POST(req: Request) {
     data: { userId: demoUserId, projectId: project.id, type: "render", status: "queued" },
   });
 
-  enqueueJob(job.id, "script");
-
+  // No local enqueue step -- the worker process picks up this queued job
+  // on its own poll loop (see worker/index.ts, lib/jobs/claim.ts).
   return NextResponse.json({ projectId: project.id });
 }

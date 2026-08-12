@@ -10,23 +10,38 @@ const projectUpdate = vi.fn();
 const reservationFindUnique = vi.fn();
 const costRecordUpsert = vi.fn();
 
-vi.mock("@/lib/db", () => ({
-  db: {
-    job: {
-      findUniqueOrThrow: (...a: unknown[]) => jobFindUnique(...a),
-      update: (...a: unknown[]) => jobUpdate(...a),
-    },
-    project: { update: (...a: unknown[]) => projectUpdate(...a) },
-    creditReservation: { findUnique: (...a: unknown[]) => reservationFindUnique(...a) },
-  },
-}));
+type MockDb = {
+  job: {
+    findUniqueOrThrow: (...a: unknown[]) => unknown;
+    update: (...a: unknown[]) => unknown;
+  };
+  project: { update: (...a: unknown[]) => unknown };
+  creditReservation: { findUnique: (...a: unknown[]) => unknown };
+  $transaction: (fn: (tx: MockDb) => Promise<unknown>) => Promise<unknown>;
+};
 
-const captureReservationFn = vi.fn();
-const releaseReservationFn = vi.fn();
+const mockDb: MockDb = {
+  job: {
+    findUniqueOrThrow: (...a: unknown[]) => jobFindUnique(...a),
+    update: (...a: unknown[]) => jobUpdate(...a),
+  },
+  project: { update: (...a: unknown[]) => projectUpdate(...a) },
+  creditReservation: { findUnique: (...a: unknown[]) => reservationFindUnique(...a) },
+  // The success path now wraps project/job/capture writes in one
+  // transaction (Phase 3 hardening) -- the shim just runs the callback
+  // against this same mock object, so tx.project.update etc. are backed
+  // by the exact same spies as a direct db.project.update call.
+  $transaction: async (fn) => fn(mockDb),
+};
+
+vi.mock("@/lib/db", () => ({ db: mockDb }));
+
+const captureReservationInTxFn = vi.fn();
+const releaseReservationInTxFn = vi.fn();
 
 vi.mock("@/lib/pricing/ledger", () => ({
-  captureReservation: (...a: unknown[]) => captureReservationFn(...a),
-  releaseReservation: (...a: unknown[]) => releaseReservationFn(...a),
+  captureReservationInTx: (...a: unknown[]) => captureReservationInTxFn(...a),
+  releaseReservationInTx: (...a: unknown[]) => releaseReservationInTxFn(...a),
 }));
 
 const refundCreditsFn = vi.fn();
@@ -128,8 +143,8 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
     synthesizeVoiceoverFn.mockResolvedValue(mockVoiceover);
     renderScriptVideoFn.mockResolvedValue("https://b2.example.com/final.mp4");
     reservationFindUnique.mockResolvedValue({ id: "res-1", status: "reserved" });
-    captureReservationFn.mockResolvedValue(undefined);
-    releaseReservationFn.mockResolvedValue(undefined);
+    captureReservationInTxFn.mockResolvedValue(undefined);
+    releaseReservationInTxFn.mockResolvedValue(undefined);
     refundCreditsFn.mockResolvedValue(undefined);
     costRecordUpsert.mockResolvedValue(undefined);
   });
@@ -137,9 +152,33 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
   it("captures the reservation on successful completion (credits settled, not refunded)", async () => {
     await runScriptJob("job-1");
 
-    expect(captureReservationFn).toHaveBeenCalledWith("res-1");
-    expect(releaseReservationFn).not.toHaveBeenCalled();
+    // Second arg is the reservation id; first is the transaction client
+    // (see the $transaction shim above) -- captureReservationInTx now runs
+    // inside the same transaction as the project/job "done" writes.
+    expect(captureReservationInTxFn).toHaveBeenCalledWith(expect.anything(), "res-1");
+    expect(releaseReservationInTxFn).not.toHaveBeenCalled();
     expect(refundCreditsFn).not.toHaveBeenCalled();
+  });
+
+  it("captures the reservation in the SAME transaction as the project/job success writes -- no crash window between them", async () => {
+    const callOrder: string[] = [];
+    projectUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
+      if (args?.data?.status === "ready") callOrder.push("project-ready");
+    });
+    jobUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
+      if (args?.data?.status === "done") callOrder.push("job-done");
+    });
+    captureReservationInTxFn.mockImplementation(async () => {
+      callOrder.push("capture");
+    });
+
+    await runScriptJob("job-1");
+
+    // All three happened, in order, and (since they share the $transaction
+    // shim's single synchronous pass over the same mock client) as part of
+    // one atomic unit rather than three independent statements a crash
+    // could land between.
+    expect(callOrder).toEqual(["project-ready", "job-done", "capture"]);
   });
 
   it("marks project and job as done on success", async () => {
@@ -154,8 +193,8 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
 
     await runScriptJob("job-1");
 
-    expect(releaseReservationFn).toHaveBeenCalledWith("res-1", expect.any(String));
-    expect(captureReservationFn).not.toHaveBeenCalled();
+    expect(releaseReservationInTxFn).toHaveBeenCalledWith(expect.anything(), "res-1", expect.any(String));
+    expect(captureReservationInTxFn).not.toHaveBeenCalled();
     expect(refundCreditsFn).not.toHaveBeenCalled();
   });
 
@@ -164,8 +203,8 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
 
     await runScriptJob("job-1");
 
-    expect(releaseReservationFn).toHaveBeenCalledWith("res-1", expect.any(String));
-    expect(captureReservationFn).not.toHaveBeenCalled();
+    expect(releaseReservationInTxFn).toHaveBeenCalledWith(expect.anything(), "res-1", expect.any(String));
+    expect(captureReservationInTxFn).not.toHaveBeenCalled();
   });
 
   it("releases the reservation when render fails", async () => {
@@ -173,8 +212,8 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
 
     await runScriptJob("job-1");
 
-    expect(releaseReservationFn).toHaveBeenCalledWith("res-1", expect.any(String));
-    expect(captureReservationFn).not.toHaveBeenCalled();
+    expect(releaseReservationInTxFn).toHaveBeenCalledWith(expect.anything(), "res-1", expect.any(String));
+    expect(captureReservationInTxFn).not.toHaveBeenCalled();
   });
 
   it("marks project and job as failed when an error occurs", async () => {
@@ -186,6 +225,48 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
     expect(jobUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "failed" }) }));
   });
 
+  it("marks project failed, job failed, and releases the reservation in the SAME transaction, in order -- no crash window between them", async () => {
+    generateScriptFn.mockRejectedValue(new Error("provider error"));
+    const callOrder: string[] = [];
+    projectUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
+      if (args?.data?.status === "failed") callOrder.push("project-failed");
+    });
+    jobUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
+      if (args?.data?.status === "failed") callOrder.push("job-failed");
+    });
+    releaseReservationInTxFn.mockImplementation(async () => {
+      callOrder.push("release");
+    });
+
+    await runScriptJob("job-1");
+
+    expect(callOrder).toEqual(["project-failed", "job-failed", "release"]);
+  });
+
+  it("a DB failure during atomic failure finalization leaves the job untouched (no partial failed-without-release state) and is logged", async () => {
+    generateScriptFn.mockRejectedValue(new Error("provider error"));
+    // Target specifically the failure transaction's status="failed" write
+    // (not the earlier status="processing" update at the top of the try
+    // block, which also calls project.update) -- it runs before
+    // releaseReservationInTx in the failure transaction, so failing it
+    // proves release is never reached once an earlier statement in the
+    // same transaction throws.
+    projectUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
+      if (args?.data?.status === "failed") throw new Error("DB connection lost mid-transaction");
+      return {};
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(runScriptJob("job-1")).resolves.toBeUndefined(); // the runner's own catch swallows this, doesn't crash the process
+    expect(releaseReservationInTxFn).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("remains recoverable as processing/reserved"),
+      expect.anything()
+    );
+
+    errorSpy.mockRestore();
+  });
+
   it("falls back to refundCredits() for legacy jobs with no reservation (demo/pre-reservation)", async () => {
     reservationFindUnique.mockResolvedValue(null); // no reservation
 
@@ -193,7 +274,7 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
     await runScriptJob("job-1");
 
     expect(refundCreditsFn).toHaveBeenCalledWith("user-1", 10);
-    expect(releaseReservationFn).not.toHaveBeenCalled();
+    expect(releaseReservationInTxFn).not.toHaveBeenCalled();
   });
 
   it("creates a JobCostRecord with AI provider, TTS characters, and render seconds on success", async () => {
@@ -235,6 +316,6 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
 
     // releaseReservation itself is idempotent (exact-once), but the runner should
     // only call it once per failure — not once per retry of a crashed runner.
-    expect(releaseReservationFn).toHaveBeenCalledTimes(1);
+    expect(releaseReservationInTxFn).toHaveBeenCalledTimes(1);
   });
 });

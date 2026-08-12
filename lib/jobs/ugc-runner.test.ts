@@ -6,23 +6,37 @@ const projectUpdate = vi.fn();
 const reservationFindUnique = vi.fn();
 const costRecordUpsert = vi.fn();
 
-vi.mock("@/lib/db", () => ({
-  db: {
-    job: {
-      findUniqueOrThrow: (...a: unknown[]) => jobFindUnique(...a),
-      update: (...a: unknown[]) => jobUpdate(...a),
-    },
-    project: { update: (...a: unknown[]) => projectUpdate(...a) },
-    creditReservation: { findUnique: (...a: unknown[]) => reservationFindUnique(...a) },
-  },
-}));
+type MockDb = {
+  job: {
+    findUniqueOrThrow: (...a: unknown[]) => unknown;
+    update: (...a: unknown[]) => unknown;
+  };
+  project: { update: (...a: unknown[]) => unknown };
+  creditReservation: { findUnique: (...a: unknown[]) => unknown };
+  $transaction: (fn: (tx: MockDb) => Promise<unknown>) => Promise<unknown>;
+};
 
-const captureReservationFn = vi.fn();
-const releaseReservationFn = vi.fn();
+const mockDb: MockDb = {
+  job: {
+    findUniqueOrThrow: (...a: unknown[]) => jobFindUnique(...a),
+    update: (...a: unknown[]) => jobUpdate(...a),
+  },
+  project: { update: (...a: unknown[]) => projectUpdate(...a) },
+  creditReservation: { findUnique: (...a: unknown[]) => reservationFindUnique(...a) },
+  // The success path wraps project/job/capture writes in one transaction
+  // (Phase 3 hardening) -- the shim just runs the callback against this
+  // same mock object.
+  $transaction: async (fn) => fn(mockDb),
+};
+
+vi.mock("@/lib/db", () => ({ db: mockDb }));
+
+const captureReservationInTxFn = vi.fn();
+const releaseReservationInTxFn = vi.fn();
 
 vi.mock("@/lib/pricing/ledger", () => ({
-  captureReservation: (...a: unknown[]) => captureReservationFn(...a),
-  releaseReservation: (...a: unknown[]) => releaseReservationFn(...a),
+  captureReservationInTx: (...a: unknown[]) => captureReservationInTxFn(...a),
+  releaseReservationInTx: (...a: unknown[]) => releaseReservationInTxFn(...a),
 }));
 
 const refundCreditsFn = vi.fn();
@@ -79,8 +93,8 @@ describe("runUgcJob — UGC runner (TEST-001 + REL-001 + COST-001)", () => {
     synthesizeVoiceoverFn.mockResolvedValue({ audioUrl: "https://cdn.example.com/audio.mp3", durationSec: 20, words: [], mocked: false, provider: "openai", characterCount: 17 });
     renderScriptVideoFn.mockResolvedValue("https://cdn.example.com/final.mp4");
     reservationFindUnique.mockResolvedValue({ id: "res-1", status: "reserved" });
-    captureReservationFn.mockResolvedValue(undefined);
-    releaseReservationFn.mockResolvedValue(undefined);
+    captureReservationInTxFn.mockResolvedValue(undefined);
+    releaseReservationInTxFn.mockResolvedValue(undefined);
     refundCreditsFn.mockResolvedValue(undefined);
     costRecordUpsert.mockResolvedValue(undefined);
   });
@@ -88,9 +102,26 @@ describe("runUgcJob — UGC runner (TEST-001 + REL-001 + COST-001)", () => {
   it("captures reservation on success — credits settled, not refunded", async () => {
     await runUgcJob("job-1");
 
-    expect(captureReservationFn).toHaveBeenCalledWith("res-1");
-    expect(releaseReservationFn).not.toHaveBeenCalled();
+    expect(captureReservationInTxFn).toHaveBeenCalledWith(expect.anything(), "res-1");
+    expect(releaseReservationInTxFn).not.toHaveBeenCalled();
     expect(refundCreditsFn).not.toHaveBeenCalled();
+  });
+
+  it("captures the reservation in the SAME transaction as the project/job success writes", async () => {
+    const callOrder: string[] = [];
+    projectUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
+      if (args?.data?.status === "ready") callOrder.push("project-ready");
+    });
+    jobUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
+      if (args?.data?.status === "done") callOrder.push("job-done");
+    });
+    captureReservationInTxFn.mockImplementation(async () => {
+      callOrder.push("capture");
+    });
+
+    await runUgcJob("job-1");
+
+    expect(callOrder).toEqual(["project-ready", "job-done", "capture"]);
   });
 
   it("releases reservation when script generation fails", async () => {
@@ -98,8 +129,8 @@ describe("runUgcJob — UGC runner (TEST-001 + REL-001 + COST-001)", () => {
 
     await runUgcJob("job-1");
 
-    expect(releaseReservationFn).toHaveBeenCalledWith("res-1", expect.any(String));
-    expect(captureReservationFn).not.toHaveBeenCalled();
+    expect(releaseReservationInTxFn).toHaveBeenCalledWith(expect.anything(), "res-1", expect.any(String));
+    expect(captureReservationInTxFn).not.toHaveBeenCalled();
   });
 
   it("releases reservation when render fails", async () => {
@@ -107,7 +138,46 @@ describe("runUgcJob — UGC runner (TEST-001 + REL-001 + COST-001)", () => {
 
     await runUgcJob("job-1");
 
-    expect(releaseReservationFn).toHaveBeenCalledWith("res-1", expect.any(String));
+    expect(releaseReservationInTxFn).toHaveBeenCalledWith(expect.anything(), "res-1", expect.any(String));
+  });
+
+  it("marks project failed, job failed, and releases the reservation in the SAME transaction, in order", async () => {
+    generateAdScriptFn.mockRejectedValue(new Error("script fail"));
+    const callOrder: string[] = [];
+    projectUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
+      if (args?.data?.status === "failed") callOrder.push("project-failed");
+    });
+    jobUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
+      if (args?.data?.status === "failed") callOrder.push("job-failed");
+    });
+    releaseReservationInTxFn.mockImplementation(async () => {
+      callOrder.push("release");
+    });
+
+    await runUgcJob("job-1");
+
+    expect(callOrder).toEqual(["project-failed", "job-failed", "release"]);
+  });
+
+  it("a DB failure during atomic failure finalization leaves the job untouched and is logged", async () => {
+    generateAdScriptFn.mockRejectedValue(new Error("script fail"));
+    // Target specifically the failure transaction's status="failed" write
+    // (not the earlier status="processing" update, which also calls
+    // project.update).
+    projectUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
+      if (args?.data?.status === "failed") throw new Error("DB connection lost mid-transaction");
+      return {};
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(runUgcJob("job-1")).resolves.toBeUndefined();
+    expect(releaseReservationInTxFn).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("remains recoverable as processing/reserved"),
+      expect.anything()
+    );
+
+    errorSpy.mockRestore();
   });
 
   it("creates a JobCostRecord with cost metrics on success", async () => {

@@ -125,21 +125,121 @@ export async function attachReservationToJob(reservationId: string, jobId: strin
   await db.creditReservation.update({ where: { id: reservationId }, data: { jobId } });
 }
 
+/** The minimal transaction-client shape captureReservationCore actually
+ * needs. Deliberately narrower than Prisma's own Prisma.TransactionClient
+ * type: this app's `db` singleton is wrapped with `.$extends(...)` (see
+ * lib/db.ts, for the Neon cold-start retry wrapper), and the resulting
+ * client's own internal transaction-callback type doesn't structurally
+ * unify with Prisma's generated TransactionClient type -- a known friction
+ * with Prisma Client Extensions. Method-shorthand syntax here (not
+ * arrow-typed properties) gets TypeScript's bivariant method checking,
+ * which is what lets both the real extended client's tx and a plain test
+ * mock satisfy this without fighting the type checker. */
+interface ReservationCaptureClient {
+  creditReservation: {
+    findUnique(args: { where: { id: string } }): Promise<{ status: string } | null>;
+    update(args: { where: { id: string }; data: { status: string; resolvedAt: Date } }): unknown;
+  };
+}
+
+async function captureReservationCore(client: ReservationCaptureClient, reservationId: string): Promise<void> {
+  const reservation = await client.creditReservation.findUnique({ where: { id: reservationId } });
+  if (!reservation) throw new ReservationNotFoundError(reservationId);
+  if (reservation.status !== "reserved") return; // already captured or released -- exact-once, not an error on retry
+
+  await client.creditReservation.update({
+    where: { id: reservationId },
+    data: { status: "captured", resolvedAt: new Date() },
+  });
+}
+
 /** Marks a reservation as permanently settled -- the job succeeded, the
  * held credits are not coming back. No balance change (the decrement
  * already happened at reserve time); this only updates the reservation's
- * own status and appends an audit-trail ledger entry with delta 0 so the
- * ledger shows the job's full lifecycle, not just the charge. */
+ * own status. Opens its own transaction. Use captureReservationInTx
+ * instead when the capture needs to commit atomically together with other
+ * writes (see lib/jobs/*-runner.ts's success path). */
 export async function captureReservation(reservationId: string): Promise<void> {
-  await db.$transaction(async (tx) => {
-    const reservation = await tx.creditReservation.findUnique({ where: { id: reservationId } });
-    if (!reservation) throw new ReservationNotFoundError(reservationId);
-    if (reservation.status !== "reserved") return; // already captured or released -- exact-once, not an error on retry
+  await db.$transaction((tx) => captureReservationCore(tx, reservationId));
+}
 
-    await tx.creditReservation.update({
-      where: { id: reservationId },
-      data: { status: "captured", resolvedAt: new Date() },
-    });
+/** Same exact-once capture as captureReservation, but runs against a
+ * transaction the CALLER already opened instead of starting its own --
+ * must be called from inside an active `db.$transaction(async (tx) => ...)`
+ * block.
+ *
+ * Why this exists (Phase 3 hardening, 2026-08-12): the job runners used to
+ * write Project.status="ready" and Job.status="done" first, then call
+ * captureReservation() as a separate statement afterward. A crash in that
+ * gap left a "done" job whose reservation was still "reserved" forever --
+ * startup reconciliation only ever looks at "processing" jobs, so a "done"
+ * job was invisible to it and nothing would ever resolve the stuck
+ * reservation. Running the capture in the SAME transaction as the
+ * Project/Job success writes (see lib/jobs/script-runner.ts and friends)
+ * makes "done" and "captured" land together or not at all -- there is no
+ * longer a durable state where one happened without the other. */
+export async function captureReservationInTx(tx: ReservationCaptureClient, reservationId: string): Promise<void> {
+  await captureReservationCore(tx, reservationId);
+}
+
+/** The minimal transaction-client shape releaseReservationCore actually
+ * needs -- same reasoning and same bivariant-method-shorthand trick as
+ * ReservationCaptureClient above. */
+interface ReservationReleaseClient {
+  creditReservation: {
+    findUnique(args: { where: { id: string } }): Promise<{
+      id: string;
+      userId: string;
+      workspaceId: string | null;
+      amount: number;
+      status: string;
+      idempotencyKey: string;
+    } | null>;
+    update(args: { where: { id: string }; data: { status: string; resolvedAt: Date } }): unknown;
+  };
+  user: {
+    update(args: { where: { id: string }; data: { credits: { increment: number } } }): unknown;
+    findUniqueOrThrow(args: { where: { id: string }; select: { credits: true } }): Promise<{ credits: number }>;
+  };
+  creditLedgerEntry: {
+    create(args: { data: Record<string, unknown> }): unknown;
+  };
+}
+
+async function releaseReservationCore(
+  client: ReservationReleaseClient,
+  reservationId: string,
+  note?: string
+): Promise<void> {
+  const reservation = await client.creditReservation.findUnique({ where: { id: reservationId } });
+  if (!reservation) throw new ReservationNotFoundError(reservationId);
+  // Exact-once: already resolved (captured OR released) -- never refund
+  // twice, and never refund a reservation whose job actually succeeded.
+  if (reservation.status !== "reserved") return;
+
+  await client.user.update({
+    where: { id: reservation.userId },
+    data: { credits: { increment: reservation.amount } },
+  });
+
+  const user = await client.user.findUniqueOrThrow({ where: { id: reservation.userId }, select: { credits: true } });
+
+  await client.creditReservation.update({
+    where: { id: reservationId },
+    data: { status: "released", resolvedAt: new Date() },
+  });
+
+  await client.creditLedgerEntry.create({
+    data: {
+      userId: reservation.userId,
+      workspaceId: reservation.workspaceId,
+      type: "refund",
+      delta: reservation.amount,
+      balanceAfter: user.credits,
+      reservationId: reservation.id,
+      idempotencyKey: `${reservation.idempotencyKey}:refund`,
+      note: note ?? "System-failed render, automatic full refund",
+    },
   });
 }
 
@@ -149,38 +249,35 @@ export async function captureReservation(reservationId: string): Promise<void> {
  * number, so a partial/variable charge (e.g. a repurpose job's real cost)
  * is always refunded for what was actually taken, never a hardcoded
  * constant. Exact-once: calling this twice on an already-released or
- * already-captured reservation is a no-op, not a double refund. */
+ * already-captured reservation is a no-op, not a double refund. Opens its
+ * own transaction. Use releaseReservationInTx instead when the release
+ * needs to commit atomically together with other writes (see
+ * lib/jobs/*-runner.ts's failure path and lib/jobs/claim.ts's
+ * reconciliation). */
 export async function releaseReservation(reservationId: string, note?: string): Promise<void> {
-  await db.$transaction(async (tx) => {
-    const reservation = await tx.creditReservation.findUnique({ where: { id: reservationId } });
-    if (!reservation) throw new ReservationNotFoundError(reservationId);
-    if (reservation.status !== "reserved") return; // exact-once: already resolved, never refund twice
+  await db.$transaction((tx) => releaseReservationCore(tx, reservationId, note));
+}
 
-    await tx.user.update({
-      where: { id: reservation.userId },
-      data: { credits: { increment: reservation.amount } },
-    });
-
-    const user = await tx.user.findUniqueOrThrow({ where: { id: reservation.userId }, select: { credits: true } });
-
-    await tx.creditReservation.update({
-      where: { id: reservationId },
-      data: { status: "released", resolvedAt: new Date() },
-    });
-
-    await tx.creditLedgerEntry.create({
-      data: {
-        userId: reservation.userId,
-        workspaceId: reservation.workspaceId,
-        type: "refund",
-        delta: reservation.amount,
-        balanceAfter: user.credits,
-        reservationId: reservation.id,
-        idempotencyKey: `${reservation.idempotencyKey}:refund`,
-        note: note ?? "System-failed render, automatic full refund",
-      },
-    });
-  });
+/** Same exact-once release as releaseReservation, but runs against a
+ * transaction the CALLER already opened instead of starting its own --
+ * must be called from inside an active `db.$transaction(async (tx) => ...)`
+ * block.
+ *
+ * Why this exists (Phase 3.2 hardening, 2026-08-12): the job runners' and
+ * reconciliation's failure paths used to write Project.status="failed" and
+ * Job.status="failed" first, then call releaseReservation() as a separate
+ * statement afterward. A crash in that gap left a "failed" job whose
+ * reservation was still "reserved" forever -- reconciliation only ever
+ * looks at "processing" jobs, so a "failed" job was invisible to it, same
+ * class of bug as the success-path one captureReservationInTx closes.
+ * Running the release in the SAME transaction as the Project/Job failure
+ * writes makes "failed" and "released" land together or not at all. */
+export async function releaseReservationInTx(
+  tx: ReservationReleaseClient,
+  reservationId: string,
+  note?: string
+): Promise<void> {
+  await releaseReservationCore(tx, reservationId, note);
 }
 
 /** Non-reservation credit grants -- signup bonus, monthly plan renewal,

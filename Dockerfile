@@ -30,6 +30,19 @@ ENV NEXTAUTH_URL=${NEXTAUTH_URL}
 RUN npx prisma generate
 RUN npm run build
 
+# Phase 3 (render worker isolation, 2026-08-12): bundle the worker
+# entrypoint into one self-contained CommonJS file with esbuild, rather
+# than shipping raw TypeScript source and running it with tsx at runtime.
+# tsx was tried first and rejected -- it fails to resolve music-metadata's
+# nested file-type dependency (an ESM-only package with no "require"
+# condition in its exports map) via its own custom CJS/ESM interop
+# resolver, even though plain Node and esbuild both handle it correctly.
+# That's a real, reproducible crash on worker startup, not a hypothetical.
+# esbuild inlines everything except the packages below (native bindings,
+# WASM files, or Remotion's own runtime bundler, all of which need to
+# exist as real on-disk packages -- see the COPY comments further down).
+RUN npm run build:worker
+
 # Pre-download Remotion's headless Chrome into node_modules/.remotion so the
 # first real render doesn't have to fetch ~113MB on a cold container start.
 RUN npx remotion browser ensure
@@ -90,7 +103,10 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
-# Next.js standalone server output.
+# Next.js standalone server output. This also brings along
+# .next/standalone/node_modules -- every production dependency Next's own
+# tracer found reachable from the app's API routes (Prisma, next-auth,
+# Stripe, the AWS SDK, etc.).
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
@@ -101,15 +117,25 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/remotion ./remotion
 COPY --from=builder /app/lib ./lib
 
+# Phase 3 (render worker isolation): the pre-bundled worker entrypoint
+# (see the `npm run build:worker` step in the builder stage above) -- one
+# self-contained .cjs file, no raw TypeScript source or tsconfig needed at
+# runtime. The worker service (docker-compose.yml) runs this with plain
+# `node`, not a separate interpreter.
+COPY --from=builder /app/dist-worker ./dist-worker
+
 # Next's dependency tracer only follows static imports, so it misses the
 # platform-specific compositor binary package Remotion loads dynamically at
-# runtime (e.g. @remotion/compositor-linux-x64-gnu) — copy the whole scope
-# explicitly rather than guess which subpackages matter.
+# runtime (e.g. @remotion/compositor-linux-x64-gnu) -- copy the whole scope
+# explicitly rather than guess which subpackages matter. Note that the web
+# app still reaches @remotion directly today via
+# app/api/projects/[id]/thumbnail/route.ts (a synchronous single-frame
+# renderStill call, much cheaper than a full video render, and out of
+# scope for the Phase 3 job-execution split -- see OPERATIONS.md). These
+# copies also cover the worker bundle's own --external requirement for the
+# same packages (native bindings / WASM / Remotion's own runtime bundler
+# -- none of these can be pre-bundled by esbuild).
 COPY --from=builder /app/node_modules/@remotion ./node_modules/@remotion
-
-# Subject-tracking's face detection stack (TensorFlow.js WASM + BlazeFace +
-# jpeg-js) — externalized from the webpack bundle in next.config.js, so it
-# needs to exist on disk for Node's own require() at runtime, same as @remotion.
 COPY --from=builder /app/node_modules/@tensorflow ./node_modules/@tensorflow
 COPY --from=builder /app/node_modules/@tensorflow-models ./node_modules/@tensorflow-models
 COPY --from=builder /app/node_modules/jpeg-js ./node_modules/jpeg-js

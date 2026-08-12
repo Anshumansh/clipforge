@@ -47,7 +47,9 @@ vi.mock("@prisma/client", () => ({
 const {
   reserveCredits,
   captureReservation,
+  captureReservationInTx,
   releaseReservation,
+  releaseReservationInTx,
   grantCredits,
   InsufficientCreditsError,
   ReservationNotFoundError,
@@ -139,6 +141,62 @@ describe("captureReservation", () => {
 
     expect(reservationUpdate).not.toHaveBeenCalled();
   });
+
+  it("opens its own transaction", async () => {
+    reservationFindUnique.mockResolvedValue({ id: "res-1", status: "reserved" });
+    reservationUpdate.mockResolvedValue({});
+
+    await captureReservation("res-1");
+
+    expect($transaction).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Phase 3 hardening (2026-08-12): captureReservationInTx runs the exact
+// same exact-once capture logic as captureReservation, but against a
+// transaction client the CALLER already has open -- so a runner's final
+// "project ready + job done + reservation captured" transition can commit
+// as one atomic unit instead of three separate statements a crash could
+// land between.
+describe("captureReservationInTx", () => {
+  it("marks a reserved hold as captured using the caller's own transaction client, without opening a new one", async () => {
+    reservationFindUnique.mockResolvedValue({ id: "res-1", status: "reserved" });
+    reservationUpdate.mockResolvedValue({});
+
+    await captureReservationInTx(mockTx, "res-1");
+
+    expect(reservationUpdate).toHaveBeenCalledWith({
+      where: { id: "res-1" },
+      data: { status: "captured", resolvedAt: expect.any(Date) },
+    });
+    // Must NOT start its own transaction -- it's meant to run inside one
+    // the caller already opened (e.g. a runner's project/job/capture
+    // transaction). Starting a nested one here would defeat the whole
+    // point of closing the crash window between those writes.
+    expect($transaction).not.toHaveBeenCalled();
+  });
+
+  it("throws ReservationNotFoundError for an unknown id", async () => {
+    reservationFindUnique.mockResolvedValue(null);
+
+    await expect(captureReservationInTx(mockTx, "missing")).rejects.toBeInstanceOf(ReservationNotFoundError);
+  });
+
+  it("is a no-op (exact-once) when the reservation is already captured", async () => {
+    reservationFindUnique.mockResolvedValue({ id: "res-1", status: "captured" });
+
+    await captureReservationInTx(mockTx, "res-1");
+
+    expect(reservationUpdate).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op (exact-once) when the reservation was already released -- a late capture can never resurrect a refunded reservation", async () => {
+    reservationFindUnique.mockResolvedValue({ id: "res-1", status: "released" });
+
+    await captureReservationInTx(mockTx, "res-1");
+
+    expect(reservationUpdate).not.toHaveBeenCalled();
+  });
 });
 
 describe("releaseReservation", () => {
@@ -178,6 +236,89 @@ describe("releaseReservation", () => {
     await releaseReservation("res-1");
 
     expect(userUpdate).not.toHaveBeenCalled();
+  });
+
+  it("opens its own transaction", async () => {
+    reservationFindUnique.mockResolvedValue({
+      id: "res-1",
+      userId: "u1",
+      workspaceId: null,
+      amount: 10,
+      status: "reserved",
+      idempotencyKey: "key-1",
+    });
+    userUpdate.mockResolvedValue({});
+    userFindUniqueOrThrow.mockResolvedValue({ credits: 100 });
+    reservationUpdate.mockResolvedValue({});
+    ledgerEntryCreate.mockResolvedValue({});
+
+    await releaseReservation("res-1");
+
+    expect($transaction).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Phase 3.2 hardening (2026-08-12): releaseReservationInTx runs the exact
+// same exact-once release logic as releaseReservation, but against a
+// transaction the CALLER already has open -- so a runner's (or startup
+// reconciliation's) "project failed + job failed + reservation released +
+// balance restored + refund ledger entry" transition can commit as one
+// atomic unit instead of separate statements a crash could land between.
+describe("releaseReservationInTx", () => {
+  it("refunds the reservation's exact held amount using the caller's own transaction client, without opening a new one", async () => {
+    reservationFindUnique.mockResolvedValue({
+      id: "res-1",
+      userId: "u1",
+      workspaceId: null,
+      amount: 110, // e.g. a repurpose job's real variable cost -- must not be refunded as a flat "10"
+      status: "reserved",
+      idempotencyKey: "key-1",
+    });
+    userUpdate.mockResolvedValue({});
+    userFindUniqueOrThrow.mockResolvedValue({ credits: 200 });
+    reservationUpdate.mockResolvedValue({});
+    ledgerEntryCreate.mockResolvedValue({});
+
+    await releaseReservationInTx(mockTx, "res-1");
+
+    expect(userUpdate).toHaveBeenCalledWith({ where: { id: "u1" }, data: { credits: { increment: 110 } } });
+    expect(reservationUpdate).toHaveBeenCalledWith({
+      where: { id: "res-1" },
+      data: { status: "released", resolvedAt: expect.any(Date) },
+    });
+    expect(ledgerEntryCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ type: "refund", delta: 110 }) })
+    );
+    // Must NOT start its own transaction -- it's meant to run inside one
+    // the caller already opened (e.g. a runner's or reconciliation's
+    // failure-finalization transaction).
+    expect($transaction).not.toHaveBeenCalled();
+  });
+
+  it("throws ReservationNotFoundError for an unknown id", async () => {
+    reservationFindUnique.mockResolvedValue(null);
+
+    await expect(releaseReservationInTx(mockTx, "missing")).rejects.toBeInstanceOf(ReservationNotFoundError);
+  });
+
+  it("CAPTURED RESERVATION SAFETY: a reservation already captured is never refunded -- no balance change, no refund ledger entry", async () => {
+    reservationFindUnique.mockResolvedValue({ id: "res-1", status: "captured" });
+
+    await releaseReservationInTx(mockTx, "res-1");
+
+    expect(userUpdate).not.toHaveBeenCalled();
+    expect(reservationUpdate).not.toHaveBeenCalled();
+    expect(ledgerEntryCreate).not.toHaveBeenCalled();
+  });
+
+  it("an already-released reservation is not refunded a second time", async () => {
+    reservationFindUnique.mockResolvedValue({ id: "res-1", status: "released" });
+
+    await releaseReservationInTx(mockTx, "res-1");
+
+    expect(userUpdate).not.toHaveBeenCalled();
+    expect(reservationUpdate).not.toHaveBeenCalled();
+    expect(ledgerEntryCreate).not.toHaveBeenCalled();
   });
 });
 

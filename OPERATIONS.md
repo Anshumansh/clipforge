@@ -233,24 +233,168 @@ these by generating a new key on the provider's dashboard and updating `.env` + 
 
 ## 12. Capacity & concurrency
 
-- **Render queue** (`lib/jobs/queue.ts`): capped at **2 concurrent renders**. Measured in
-  production — a single render peaks around **3.3GB RAM and ~360% CPU** (of 4 cores)
-  because it runs a real headless-Chrome instance plus ffmpeg encoding. Two concurrent
-  renders (~6.6GB) leaves enough headroom for the app/DB/Caddy on this VPS's 7.6GB; a
-  third risked OOM. Requests beyond the cap wait in a FIFO queue and show their position
-  ("Waiting in queue — N ahead of you") instead of failing or piling up.
-- **Load tested**: 100 truly concurrent requests to the homepage all returned 200 with no
-  degradation (latency was consistently ~1.7s from a distant test location — that's
-  network RTT + TLS handshake to the VPS, not server processing time, which measured
-  ~340ms). Also verified 4 concurrent generation requests correctly capped at 2 active
-  renders with the other 2 queued and completing in order.
-- **This is in-memory** — both the rate limiter and this render queue reset on deploy and
-  only coordinate within one process. Fine for the current single-VPS setup; if you ever
-  run more than one app instance, both need to move to something shared (e.g. Redis).
-- **If you need real concurrent-render capacity beyond 2** (not just queueing safely):
-  that requires horizontal scaling — either a second render worker/VPS or a serverless
-  rendering service (e.g. Remotion Lambda) — which is a real infrastructure cost decision,
-  not something to silently change.
+**Render worker (Phase 3, 2026-08-12): the script/repurpose/UGC job pipeline split from the
+web process.** That pipeline used to run *inside* the Next.js web container — a Remotion/
+Chromium/ffmpeg crash or OOM there could take down auth, Stripe, and the dashboard along
+with it (this actually happened once, see the 2026-08-08 incident below). It now runs in
+its own `worker` container (`docker-compose.yml`, `worker/index.ts`) that polls the
+database directly for queued jobs — the web process no longer holds any in-memory queue
+state, no longer executes `runScriptJob`/`runRepurposeJob`/`runUgcJob`, and no longer runs
+startup reconciliation. See §12a below for exactly how this works and its current
+single-worker limitation.
+
+**Scope note — thumbnail generation is NOT part of this split.**
+`app/api/projects/[id]/thumbnail/route.ts` still calls `renderThumbnail()`
+(`lib/remotion-render.ts`) synchronously, in the web process, on request — a single-frame
+`renderStill()` (no ffmpeg encoding, no multi-second video capture), meaningfully cheaper
+than a full render but still a real headless-Chrome invocation inside the web container.
+This was out of scope for Phase 3 as specified (job execution / video rendering), not an
+oversight — flagged here so "the web process never touches Remotion" isn't assumed more
+broadly than it's actually true. If this route's resource cost ever becomes a real
+concern, it would need the same kind of treatment (move behind the worker, or accept the
+smaller risk explicitly).
+
+- **Worker concurrency**: `WORKER_CONCURRENCY`, defaults to **1** (deliberately lower than
+  the old in-process queue's 2 — a single render still peaks around **3.3GB RAM and ~360%
+  CPU** of 4 cores, measured in production, real headless Chrome + ffmpeg). Isolating the
+  worker into its own container has to actually protect the web process from that memory
+  pressure, not just relocate it — raise this only after measuring real headroom in the
+  worker container specifically (`docker stats` during a real render), never as a default
+  change. `WORKER_POLL_INTERVAL_MS` (default 3000) controls how often it checks the
+  database for new work.
+- **Load tested** (pre-split, same rendering pipeline): 100 truly concurrent requests to
+  the homepage all returned 200 with no degradation (latency was consistently ~1.7s from a
+  distant test location — that's network RTT + TLS handshake to the VPS, not server
+  processing time, which measured ~340ms). Also verified 4 concurrent generation requests
+  correctly capped at 2 active renders with the other 2 queued and completing in order —
+  that concurrency ceiling is now `WORKER_CONCURRENCY` instead of the old in-process
+  semaphore, and defaults to 1 post-split (see above) until re-measured.
+- **The rate limiter is still in-memory** (`lib/rate-limit.ts`) and still lives in the web
+  process — unaffected by the worker split, since it gates incoming HTTP requests, not job
+  execution. It still resets on web-process restart and still only coordinates within one
+  process; if you ever run more than one web instance, it needs to move to something
+  shared (e.g. Redis) same as before.
+- **If you need real concurrent-render capacity beyond what one worker container can
+  safely hold**: that's horizontal scaling — running more than one worker — which is
+  explicitly **not yet safe** with this phase's crash-recovery design (see §12a). Don't
+  just raise `WORKER_CONCURRENCY` past what's been measured as safe for a single
+  container, and don't add a second `worker` service, without first reading §12a.
+
+### 12a. Render worker architecture, job claiming, and its single-worker limitation
+
+- **Web side**: a generation route (`/api/projects/{script,repurpose,ugc}`,
+  `/api/demo/generate`) validates the request, reserves credits, creates the `Project` +
+  `Job` rows (`Job.status = "queued"`) in one transaction, and returns immediately. It does
+  **not** call into any runner and does **not** run any startup reconciliation — a web
+  process restart or redeploy has zero effect on jobs the worker is already processing.
+- **Worker side** (`worker/index.ts`, `lib/jobs/claim.ts`): polls the database on an
+  interval, and for each free concurrency slot, attempts to atomically claim the oldest
+  queued job with a conditional update — `UPDATE "Job" SET status='processing' WHERE
+  id=$1 AND status='queued'`. Postgres itself guarantees only one such UPDATE can ever
+  win a race for the same row (the loser's conditional update just matches zero rows) —
+  no advisory lock or explicit `SELECT ... FOR UPDATE` was needed for this. Which runner
+  to dispatch to (script/repurpose/ugc) comes from `Project.type`, already durably stored
+  by every job-creation path — nothing about dispatch depends on anything in-memory.
+- **Crash recovery**: on worker startup, `reconcileAbandonedProcessingJobs()` (renamed from
+  `reconcileOrphanedJobs` in the 2026-08-12 review pass) fails and refunds any job still
+  sitting in **`"processing"` only**. `"queued"` jobs are deliberately left completely
+  alone — a queued job is valid, not-yet-started pending work on the durable DB-backed
+  queue, not an orphan; the poll loop claims it on the very next tick with no help needed
+  from this function. (The old name/behavior — inherited from the pre-Phase-3 in-memory
+  queue, which really did lose "queued" jobs on every restart — was actively wrong for the
+  new durable queue and has been corrected.) Docker's `restart: unless-stopped` on the
+  `worker` service means a real process crash is followed by an automatic restart, which
+  runs this reconciliation again.
+- **⚠️ Single worker only, by design, for now**: `reconcileAbandonedProcessingJobs()` cannot
+  tell "this job was orphaned by a crash" apart from "a different, healthy worker is
+  legitimately still processing this job" — it assumes the former unconditionally. That's
+  correct as long as **at most one worker process is ever running against this database**.
+  It is **not** correct with two workers: a second worker starting up would incorrectly
+  fail and refund a job its healthy peer is still actively rendering. Do not scale the
+  `worker` service (`docker compose up --scale worker=2`) and do not run a second worker
+  container pointed at the same `DATABASE_URL`. This is enforced by convention/documentation
+  only — see "what real multi-worker support needs" below for why a schema-free lock (e.g. a
+  Postgres advisory lock) wasn't used here.
+- **A job successfully finishing is never touched by reconciliation, by construction**: the
+  final "project ready + job done + reservation captured" transition
+  (`lib/jobs/{script,repurpose,ugc}-runner.ts`) is one atomic DB transaction — see
+  `captureReservationInTx` in `lib/pricing/ledger.ts`. A crash can never land between "done"
+  and "captured" anymore, so there is no stable state where `Job.status = "done"` and the
+  reservation is still `"reserved"`. (Before the 2026-08-12 review pass, those were two
+  separate statements — a crash between them left a reservation stuck `"reserved"` forever,
+  invisible to reconciliation since it never looks at `"done"` jobs. Closed, not just
+  documented.)
+- **A job failing is likewise never left half-finalized, by construction (2026-08-12,
+  same-day follow-up pass)**: the failure path — "project failed + job failed + reservation
+  released + balance restored + refund ledger entry" — is now ALSO one atomic DB transaction
+  in each runner (`releaseReservationInTx`, mirroring `captureReservationInTx`) and in
+  `reconcileAbandonedProcessingJobs()` itself (each abandoned job gets its own transaction).
+  Before this pass, Job/Project were marked `"failed"` first and the reservation released as
+  a separate statement afterward — a crash in that gap left a `"failed"` job whose
+  reservation was stuck `"reserved"` forever, the exact same class of bug as the success-side
+  one, just on the other branch. If the transaction itself fails (e.g. a transient DB error),
+  nothing commits — the job stays `"processing"`/`"reserved"`, logged loudly, and the next
+  reconciliation pass (or the runner's own next attempt) resolves it; there is no code path
+  that writes a partial "failed" status without the matching release, or vice versa. The
+  legacy/demo fallback (jobs with no `CreditReservation` at all) is explicitly **not** part
+  of this atomicity — see the paragraph below.
+- **Legacy/demo fallback remains non-atomic — deliberately, not overlooked**: a job with no
+  `CreditReservation` row (a demo project — `lib/demo-user.ts`, which never creates one — or
+  a job that predates the reservation system) still marks `Project`/`Job` failed and calls
+  the older `refundCredits()` (`lib/credits.ts`) as separate statements, same as before this
+  pass. This path was intentionally left alone: it's a different, older billing mechanism
+  never wired into the ledger's transactional guarantees, and folding it into the new
+  atomic path would mean inventing new behavior for it rather than just closing the
+  consistency gap the ledger-backed path already had. **Does this affect real paid
+  generation?** No — every real (non-demo) script/repurpose/UGC job created by an
+  authenticated, paying user always gets a `CreditReservation` via `reserveGenerationCredits`
+  at request time (Phase 2.1), so it always takes the atomic path. Only the homepage's
+  anonymous demo flow (free, watermarked, IP-rate-limited, no real credits at stake) uses
+  the non-atomic fallback in practice today.
+- **A worker that hangs (rather than crashes/exits) has no recovery path yet**: there's no
+  heartbeat/lease, so a stuck-but-alive worker process leaves its in-flight job's DB row
+  parked at `"processing"` indefinitely (Docker's restart policy only fires on actual
+  process exit, not a hang). Known, accepted gap for this phase — see below.
+- **Optional read-only diagnostic — detecting historical inconsistent rows**: these two
+  states should never occur going forward (both are now structurally impossible), but if a
+  row from *before* this pass is still around, it's detectable with a read-only query
+  (do not run this against production without a reason, and never follow it with a write
+  without understanding the specific row first):
+  ```sql
+  -- Job reached "done" but its reservation was never captured (pre-2026-08-12 success bug)
+  SELECT j.id AS "jobId", j.status AS "jobStatus", r.id AS "reservationId", r.status AS "reservationStatus"
+  FROM "Job" j
+  JOIN "CreditReservation" r ON r."jobId" = j.id
+  WHERE j.status = 'done' AND r.status = 'reserved';
+
+  -- Job reached "failed" but its reservation was never released (pre-2026-08-12 failure bug,
+  -- this same-day follow-up pass)
+  SELECT j.id AS "jobId", j.status AS "jobStatus", r.id AS "reservationId", r.status AS "reservationStatus"
+  FROM "Job" j
+  JOIN "CreditReservation" r ON r."jobId" = j.id
+  WHERE j.status = 'failed' AND r.status = 'reserved';
+  ```
+  If either returns rows, each is safe to resolve manually and individually via the
+  ledger's own exact-once functions (`captureReservation(id)` for the first query's rows —
+  the job genuinely succeeded; `releaseReservation(id)` for the second — the job genuinely
+  failed and the user is owed a refund) — an admin action taken with the specific row's
+  context in hand, not something to script/automate blindly across every match.
+- **What real multi-worker support would need**: an ownership/lease mechanism —
+  e.g. `claimedByWorkerId` + a heartbeat timestamp + a lease-expiry check in
+  `reconcileAbandonedProcessingJobs()` so it only reclaims jobs whose lease has actually
+  expired, never one a live peer is still renewing. That's a Prisma schema change (new
+  `Job` columns), deliberately deferred rather than added speculatively. A Postgres advisory
+  lock was considered as a schema-free alternative for at least *preventing* a second
+  worker from starting, but this app's `DATABASE_URL` may go through Neon's connection
+  pooler, and session-scoped primitives like `pg_advisory_lock` are unreliable through
+  transaction-mode PgBouncer-style pooling — shipping a "safeguard" that might silently
+  not work is worse than clearly documenting the one-worker constraint instead.
+- **Known, accepted gap — upload-then-crash**: if the worker crashes after a render
+  finishes uploading to B2 but before the `Job`/`Project` rows are updated to reflect
+  success, reconciliation will fail and refund that job (correct — no double charge), but
+  the already-uploaded video object in B2 is orphaned (never linked to any `Project`,
+  never shown to the user, storage cost only). There's no exactly-once external-upload
+  reconciliation here, and none is claimed.
 
 **Incident (2026-08-08)**: during a live production regression test, a script-to-video
 render was OOM-killed mid-render (confirmed via `dmesg`: kernel killed the `remotion`

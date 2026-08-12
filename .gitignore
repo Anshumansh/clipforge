@@ -3,6 +3,7 @@ node_modules
 out
 build
 dist
+dist-worker
 .env
 .env.local
 .env.production

@@ -9,27 +9,46 @@ const clipCount = vi.fn();
 const reservationFindUnique = vi.fn();
 const costRecordUpsert = vi.fn();
 
-vi.mock("@/lib/db", () => ({
-  db: {
-    job: {
-      findUniqueOrThrow: (...a: unknown[]) => jobFindUnique(...a),
-      update: (...a: unknown[]) => jobUpdate(...a),
-    },
-    project: { update: (...a: unknown[]) => projectUpdate(...a) },
-    clip: {
-      create: (...a: unknown[]) => clipCreate(...a),
-      update: (...a: unknown[]) => clipUpdate(...a),
-      count: (...a: unknown[]) => clipCount(...a),
-    },
-    creditReservation: { findUnique: (...a: unknown[]) => reservationFindUnique(...a) },
-  },
-}));
+type MockDb = {
+  job: {
+    findUniqueOrThrow: (...a: unknown[]) => unknown;
+    update: (...a: unknown[]) => unknown;
+  };
+  project: { update: (...a: unknown[]) => unknown };
+  clip: {
+    create: (...a: unknown[]) => unknown;
+    update: (...a: unknown[]) => unknown;
+    count: (...a: unknown[]) => unknown;
+  };
+  creditReservation: { findUnique: (...a: unknown[]) => unknown };
+  $transaction: (fn: (tx: MockDb) => Promise<unknown>) => Promise<unknown>;
+};
 
-const captureReservationFn = vi.fn();
-const releaseReservationFn = vi.fn();
+const mockDb: MockDb = {
+  job: {
+    findUniqueOrThrow: (...a: unknown[]) => jobFindUnique(...a),
+    update: (...a: unknown[]) => jobUpdate(...a),
+  },
+  project: { update: (...a: unknown[]) => projectUpdate(...a) },
+  clip: {
+    create: (...a: unknown[]) => clipCreate(...a),
+    update: (...a: unknown[]) => clipUpdate(...a),
+    count: (...a: unknown[]) => clipCount(...a),
+  },
+  creditReservation: { findUnique: (...a: unknown[]) => reservationFindUnique(...a) },
+  // The success path wraps project/job/capture writes in one transaction
+  // (Phase 3 hardening) -- the shim just runs the callback against this
+  // same mock object.
+  $transaction: async (fn) => fn(mockDb),
+};
+
+vi.mock("@/lib/db", () => ({ db: mockDb }));
+
+const captureReservationInTxFn = vi.fn();
+const releaseReservationInTxFn = vi.fn();
 vi.mock("@/lib/pricing/ledger", () => ({
-  captureReservation: (...a: unknown[]) => captureReservationFn(...a),
-  releaseReservation: (...a: unknown[]) => releaseReservationFn(...a),
+  captureReservationInTx: (...a: unknown[]) => captureReservationInTxFn(...a),
+  releaseReservationInTx: (...a: unknown[]) => releaseReservationInTxFn(...a),
 }));
 
 const refundCreditsFn = vi.fn();
@@ -87,8 +106,8 @@ describe("runRepurposeJob — repurpose runner (TEST-001 + REL-001 + COST-001)",
     planHighlightsFn.mockResolvedValue([{ startSec: 0, endSec: 15, title: "Highlight 1", score: 80 }]);
     renderClipFn.mockResolvedValue("https://cdn.example.com/clip-1.mp4");
     reservationFindUnique.mockResolvedValue({ id: "res-1", status: "reserved" });
-    captureReservationFn.mockResolvedValue(undefined);
-    releaseReservationFn.mockResolvedValue(undefined);
+    captureReservationInTxFn.mockResolvedValue(undefined);
+    releaseReservationInTxFn.mockResolvedValue(undefined);
     refundCreditsFn.mockResolvedValue(undefined);
     costRecordUpsert.mockResolvedValue(undefined);
   });
@@ -96,9 +115,26 @@ describe("runRepurposeJob — repurpose runner (TEST-001 + REL-001 + COST-001)",
   it("captures reservation on full success", async () => {
     await runRepurposeJob("job-1");
 
-    expect(captureReservationFn).toHaveBeenCalledWith("res-1");
-    expect(releaseReservationFn).not.toHaveBeenCalled();
+    expect(captureReservationInTxFn).toHaveBeenCalledWith(expect.anything(), "res-1");
+    expect(releaseReservationInTxFn).not.toHaveBeenCalled();
     expect(refundCreditsFn).not.toHaveBeenCalled();
+  });
+
+  it("captures the reservation in the SAME transaction as the project/job success writes", async () => {
+    const callOrder: string[] = [];
+    projectUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
+      if (args?.data?.status === "ready") callOrder.push("project-ready");
+    });
+    jobUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
+      if (args?.data?.status === "done") callOrder.push("job-done");
+    });
+    captureReservationInTxFn.mockImplementation(async () => {
+      callOrder.push("capture");
+    });
+
+    await runRepurposeJob("job-1");
+
+    expect(callOrder).toEqual(["project-ready", "job-done", "capture"]);
   });
 
   it("releases reservation when transcription throws", async () => {
@@ -106,8 +142,8 @@ describe("runRepurposeJob — repurpose runner (TEST-001 + REL-001 + COST-001)",
 
     await runRepurposeJob("job-1");
 
-    expect(releaseReservationFn).toHaveBeenCalledWith("res-1", expect.any(String));
-    expect(captureReservationFn).not.toHaveBeenCalled();
+    expect(releaseReservationInTxFn).toHaveBeenCalledWith(expect.anything(), "res-1", expect.any(String));
+    expect(captureReservationInTxFn).not.toHaveBeenCalled();
   });
 
   it("releases reservation when ALL clips fail to render", async () => {
@@ -116,7 +152,46 @@ describe("runRepurposeJob — repurpose runner (TEST-001 + REL-001 + COST-001)",
 
     await runRepurposeJob("job-1");
 
-    expect(releaseReservationFn).toHaveBeenCalledWith("res-1", expect.any(String));
+    expect(releaseReservationInTxFn).toHaveBeenCalledWith(expect.anything(), "res-1", expect.any(String));
+  });
+
+  it("marks project failed, job failed, and releases the reservation in the SAME transaction, in order", async () => {
+    transcribeFn.mockRejectedValue(new Error("whisper unavailable"));
+    const callOrder: string[] = [];
+    projectUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
+      if (args?.data?.status === "failed") callOrder.push("project-failed");
+    });
+    jobUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
+      if (args?.data?.status === "failed") callOrder.push("job-failed");
+    });
+    releaseReservationInTxFn.mockImplementation(async () => {
+      callOrder.push("release");
+    });
+
+    await runRepurposeJob("job-1");
+
+    expect(callOrder).toEqual(["project-failed", "job-failed", "release"]);
+  });
+
+  it("a DB failure during atomic failure finalization leaves the job untouched and is logged", async () => {
+    transcribeFn.mockRejectedValue(new Error("whisper unavailable"));
+    // Target specifically the failure transaction's status="failed" write
+    // (not the earlier status="processing" update, which also calls
+    // project.update).
+    projectUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
+      if (args?.data?.status === "failed") throw new Error("DB connection lost mid-transaction");
+      return {};
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(runRepurposeJob("job-1")).resolves.toBeUndefined();
+    expect(releaseReservationInTxFn).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("remains recoverable as processing/reserved"),
+      expect.anything()
+    );
+
+    errorSpy.mockRestore();
   });
 
   it("captures reservation even when only SOME clips fail (partial success)", async () => {
@@ -140,8 +215,8 @@ describe("runRepurposeJob — repurpose runner (TEST-001 + REL-001 + COST-001)",
 
     await runRepurposeJob("job-1");
 
-    expect(captureReservationFn).toHaveBeenCalled();
-    expect(releaseReservationFn).not.toHaveBeenCalled();
+    expect(captureReservationInTxFn).toHaveBeenCalled();
+    expect(releaseReservationInTxFn).not.toHaveBeenCalled();
   });
 
   it("records transcriptionSeconds in the cost record", async () => {

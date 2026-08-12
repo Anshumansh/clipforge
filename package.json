@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "worker": "tsx worker/index.ts",
+    "build:worker": "esbuild worker/index.ts --bundle --platform=node --format=cjs --outfile=dist-worker/index.cjs --external:@remotion/bundler --external:@remotion/renderer --external:@remotion/cli --external:remotion --external:esbuild --external:@tensorflow/tfjs-core --external:@tensorflow/tfjs-converter --external:@tensorflow/tfjs-backend-wasm --external:@tensorflow-models/blazeface --external:jpeg-js --external:@prisma/client",
+    "worker": "npm run build:worker && node dist-worker/index.cjs",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio"
@@ -58,6 +59,7 @@
     "@types/react": "^18.3.10",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.20",
+    "esbuild": "^0.28.1",
     "eslint": "^8.57.1",
     "eslint-config-next": "14.2.15",
     "postcss": "^8.4.47",

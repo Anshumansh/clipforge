@@ -7,7 +7,7 @@ import { analyzeSubjectPan, prepareLocalSource } from "@/lib/providers/subject-t
 import { recordActivity } from "@/lib/streaks";
 import { getBrandForRender } from "@/lib/brand-server";
 import { refundCredits, CREDITS_PER_VIDEO } from "@/lib/credits";
-import { captureReservation, releaseReservation } from "@/lib/pricing/ledger";
+import { captureReservationInTx, releaseReservationInTx } from "@/lib/pricing/ledger";
 import { resolveProjectCreditOwnerId } from "@/lib/workspace";
 import { upsertCostRecord } from "@/lib/jobs/cost-tracker";
 import type { AspectRatio } from "@/lib/aspect-ratio";
@@ -166,16 +166,21 @@ export async function runRepurposeJob(jobId: string) {
       throw new Error("All clip renders failed");
     }
 
-    await db.project.update({ where: { id: project.id }, data: { status: "ready" } });
-    await db.job.update({ where: { id: jobId }, data: { status: "done", progress: 100, log: "Done" } });
-
+    // Project "ready", Job "done", and the reservation capture must land
+    // together or not at all -- see the identical comment in
+    // lib/jobs/script-runner.ts and captureReservationInTx in
+    // lib/pricing/ledger.ts.
     const reservationId = await findReservationId(jobId);
-    if (reservationId) {
-      await captureReservation(reservationId).catch((e) =>
-        console.error("[repurpose-runner] reservation capture failed:", e instanceof Error ? e.message : e)
-      );
-    }
+    await db.$transaction(async (tx) => {
+      await tx.project.update({ where: { id: project.id }, data: { status: "ready" } });
+      await tx.job.update({ where: { id: jobId }, data: { status: "done", progress: 100, log: "Done" } });
+      if (reservationId) {
+        await captureReservationInTx(tx, reservationId);
+      }
+    });
 
+    // Best-effort telemetry, deliberately outside the transaction above --
+    // see the identical comment in lib/jobs/script-runner.ts.
     await upsertCostRecord({
       jobId,
       projectId: project.id,
@@ -188,15 +193,29 @@ export async function runRepurposeJob(jobId: string) {
     await recordActivity(project.userId);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    await db.project.update({ where: { id: project.id }, data: { status: "failed", errorMessage: message } });
-    await db.job.update({ where: { id: jobId }, data: { status: "failed", log: message } });
-
     const reservationId = await findReservationId(jobId).catch(() => null);
+
     if (reservationId) {
-      await releaseReservation(reservationId, message).catch((e) =>
-        console.error("[repurpose-runner] reservation release failed:", e instanceof Error ? e.message : e)
-      );
+      // Atomic failure finalization -- see the identical comment in
+      // lib/jobs/script-runner.ts and releaseReservationInTx in
+      // lib/pricing/ledger.ts.
+      await db
+        .$transaction(async (tx) => {
+          await tx.project.update({ where: { id: project.id }, data: { status: "failed", errorMessage: message } });
+          await tx.job.update({ where: { id: jobId }, data: { status: "failed", log: message } });
+          await releaseReservationInTx(tx, reservationId, message);
+        })
+        .catch((e) => {
+          console.error(
+            "[repurpose-runner] atomic failure finalization failed -- job remains recoverable as processing/reserved:",
+            e instanceof Error ? e.message : e
+          );
+        });
     } else {
+      // Legacy/demo fallback -- see the identical comment in
+      // lib/jobs/script-runner.ts.
+      await db.project.update({ where: { id: project.id }, data: { status: "failed", errorMessage: message } });
+      await db.job.update({ where: { id: jobId }, data: { status: "failed", log: message } });
       const creditOwnerId = await resolveProjectCreditOwnerId(project).catch(() => project.userId);
       await refundCredits(creditOwnerId, CREDITS_PER_VIDEO).catch((e) =>
         console.error("[repurpose-runner] legacy credit refund failed:", e instanceof Error ? e.message : e)

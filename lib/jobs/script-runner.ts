@@ -9,7 +9,7 @@ import { getLanguage } from "@/lib/languages";
 import { computeSceneTimeline } from "@/lib/timeline";
 import { getBrandForRender } from "@/lib/brand-server";
 import { refundCredits, CREDITS_PER_VIDEO } from "@/lib/credits";
-import { captureReservation, releaseReservation } from "@/lib/pricing/ledger";
+import { captureReservationInTx, releaseReservationInTx } from "@/lib/pricing/ledger";
 import { resolveProjectCreditOwnerId } from "@/lib/workspace";
 import { upsertCostRecord } from "@/lib/jobs/cost-tracker";
 import type { AspectRatio } from "@/lib/aspect-ratio";
@@ -100,18 +100,24 @@ export async function runScriptJob(jobId: string) {
     );
     const renderSeconds = (Date.now() - renderStart) / 1000;
 
-    await db.project.update({ where: { id: project.id }, data: { status: "ready", videoUrl } });
-    await db.job.update({ where: { id: jobId }, data: { status: "done", progress: 100, log: "Done" } });
-
-    // Settle the credit reservation (exact-once — no-op if already captured).
+    // Project "ready", Job "done", and the reservation capture must land
+    // together or not at all -- a crash between separate writes here used
+    // to leave a "done" job with its reservation stuck "reserved" forever,
+    // invisible to startup reconciliation (which only ever looks at
+    // "processing" jobs). See captureReservationInTx in lib/pricing/ledger.ts.
     const reservationId = await findReservationId(jobId);
-    if (reservationId) {
-      await captureReservation(reservationId).catch((e) =>
-        console.error("[script-runner] reservation capture failed:", e instanceof Error ? e.message : e)
-      );
-    }
+    await db.$transaction(async (tx) => {
+      await tx.project.update({ where: { id: project.id }, data: { status: "ready", videoUrl } });
+      await tx.job.update({ where: { id: jobId }, data: { status: "done", progress: 100, log: "Done" } });
+      if (reservationId) {
+        await captureReservationInTx(tx, reservationId);
+      }
+    });
 
-    // Record measurable usage for cost tracking (best-effort — never throws).
+    // Record measurable usage for cost tracking (best-effort — never throws,
+    // and deliberately outside the transaction above: this is non-critical
+    // telemetry that should never roll back a successful render's status/
+    // capture if it fails for an unrelated reason).
     await upsertCostRecord({
       jobId,
       projectId: project.id,
@@ -132,18 +138,47 @@ export async function runScriptJob(jobId: string) {
     await recordActivity(project.userId);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    await db.project.update({ where: { id: project.id }, data: { status: "failed", errorMessage: message } });
-    await db.job.update({ where: { id: jobId }, data: { status: "failed", log: message } });
-
-    // Release the credit reservation idempotently (exact-once: already-released
-    // reservations are a no-op). Falls back to direct refundCredits() for demo
-    // jobs and any legacy jobs that predate the reservation system.
     const reservationId = await findReservationId(jobId).catch(() => null);
+
     if (reservationId) {
-      await releaseReservation(reservationId, message).catch((e) =>
-        console.error("[script-runner] reservation release failed:", e instanceof Error ? e.message : e)
-      );
+      // Reservation-backed job: Project failed + Job failed + reservation
+      // released + balance restored + refund ledger entry must land
+      // together or not at all -- a crash between separate writes here
+      // used to be able to leave a "failed" job with its reservation stuck
+      // "reserved" forever, invisible to startup reconciliation (which
+      // only ever looks at "processing" jobs). See releaseReservationInTx
+      // in lib/pricing/ledger.ts.
+      await db
+        .$transaction(async (tx) => {
+          await tx.project.update({ where: { id: project.id }, data: { status: "failed", errorMessage: message } });
+          await tx.job.update({ where: { id: jobId }, data: { status: "failed", log: message } });
+          await releaseReservationInTx(tx, reservationId, message);
+        })
+        .catch((e) => {
+          // Deliberately no fallback writes here -- if the transaction
+          // failed, NOTHING committed, so the job is still exactly as it
+          // was before this catch block ran ("processing", reservation
+          // still "reserved"). That's a safe, recoverable state: the next
+          // worker startup's reconciliation will find and finalize it.
+          // Writing a partial "failed" status here without the matching
+          // release would recreate the exact bug this pass closes.
+          console.error(
+            "[script-runner] atomic failure finalization failed -- job remains recoverable as processing/reserved:",
+            e instanceof Error ? e.message : e
+          );
+        });
     } else {
+      // Legacy/demo fallback: no reservation exists for this job (a demo
+      // job -- see lib/demo-user.ts, which never gets a reservation at all
+      // -- or a job that predates the reservation system). This path is
+      // NOT part of this hardening pass: it uses lib/credits.ts's simpler,
+      // older charge/refund mechanism, never wired into the ledger's
+      // transactional guarantees. Marking Project/Job failed and calling
+      // refundCredits() remain separate statements here, same as before --
+      // see OPERATIONS.md for why this residual gap is accepted rather
+      // than silently expanded into a new billing path.
+      await db.project.update({ where: { id: project.id }, data: { status: "failed", errorMessage: message } });
+      await db.job.update({ where: { id: jobId }, data: { status: "failed", log: message } });
       const creditOwnerId = await resolveProjectCreditOwnerId(project).catch(() => project.userId);
       await refundCredits(creditOwnerId, CREDITS_PER_VIDEO).catch((e) =>
         console.error("[script-runner] legacy credit refund failed:", e instanceof Error ? e.message : e)

@@ -7,7 +7,6 @@ const resolveGenerationContextFn = vi.fn();
 const reserveGenerationCreditsFn = vi.fn();
 const getProjectIdForJobFn = vi.fn();
 const releaseReservationFn = vi.fn();
-const enqueueJobFn = vi.fn();
 const canUseUgcFn = vi.fn();
 const canUseAspectRatioFn = vi.fn();
 
@@ -48,7 +47,6 @@ vi.mock("@/lib/email-verification", () => ({
 }));
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: (...a: unknown[]) => rateLimitFn(...a) }));
 vi.mock("@/lib/workspace", () => ({ resolveGenerationContext: (...a: unknown[]) => resolveGenerationContextFn(...a) }));
-vi.mock("@/lib/jobs/queue", () => ({ enqueueJob: (...a: unknown[]) => enqueueJobFn(...a) }));
 vi.mock("@/lib/plans", () => ({ canUseUgc: (...a: unknown[]) => canUseUgcFn(...a) }));
 vi.mock("@/lib/aspect-ratio", () => ({
   ASPECT_RATIOS: ["9:16", "1:1", "16:9"],

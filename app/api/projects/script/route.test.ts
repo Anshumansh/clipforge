@@ -11,7 +11,6 @@ const resolveGenerationContextFn = vi.fn();
 const reserveGenerationCreditsFn = vi.fn();
 const getProjectIdForJobFn = vi.fn();
 const releaseReservationFn = vi.fn();
-const enqueueJobFn = vi.fn();
 const uploadBufferFn = vi.fn();
 const canUseVoiceCloneFn = vi.fn();
 const canUseAspectRatioFn = vi.fn();
@@ -50,7 +49,6 @@ vi.mock("@/lib/email-verification", () => ({
 }));
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: (...a: unknown[]) => rateLimitFn(...a) }));
 vi.mock("@/lib/workspace", () => ({ resolveGenerationContext: (...a: unknown[]) => resolveGenerationContextFn(...a) }));
-vi.mock("@/lib/jobs/queue", () => ({ enqueueJob: (...a: unknown[]) => enqueueJobFn(...a) }));
 vi.mock("@/lib/storage", () => ({ uploadBuffer: (...a: unknown[]) => uploadBufferFn(...a) }));
 vi.mock("@/lib/plans", () => ({ canUseVoiceClone: (...a: unknown[]) => canUseVoiceCloneFn(...a) }));
 vi.mock("@/lib/aspect-ratio", () => ({
@@ -127,7 +125,10 @@ describe("POST /api/projects/script — idempotency", () => {
       expect.objectContaining({ clientOperationId: DEFAULT_OP_ID })
     );
     expect(projectCreate).toHaveBeenCalledTimes(1);
-    expect(enqueueJobFn).toHaveBeenCalledWith("job-1", "script");
+    // Phase 3: the route no longer executes or enqueues anything itself --
+    // it just returns once the Job row is created with status "queued".
+    // The worker process (worker/index.ts) picks it up independently; see
+    // lib/jobs/claim.test.ts and worker/index.test.ts for that coverage.
   });
 
   it("missing Idempotency-Key header is rejected with 400 before any reservation is attempted", async () => {

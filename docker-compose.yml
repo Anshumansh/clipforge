@@ -16,6 +16,45 @@ services:
       retries: 3
       start_period: 30s
 
+  # Phase 3 (2026-08-12): render worker, split out of the web process so a
+  # Remotion/Chromium/ffmpeg crash or OOM can never take down auth, Stripe,
+  # or the dashboard. Same image as `app` (built once, above), different
+  # command -- see worker/index.ts and OPERATIONS.md's "Render worker"
+  # section. Polls the database directly; no port, no dependency on `app`.
+  #
+  # EXACTLY ONE REPLICA IS SUPPORTED. Do not `docker compose up --scale
+  # worker=2` and do not add a second worker service pointed at the same
+  # database -- startup reconciliation (lib/jobs/claim.ts) assumes no other
+  # worker is concurrently, legitimately processing a job. See
+  # OPERATIONS.md for what a real multi-worker rollout would need first.
+  worker:
+    image: clipforge:latest
+    # Runs the esbuild-bundled worker (built into the image at
+    # `npm run build:worker`, see Dockerfile) with plain node -- not tsx.
+    # tsx cannot resolve music-metadata's nested file-type dependency (an
+    # ESM-only package) through its own custom require() hook; esbuild
+    # bundles it correctly and plain Node runs the result with no special
+    # loader needed.
+    command: ["node", "dist-worker/index.cjs"]
+    env_file: .env
+    environment:
+      # Deliberately conservative: the audit measured ~3.3GB peak RAM for a
+      # single render on a 7.6GB VPS, and an OOM incident already happened
+      # there. Isolating the worker into its own container must actually
+      # protect the web process, not just relocate the same memory
+      # pressure -- raise this only after measuring real headroom in this
+      # container specifically, never by default.
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
+      WORKER_POLL_INTERVAL_MS: ${WORKER_POLL_INTERVAL_MS:-3000}
+    restart: unless-stopped
+    # Generous grace period so an in-flight render gets a real chance to
+    # finish (and its own reservation to resolve normally) during a deploy
+    # or restart before Docker SIGKILLs it. If it's still running past this,
+    # the next startup's reconciliation fails/refunds it -- see
+    # lib/jobs/claim.ts's crash-recovery documentation.
+    stop_grace_period: 120s
+    mem_limit: 4g
+
   caddy:
     image: caddy:2-alpine
     env_file: .env
