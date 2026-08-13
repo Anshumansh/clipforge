@@ -332,54 +332,63 @@ model Job {
   projectId String
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   type      String // "render" | "analyze"
-  status    String   @default("queued") // queued | processing | done | failed | cancelled | dead_letter
+  status    String   @default("queued") // queued | leased | processing | completed | failed_retryable | failed_terminal | cancelled | dead_letter
   progress  Int      @default(0)
   log       String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Queue-lifecycle hardening (scale/100-user-readiness branch): all
-  // additive and nullable/defaulted, so this is a pure "expand" migration --
-  // every existing row is valid as-is with these columns simply unset. Does
-  // NOT rename or repurpose "status"; see QUEUE_RECOVERY.md for why "leased"
-  // and "failed_retryable"/"failed_terminal" are represented via these
-  // fields rather than as new status strings (a rename would be a breaking
-  // change touching every existing call site and historical row).
+  // Queue-lifecycle hardening: full 8-status lifecycle with proper state
+  // machine semantics. All new fields are nullable/defaulted for
+  // backward-compatibility migration via expand-migrate-contract.
   //
-  // priority: higher claims first. Demo jobs get a negative value so a paid
-  // job queued after a burst of demos still claims ahead of them.
+  // Status machine:
+  //   queued → leased (atomically on claim) → processing (heartbeat active)
+  //            → completed (final success) OR
+  //   queued → leased → processing → failed_retryable (if attemptCount < maxAttempts,
+  //                                    requeued to queued after backoff) OR
+  //   queued → leased → processing → failed_terminal (in-runner error,
+  //                                    no retry) OR
+  //   queued → cancelled (user cancelled, never claimed) OR
+  //   queued/leased/processing → dead_letter (exhausted maxAttempts)
+  //
+  // priority: higher claims first. Negative = low priority (demo=-10).
+  // Positive = high priority (reserved for future paid tiers).
   priority       Int       @default(0)
-  // Incremented on every claim (including retries). maxAttempts bounds how
-  // many times a failure gets retried before the job is dead-lettered.
+  // Incremented on every claim (including retries). Used to determine
+  // failed_retryable vs dead_letter when combined with maxAttempts.
   attemptCount   Int       @default(0)
   maxAttempts    Int       @default(3)
-  // A job is "leased" (claimed, being actively worked) exactly when
-  // status="processing" AND leaseExpiresAt is set in the future. The worker
-  // holding the lease renews it periodically (see worker/index.ts's
-  // heartbeat) -- if renewal stops (crash, hang, kill -9), the lease expires
-  // on its own and reconciliation can safely reclaim the job, including in
-  // a future multi-worker deployment: a live peer's lease never goes stale,
-  // so it's never mistaken for abandoned.
+  // Lease mechanism: a job is active when status="processing" AND
+  // leaseExpiresAt is in the future. Worker renews every 15s; if renewal
+  // stops (crash/hang/kill-9), the lease expires and reconciliation
+  // moves job to failed_retryable (if attempts remain) or dead_letter.
   leaseExpiresAt DateTime?
   workerId       String?
   heartbeatAt    DateTime?
+  // Current processing stage (for observability): "script_gen" | "voiceover"
+  // | "broll" | "render" | "upload" | etc. Set by the runner, never assumed.
   stage          String?
-  // Set only once a retryable failure has exhausted maxAttempts (dead_letter
-  // status) or a queued job was explicitly cancelled before being claimed.
+  // Terminal timestamps for auditability
+  completedAt    DateTime?
+  failedAt       DateTime?
   deadLetteredAt DateTime?
   cancelledAt    DateTime?
-  // Exponential-backoff gate: a retried job is requeued but not claimable
-  // again until this time, so a failing job doesn't spin in a tight
-  // claim-fail-claim loop. Null means claimable immediately (the common
-  // case for a fresh job).
+  // Exponential-backoff gate: if a job is requeued after stale lease,
+  // it's queued but not claimable until notBeforeAt passes (prevents
+  // tight retry spin). Null = claimable immediately.
   notBeforeAt    DateTime?
+  // Terminal failure reason (only set if status="failed_terminal").
+  // Used for the error message shown to the user + diagnostics.
+  failureReason  String?
+  // Idempotency key for deduplication across retries (optional, set by
+  // route if the creation request included one). Null for legacy jobs.
+  idempotencyKey String?
 
-  // Claiming scans status+priority+createdAt; reconciliation scans
-  // status+leaseExpiresAt. Both evidence-based: these are exactly the
-  // predicates claimNextQueuedJob() and reconcileAbandonedProcessingJobs()
-  // filter and sort on (lib/jobs/claim.ts).
   @@index([status, priority, createdAt])
   @@index([status, leaseExpiresAt])
+  @@index([userId, status])
+  @@index([workerId, status])
 }
 
 // =====================================================================
