@@ -4,9 +4,6 @@ import { timingSafeEqual } from "crypto";
 
 export const runtime = "nodejs";
 
-// Metrics authentication token (from environment, required in production)
-const METRICS_SECRET = process.env.METRICS_SECRET;
-
 // In-memory metrics for this instance (would be replaced with Prometheus client for production)
 const metricsCache = {
   httpRequests: new Map<string, number>(),
@@ -23,8 +20,10 @@ const metricsCache = {
 
 /** Verify metrics access is authorized */
 function isAuthorized(req: Request): boolean {
+  const metricsSecret = process.env.METRICS_SECRET;
+
   // Production requires strong authentication
-  if (process.env.NODE_ENV === "production" && !METRICS_SECRET) {
+  if (process.env.NODE_ENV === "production" && !metricsSecret) {
     return false; // Fail closed if secret not configured
   }
 
@@ -36,14 +35,14 @@ function isAuthorized(req: Request): boolean {
     return false;
   }
 
-  if (!METRICS_SECRET) {
+  if (!metricsSecret) {
     return false; // No auth configured
   }
 
   // Timing-safe comparison to prevent timing attacks
   try {
     const tokenBuffer = Buffer.from(token);
-    const secretBuffer = Buffer.from(METRICS_SECRET);
+    const secretBuffer = Buffer.from(metricsSecret);
     return timingSafeEqual(tokenBuffer, secretBuffer);
   } catch {
     return false;

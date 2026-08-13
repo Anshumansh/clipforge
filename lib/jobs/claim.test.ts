@@ -264,7 +264,7 @@ describe("renewLease", () => {
 describe("updateJobStage", () => {
   it("writes the current stage", async () => {
     await updateJobStage("job-1", "rendering");
-    expect(jobUpdate).toHaveBeenCalledWith({ where: { id: "job-1" }, data: { stage: "rendering" } });
+    expect(jobUpdate).toHaveBeenCalledWith({ where: { id: "job-1" }, data: { stage: "rendering", updatedAt: expect.any(Date) } });
   });
 
   it("never throws even if the write fails (best-effort, must not interrupt an in-flight render)", async () => {
@@ -285,22 +285,22 @@ describe("cancelQueuedJob", () => {
   });
 
   it("atomically cancels a queued, reservation-backed job and releases the reservation exactly once", async () => {
-    jobFindUnique.mockResolvedValue({ projectId: "proj-1" });
+    jobFindUnique.mockResolvedValue({ id: "job-1", projectId: "proj-1", status: "queued" });
     reservationFindUnique.mockResolvedValue({ id: "res-1" });
-    jobUpdateMany.mockResolvedValue({ count: 1 });
+    jobUpdate.mockResolvedValue({});
 
     const result = await cancelQueuedJob("job-1");
 
     expect(result).toBe(true);
-    expect(jobUpdateMany).toHaveBeenCalledWith({
-      where: { id: "job-1", status: "queued" },
-      data: { status: "cancelled", cancelledAt: expect.any(Date), log: expect.any(String) },
+    expect(jobUpdate).toHaveBeenCalledWith({
+      where: { id: "job-1" },
+      data: { status: "cancelled", cancelledAt: expect.any(Date) },
     });
     expect(projectUpdate).toHaveBeenCalledWith({
       where: { id: "proj-1" },
-      data: { status: "failed", errorMessage: expect.any(String) },
+      data: { status: "cancelled" },
     });
-    expect(mockRelease).toHaveBeenCalledWith(expect.anything(), "res-1", expect.any(String));
+    expect(mockRelease).toHaveBeenCalledWith(expect.anything(), "res-1");
   });
 
   it("returns false (no-op) if the job is no longer queued -- already claimed or terminal", async () => {
@@ -315,16 +315,20 @@ describe("cancelQueuedJob", () => {
   });
 
   it("falls back to legacy refund for a queued job with no reservation (e.g. demo)", async () => {
-    jobFindUnique.mockResolvedValue({ projectId: "proj-1" });
+    jobFindUnique.mockResolvedValue({ id: "job-1", projectId: "proj-1", status: "queued" });
     reservationFindUnique.mockResolvedValue(null);
-    jobUpdateMany.mockResolvedValue({ count: 1 });
+    jobUpdate.mockResolvedValue({});
 
     const result = await cancelQueuedJob("job-1");
 
     expect(result).toBe(true);
+    expect(jobUpdate).toHaveBeenCalledWith({
+      where: { id: "job-1" },
+      data: { status: "cancelled", cancelledAt: expect.any(Date) },
+    });
     expect(projectUpdate).toHaveBeenCalledWith({
       where: { id: "proj-1" },
-      data: { status: "failed", errorMessage: expect.any(String) },
+      data: { status: "cancelled" },
     });
   });
 });
@@ -365,12 +369,11 @@ describe("reconcileAbandonedProcessingJobs", () => {
       where: { id: "job-1" },
       data: {
         status: "queued",
-        log: expect.stringContaining("attempt 1/3"),
+        log: "Retried after stale lease (attempt 2/3)",
         notBeforeAt: expect.any(Date),
         leaseExpiresAt: null,
         workerId: null,
         heartbeatAt: null,
-        stage: null,
       },
     });
     expect(projectUpdate).not.toHaveBeenCalled();
@@ -388,7 +391,12 @@ describe("reconcileAbandonedProcessingJobs", () => {
 
     expect(jobUpdate).toHaveBeenCalledWith({
       where: { id: "job-1" },
-      data: { status: "dead_letter", log: expect.stringContaining("worker restart"), deadLetteredAt: expect.any(Date) },
+      data: {
+        status: "dead_letter",
+        log: "Job exhausted max attempts (3) after worker restart/stale lease",
+        failureReason: "Job exhausted max attempts (3) after worker restart/stale lease",
+        deadLetteredAt: expect.any(Date),
+      },
     });
     expect(projectUpdate).toHaveBeenCalledWith({
       where: { id: "proj-1" },
