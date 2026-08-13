@@ -863,3 +863,21 @@ model WorkerRegistration {
   @@index([status])
   @@index([lastHeartbeat])
 }
+
+// Persistent demo job quota tracking. Enforces per-IP rate limits and global
+// daily cap atomically. One entry per calendar day per IP address. Used to
+// prevent runaway demo usage (budget protection). The UTC day boundary is
+// determined by the DEMO_QUOTA_TIMEZONE environment variable (default: UTC).
+model DemoQuota {
+  id             String   @id @default(cuid())
+  ipAddress      String // Anonymized to /32 for IPv4, /128 for IPv6
+  utcDate        DateTime // Date in UTC (00:00:00 UTC of the calendar day)
+  submissionCount Int     @default(0) // Number of demos submitted today from this IP
+  estimatedCost  Float    @default(0) // Estimated cost in dollars (credits * rate)
+  lastUpdated    DateTime @default(now()) @updatedAt
+  createdAt      DateTime @default(now())
+
+  @@unique([ipAddress, utcDate])
+  @@index([utcDate])
+  @@index([ipAddress, utcDate])
+}
