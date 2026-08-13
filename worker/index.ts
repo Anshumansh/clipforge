@@ -56,7 +56,7 @@ export interface WorkerOptions {
   reconcileIntervalMs?: number;
   runners?: Record<JobType, (jobId: string) => Promise<void>>;
   claim?: () => Promise<ClaimedJob | null>;
-  renewLease?: (jobId: string, workerId: string) => Promise<void>;
+  renewLease?: (jobId: string, workerId: string, attemptToken: string) => Promise<void>;
   reconcile?: () => Promise<void>;
   onLog?: (line: string) => void;
   /** For tests: skip distributed admission control and start immediately. */
@@ -103,7 +103,7 @@ export class Worker {
   private readonly inFlight = new Set<Promise<void>>();
   private readonly runners: Record<JobType, (jobId: string) => Promise<void>>;
   private readonly claim: () => Promise<ClaimedJob | null>;
-  private readonly renewLeaseFn: (jobId: string, workerId: string) => Promise<void>;
+  private readonly renewLeaseFn: (jobId: string, workerId: string, attemptToken: string) => Promise<void>;
   private readonly reconcileFn: () => Promise<void>;
   private readonly log: (line: string) => void;
   private readonly skipAdmission: boolean;
@@ -172,9 +172,10 @@ export class Worker {
       // runner's own AI-gen/voiceover/broll/render/upload steps, and still
       // gives the core safety property: a live worker's lease never goes
       // stale, so reconciliation never mistakes an actually-running job for
-      // an abandoned one.
+      // an abandoned one. The attemptToken prevents stale workers from
+      // extending expired leases.
       const heartbeat = setInterval(() => {
-        void this.renewLeaseFn(claimed.id, this.instanceId);
+        void this.renewLeaseFn(claimed.id, this.instanceId, claimed.attemptToken);
       }, DEFAULT_HEARTBEAT_INTERVAL_MS);
 
       const runner = this.runners[claimed.type];

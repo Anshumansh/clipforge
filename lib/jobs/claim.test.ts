@@ -124,7 +124,7 @@ describe("claimNextQueuedJob", () => {
 
       const result = await claimNextQueuedJob(WORKER_ID);
 
-      expect(result).toEqual({ id: "job-1", type });
+      expect(result).toEqual({ id: "job-1", type, attemptToken: expect.any(String) });
       expect(jobFindFirst).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { status: "queued", OR: [{ notBeforeAt: null }, { notBeforeAt: { lte: expect.any(Date) } }] },
@@ -134,7 +134,7 @@ describe("claimNextQueuedJob", () => {
       // The atomic, WHERE-guarded claim -- this is what actually enforces
       // "only one claimant may succeed", not the initial findFirst. Also
       // stamps the lease (expiry, owning worker, heartbeat) and increments
-      // attemptCount.
+      // attemptCount. The attemptToken prevents stale workers from mutating.
       expect(jobUpdateMany).toHaveBeenCalledWith({
         where: { id: "job-1", status: "queued" },
         data: {
@@ -142,6 +142,7 @@ describe("claimNextQueuedJob", () => {
           leaseExpiresAt: expect.any(Date),
           workerId: WORKER_ID,
           heartbeatAt: expect.any(Date),
+          attemptToken: expect.any(String),
           attemptCount: { increment: 1 },
           notBeforeAt: null,
         },
@@ -240,20 +241,21 @@ describe("computeBackoffMs", () => {
 // ------------------------------------------------------------------
 
 describe("renewLease", () => {
-  it("extends the lease only for the job's current owning worker, while it's still processing", async () => {
+  it("extends the lease only for the job's current owning worker with matching attempt token, while it's still processing", async () => {
     jobUpdateMany.mockResolvedValue({ count: 1 });
+    const attemptToken = "token-123";
 
-    await renewLease("job-1", WORKER_ID);
+    await renewLease("job-1", WORKER_ID, attemptToken);
 
     expect(jobUpdateMany).toHaveBeenCalledWith({
-      where: { id: "job-1", status: "processing", workerId: WORKER_ID },
+      where: { id: "job-1", status: "processing", workerId: WORKER_ID, attemptToken },
       data: { leaseExpiresAt: expect.any(Date), heartbeatAt: expect.any(Date) },
     });
   });
 
   it("is a safe no-op (never throws) if the update fails", async () => {
     jobUpdateMany.mockRejectedValue(new Error("DB blip"));
-    await expect(renewLease("job-1", WORKER_ID)).resolves.toBeUndefined();
+    await expect(renewLease("job-1", WORKER_ID, "token-123")).resolves.toBeUndefined();
   });
 });
 
@@ -556,7 +558,7 @@ describe("required crash-recovery scenarios", () => {
 
     const claimed = await claimNextQueuedJob(WORKER_ID);
 
-    expect(claimed).toEqual({ id: "job-1", type: "script" });
+    expect(claimed).toEqual({ id: "job-1", type: "script", attemptToken: expect.any(String) });
   });
 
   it("B: worker crashes with one processing job on its first attempt -- restart requeues it for retry (below maxAttempts), no refund yet", async () => {

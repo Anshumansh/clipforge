@@ -366,6 +366,11 @@ model Job {
   leaseExpiresAt DateTime?
   workerId       String?
   heartbeatAt    DateTime?
+  // Attempt token: unique ID for this attempt (UUID). Prevents stale workers
+  // from mutating the job after another worker claims it. Every claim
+  // generates a new token; mutations verify the token matches before applying.
+  // Null for queued jobs; set on claim and cleared/rotated on requeue.
+  attemptToken   String?
   // Current processing stage (for observability): "script_gen" | "voiceover"
   // | "broll" | "render" | "upload" | etc. Set by the runner, never assumed.
   stage          String?

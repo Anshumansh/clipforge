@@ -274,7 +274,8 @@ describe("Worker", () => {
     afterEach(() => vi.useRealTimers());
 
     it("renews the lease periodically while a job is in flight", async () => {
-      const claim = vi.fn().mockResolvedValueOnce({ id: "job-1", type: "script" as const }).mockResolvedValue(null);
+      const attemptToken = "test-token-123";
+      const claim = vi.fn().mockResolvedValueOnce({ id: "job-1", type: "script" as const, attemptToken }).mockResolvedValue(null);
       const runner = vi.fn().mockReturnValue(new Promise<void>(() => {})); // never resolves during this test
       const renewLeaseFn = vi.fn().mockResolvedValue(undefined);
 
@@ -293,7 +294,7 @@ describe("Worker", () => {
 
       // Heartbeat interval is LEASE_DURATION_MS / 3 = 15_000ms here.
       await vi.advanceTimersByTimeAsync(15_000);
-      expect(renewLeaseFn).toHaveBeenCalledWith("job-1", worker.instanceId);
+      expect(renewLeaseFn).toHaveBeenCalledWith("job-1", worker.instanceId, attemptToken);
 
       await vi.advanceTimersByTimeAsync(15_000);
       expect(renewLeaseFn).toHaveBeenCalledTimes(2);
@@ -301,7 +302,8 @@ describe("Worker", () => {
 
     it("stops renewing once the job completes -- no leaked interval", async () => {
       const { promise: runnerPromise, resolve: finishRunner } = deferred<void>();
-      const claim = vi.fn().mockResolvedValueOnce({ id: "job-1", type: "script" as const }).mockResolvedValue(null);
+      const attemptToken = "test-token-456";
+      const claim = vi.fn().mockResolvedValueOnce({ id: "job-1", type: "script" as const, attemptToken }).mockResolvedValue(null);
       const runner = vi.fn().mockReturnValue(runnerPromise);
       const renewLeaseFn = vi.fn().mockResolvedValue(undefined);
 

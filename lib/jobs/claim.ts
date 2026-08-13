@@ -20,6 +20,7 @@ export type JobType = "script" | "repurpose" | "ugc";
 export interface ClaimedJob {
   id: string;
   type: JobType;
+  attemptToken: string; // UUID for this attempt; must be verified on all mutations
 }
 
 // 7-tier priority system (section 13). Higher = claimed first.
@@ -128,9 +129,12 @@ export async function claimNextQueuedJob(
 
   const now = new Date();
   const leaseExpires = new Date(now.getTime() + LEASE_DURATION_MS);
+  // Generate a unique token for this attempt to prevent stale-worker mutations
+  const attemptToken = crypto.randomUUID();
 
   // Atomic: transition queued → processing and stamp lease info
   // The leaseExpiresAt field signals that this job is active/claimed
+  // The attemptToken prevents stale workers from mutating this job
   const updated = await db.job.updateMany({
     where: { id: job.id, status: "queued" },
     data: {
@@ -138,6 +142,7 @@ export async function claimNextQueuedJob(
       leaseExpiresAt: leaseExpires,
       workerId,
       heartbeatAt: now,
+      attemptToken, // unique token for this attempt
       attemptCount: { increment: 1 },
       notBeforeAt: null // clear any prior backoff gate
     }
@@ -159,21 +164,23 @@ export async function claimNextQueuedJob(
     return null;
   }
 
-  return { id: job.id, type: job.project.type as JobType };
+  return { id: job.id, type: job.project.type as JobType, attemptToken };
 }
 
 /** Renew a processing job's lease if we're still the owner. Safe no-op if
- * workerId doesn't match (job was somehow reassigned). */
+ * workerId/attemptToken doesn't match (job was reassigned to another attempt).
+ * Requires valid attemptToken to prevent stale workers from extending expired leases. */
 export async function renewLease(
   jobId: string,
-  workerId: string
+  workerId: string,
+  attemptToken: string
 ): Promise<void> {
   const now = new Date();
   const newExpiry = new Date(now.getTime() + LEASE_DURATION_MS);
 
   try {
     await db.job.updateMany({
-      where: { id: jobId, status: "processing", workerId },
+      where: { id: jobId, status: "processing", workerId, attemptToken },
       data: {
         leaseExpiresAt: newExpiry,
         heartbeatAt: now
