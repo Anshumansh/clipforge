@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// worker/index.ts statically imports @/lib/db, @/lib/jobs/claim, and the
-// three runners -- stub all of them so importing the module here never
+// worker/index.ts statically imports @/lib/db, @/lib/jobs/claim, @/lib/workers/admission,
+// and the three runners -- stub all of them so importing the module here never
 // touches a real DB connection or pulls in the Remotion/TensorFlow
 // dependency tree. The tests below construct their own `Worker` instances
 // with injected `claim`/`runners`/`onLog`, so these mocks only need to
@@ -12,6 +12,13 @@ vi.mock("@/lib/jobs/claim", () => ({
   reconcileAbandonedProcessingJobs: vi.fn(),
   renewLease: vi.fn(),
   LEASE_DURATION_MS: 45_000,
+}));
+vi.mock("@/lib/workers/admission", () => ({
+  requestAdmission: vi.fn(),
+  renewAdmissionHeartbeat: vi.fn(),
+  retireRegistration: vi.fn(),
+  MAX_ACTIVE_WORKERS: 1,
+  ADMISSION_CHECK_INTERVAL_MS: 10_000,
 }));
 vi.mock("@/lib/jobs/script-runner", () => ({ runScriptJob: vi.fn() }));
 vi.mock("@/lib/jobs/repurpose-runner", () => ({ runRepurposeJob: vi.fn() }));
@@ -78,6 +85,7 @@ describe("Worker", () => {
         claim,
         runners: { [type]: runner, [otherType]: otherRunner } as never,
         onLog,
+        skipAdmission: true,
       });
 
       await worker.tick();
@@ -115,6 +123,7 @@ describe("Worker", () => {
         claim,
         runners: { script: runner, repurpose: runner, ugc: runner },
         onLog,
+        skipAdmission: true,
       });
 
       await worker.tick();
@@ -140,7 +149,7 @@ describe("Worker", () => {
       const claim = vi.fn().mockResolvedValueOnce({ id: "job-1", type: "script" as const }).mockResolvedValue(null);
       const runner = vi.fn().mockImplementation(() => new Promise<void>(() => {})); // never resolves during this test
 
-      const worker = new Worker({ concurrency: 1, pollIntervalMs: 60_000, claim, runners: { script: runner, repurpose: runner, ugc: runner }, onLog });
+      const worker = new Worker({ concurrency: 1, pollIntervalMs: 60_000, claim, runners: { script: runner, repurpose: runner, ugc: runner }, onLog, skipAdmission: true });
 
       await worker.tick();
 
@@ -164,6 +173,7 @@ describe("Worker", () => {
         claim,
         runners: { script: failing, repurpose: succeeding, ugc: succeeding },
         onLog,
+        skipAdmission: true,
       });
 
       await expect(worker.tick()).resolves.toBeUndefined(); // never throws out of tick()
@@ -206,6 +216,7 @@ describe("Worker", () => {
         claim,
         runners: { script: runner, repurpose: runner, ugc: runner },
         onLog,
+        skipAdmission: true,
       });
 
       await worker.tick(); // claims and "starts" job-1 (never resolves until we say so)
@@ -243,7 +254,7 @@ describe("Worker", () => {
 
     it("polls again after pollIntervalMs and claims newly-queued work", async () => {
       const claim = vi.fn().mockResolvedValue(null);
-      const worker = new Worker({ concurrency: 1, pollIntervalMs: 1000, claim, onLog });
+      const worker = new Worker({ concurrency: 1, pollIntervalMs: 1000, claim, onLog, skipAdmission: true });
 
       worker.start();
       await vi.advanceTimersByTimeAsync(0); // the immediate first tick() inside start()
@@ -274,6 +285,7 @@ describe("Worker", () => {
         renewLease: renewLeaseFn,
         runners: { script: runner, repurpose: runner, ugc: runner },
         onLog,
+        skipAdmission: true,
       });
 
       await worker.tick();
@@ -300,6 +312,7 @@ describe("Worker", () => {
         renewLease: renewLeaseFn,
         runners: { script: runner, repurpose: runner, ugc: runner },
         onLog,
+        skipAdmission: true,
       });
 
       await worker.tick();
@@ -319,7 +332,7 @@ describe("Worker", () => {
     it("runs the injected reconcile function on its own interval, independent of polling", async () => {
       const claim = vi.fn().mockResolvedValue(null);
       const reconcile = vi.fn().mockResolvedValue(undefined);
-      const worker = new Worker({ concurrency: 1, pollIntervalMs: 60_000, reconcileIntervalMs: 5_000, claim, reconcile, onLog });
+      const worker = new Worker({ concurrency: 1, pollIntervalMs: 60_000, reconcileIntervalMs: 5_000, claim, reconcile, onLog, skipAdmission: true });
 
       worker.start();
       expect(reconcile).not.toHaveBeenCalled();
@@ -334,7 +347,7 @@ describe("Worker", () => {
     it("stops on shutdown", async () => {
       const claim = vi.fn().mockResolvedValue(null);
       const reconcile = vi.fn().mockResolvedValue(undefined);
-      const worker = new Worker({ concurrency: 1, pollIntervalMs: 60_000, reconcileIntervalMs: 5_000, claim, reconcile, onLog });
+      const worker = new Worker({ concurrency: 1, pollIntervalMs: 60_000, reconcileIntervalMs: 5_000, claim, reconcile, onLog, skipAdmission: true });
 
       worker.start();
       await worker.shutdown("SIGTERM");
@@ -347,7 +360,7 @@ describe("Worker", () => {
     it("a reconciliation failure is logged and does not crash the worker or stop future ticks", async () => {
       const claim = vi.fn().mockResolvedValue(null);
       const reconcile = vi.fn().mockRejectedValue(new Error("DB blip"));
-      const worker = new Worker({ concurrency: 1, pollIntervalMs: 60_000, reconcileIntervalMs: 5_000, claim, reconcile, onLog });
+      const worker = new Worker({ concurrency: 1, pollIntervalMs: 60_000, reconcileIntervalMs: 5_000, claim, reconcile, onLog, skipAdmission: true });
 
       worker.start();
       await vi.advanceTimersByTimeAsync(5_000);

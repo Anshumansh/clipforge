@@ -36,6 +36,12 @@ import {
   type ClaimedJob,
   type JobType,
 } from "@/lib/jobs/claim";
+import {
+  requestAdmission,
+  renewAdmissionHeartbeat,
+  retireRegistration,
+  ADMISSION_CHECK_INTERVAL_MS,
+} from "@/lib/workers/admission";
 import { runScriptJob } from "@/lib/jobs/script-runner";
 import { runRepurposeJob } from "@/lib/jobs/repurpose-runner";
 import { runUgcJob } from "@/lib/jobs/ugc-runner";
@@ -53,6 +59,8 @@ export interface WorkerOptions {
   renewLease?: (jobId: string, workerId: string) => Promise<void>;
   reconcile?: () => Promise<void>;
   onLog?: (line: string) => void;
+  /** For tests: skip distributed admission control and start immediately. */
+  skipAdmission?: boolean;
 }
 
 const DEFAULT_RUNNERS: Record<JobType, (jobId: string) => Promise<void>> = {
@@ -88,14 +96,17 @@ const DEFAULT_HEARTBEAT_INTERVAL_MS = Math.floor(LEASE_DURATION_MS / 3);
 export class Worker {
   private active = 0;
   private shuttingDown = false;
+  private admitted = false;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private reconcileTimer: ReturnType<typeof setInterval> | null = null;
+  private admissionTimer: ReturnType<typeof setInterval> | null = null;
   private readonly inFlight = new Set<Promise<void>>();
   private readonly runners: Record<JobType, (jobId: string) => Promise<void>>;
   private readonly claim: () => Promise<ClaimedJob | null>;
   private readonly renewLeaseFn: (jobId: string, workerId: string) => Promise<void>;
   private readonly reconcileFn: () => Promise<void>;
   private readonly log: (line: string) => void;
+  private readonly skipAdmission: boolean;
   readonly instanceId = crypto.randomUUID().slice(0, 8);
 
   constructor(private readonly options: WorkerOptions) {
@@ -108,6 +119,9 @@ export class Worker {
     this.renewLeaseFn = options.renewLease ?? renewLease;
     this.reconcileFn = options.reconcile ?? reconcileAbandonedProcessingJobs;
     this.log = options.onLog ?? ((line: string) => console.log(line));
+    this.skipAdmission = options.skipAdmission ?? false;
+    // For tests that skip admission, start as already admitted
+    this.admitted = this.skipAdmission;
   }
 
   get activeCount(): number {
@@ -126,9 +140,17 @@ export class Worker {
    * job to completion -- claiming is fast (a couple of DB round trips);
    * execution runs detached so polling keeps working while renders are in
    * flight. Safe to call repeatedly; a no-op once the concurrency budget
-   * is full or nothing is queued. */
+   * is full or nothing is queued. Also checks if this worker is still admitted;
+   * stops polling if admission was revoked. */
   async tick(): Promise<void> {
     if (this.shuttingDown) return;
+
+    // If not admitted, stop polling (another worker took the slot)
+    if (!this.admitted) {
+      this.log(`[worker:${this.instanceId}] not admitted, stopping poll loop`);
+      this.shuttingDown = true;
+      return;
+    }
 
     while (this.active < this.options.concurrency) {
       let claimed: ClaimedJob | null;
@@ -191,8 +213,41 @@ export class Worker {
    * completes), not setInterval, so overlapping ticks can't stack up if a
    * claim attempt is ever slow. Also starts a separate, slower periodic
    * reconciliation sweep -- catches a lease that goes stale mid-run (a
-   * hang), not just one that was already stale at startup. */
+   * hang), not just one that was already stale at startup.
+   *
+   * This is a convenience method for tests and simple configurations.
+   * For production with distributed admission control, use startWithAdmission()
+   * which first requests an admission slot before polling begins. */
   start(): void {
+    this.startPolling();
+  }
+
+  /** Starts the poll loop with distributed worker admission control.
+   * First requests an admission slot from the pool, then starts polling.
+   * Throws if admission is denied (another worker holds the only slot). */
+  async startWithAdmission(): Promise<void> {
+    // Request admission before starting the poll loop
+    this.admitted = await requestAdmission(this.instanceId);
+
+    if (!this.admitted) {
+      // Another worker holds the only slot; exit gracefully
+      this.log(`[worker:${this.instanceId}] failed to obtain admission, exiting`);
+      await retireRegistration(this.instanceId);
+      throw new Error("Failed to obtain worker admission: capacity is full");
+    }
+
+    // Start the admission heartbeat renewal (separate from job lease heartbeats)
+    this.admissionTimer = setInterval(() => {
+      void renewAdmissionHeartbeat(this.instanceId).then((stillAdmitted) => {
+        this.admitted = stillAdmitted;
+      });
+    }, ADMISSION_CHECK_INTERVAL_MS);
+
+    this.startPolling();
+  }
+
+  /** Starts the main poll/reconciliation loop. Called by both start() and startWithAdmission(). */
+  private startPolling(): void {
     this.log(
       `[worker:${this.instanceId}] polling started -- concurrency=${this.options.concurrency} pollIntervalMs=${this.options.pollIntervalMs}`
     );
@@ -214,9 +269,10 @@ export class Worker {
   }
 
   /** Stops claiming new jobs immediately, then waits for whatever's
-   * already in flight to finish before resolving. Does not itself exit the
-   * process -- the caller decides that (see main() below), so tests can
-   * call this directly without a real process exiting mid-suite. */
+   * already in flight to finish before resolving. Cleans up timers and
+   * retires the worker registration. Does not itself exit the process --
+   * the caller decides that (see main() below), so tests can call this
+   * directly without a real process exiting mid-suite. */
   async shutdown(signal: string): Promise<void> {
     if (this.shuttingDown) return;
     this.shuttingDown = true;
@@ -225,7 +281,9 @@ export class Worker {
     );
     if (this.pollTimer) clearTimeout(this.pollTimer);
     if (this.reconcileTimer) clearInterval(this.reconcileTimer);
+    if (this.admissionTimer) clearInterval(this.admissionTimer);
     await Promise.allSettled([...this.inFlight]);
+    await retireRegistration(this.instanceId);
     this.log(`[worker:${this.instanceId}] shutdown complete`);
   }
 }
@@ -250,21 +308,22 @@ async function waitForDb(maxAttempts = 5): Promise<void> {
 async function main(): Promise<void> {
   const config = readWorkerConfigFromEnv();
   console.log(`[worker] starting -- concurrency=${config.concurrency} pollIntervalMs=${config.pollIntervalMs}`);
-  console.log(
-    "[worker] this phase supports exactly ONE worker process/container against this database. " +
-      "Startup reconciliation below assumes no other worker is concurrently processing jobs -- " +
-      "do not scale this service. See lib/jobs/claim.ts and OPERATIONS.md."
-  );
 
   await waitForDb();
 
   console.log(
-    "[worker] reconciling processing jobs with a stale/missing lease (queued jobs are left alone -- single-worker assumption)"
+    "[worker] reconciling processing jobs with a stale/missing lease (queued jobs are left alone)"
   );
   await reconcileAbandonedProcessingJobs();
 
   const worker = new Worker(config);
-  worker.start();
+
+  try {
+    await worker.startWithAdmission();
+  } catch (err) {
+    console.error("[worker] failed to start:", err instanceof Error ? err.message : err);
+    process.exit(1);
+  }
 
   let shuttingDown = false;
   const handleSignal = (signal: string) => {

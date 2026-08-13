@@ -846,3 +846,20 @@ model BrandPreset {
 
   @@index([userId])
 }
+
+// Distributed worker admission control: one entry per running worker instance.
+// Used to enforce MAX_ACTIVE_WORKERS limit and prevent accidental multi-worker
+// deployments when the limit is 1. Each worker registers on startup with a
+// unique instanceId, claims a slot if available, and renews its heartbeat
+// periodically. Stale registrations (no heartbeat within HEARTBEAT_TIMEOUT) are
+// considered dead and their slot is freed for a new worker to claim.
+model WorkerRegistration {
+  workerId      String   @id // unique worker instance ID (e.g., crypto.randomUUID().slice(0, 8))
+  registeredAt  DateTime @default(now())
+  lastHeartbeat DateTime @default(now()) @updatedAt // updated every ~15s by active worker
+  status        String   @default("admitted") // "admitted" | "idle" | "retired"
+  createdAt     DateTime @default(now())
+
+  @@index([status])
+  @@index([lastHeartbeat])
+}
