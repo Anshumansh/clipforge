@@ -174,7 +174,12 @@ describe("claimNextQueuedJob", () => {
     expect(result).toBeNull();
     expect(jobUpdate).toHaveBeenCalledWith({
       where: { id: "job-1" },
-      data: { status: "failed", log: expect.stringContaining("Unrecognized project type") },
+      data: {
+        status: "failed_terminal",
+        log: expect.stringContaining("Unrecognized project type"),
+        failureReason: expect.stringContaining("Unrecognized project type"),
+        failedAt: expect.any(Date)
+      },
     });
     expect(projectUpdate).toHaveBeenCalledWith({
       where: { id: "proj-1" },
@@ -185,13 +190,13 @@ describe("claimNextQueuedJob", () => {
   });
 
   it("defensive: an unrecognized project type with no reservation falls back to a legacy refund", async () => {
-    jobFindFirst.mockResolvedValue({ id: "job-1", projectId: "proj-1", project: { type: "something-unexpected" } });
+    jobFindFirst.mockResolvedValue({ id: "job-1", projectId: "proj-1", project: { type: "something-unexpected", userId: "user-1", workspaceId: null } });
     jobUpdateMany.mockResolvedValue({ count: 1 });
     reservationFindUnique.mockResolvedValue(null);
-    projectFindUnique.mockResolvedValue({ userId: "user-1", workspaceId: null });
 
     await claimNextQueuedJob(WORKER_ID);
 
+    expect(mockResolve).toHaveBeenCalledWith({ type: "something-unexpected", userId: "user-1", workspaceId: null });
     expect(mockRefund).toHaveBeenCalledWith("user-1", 10);
     expect(mockRelease).not.toHaveBeenCalled();
   });
