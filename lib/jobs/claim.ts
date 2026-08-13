@@ -167,19 +167,22 @@ export async function claimNextQueuedJob(
 export async function renewLease(
   jobId: string,
   workerId: string
-): Promise<boolean> {
+): Promise<void> {
   const now = new Date();
   const newExpiry = new Date(now.getTime() + LEASE_DURATION_MS);
 
-  const updated = await db.job.updateMany({
-    where: { id: jobId, status: "processing", workerId },
-    data: {
-      leaseExpiresAt: newExpiry,
-      heartbeatAt: now
-    }
-  });
-
-  return updated.count > 0;
+  try {
+    await db.job.updateMany({
+      where: { id: jobId, status: "processing", workerId },
+      data: {
+        leaseExpiresAt: newExpiry,
+        heartbeatAt: now
+      }
+    });
+  } catch (err) {
+    // Heartbeat failure shouldn't crash the worker; log and continue
+    console.error(`[worker] Failed to renew lease for job ${jobId}:`, err instanceof Error ? err.message : String(err));
+  }
 }
 
 /** Update job stage for observability (best-effort, never throws). */
