@@ -12,7 +12,7 @@
  *  queued → cancelled (explicit user cancel before claim)
  */
 import { db } from "@/lib/db";
-import { refundCredits } from "@/lib/credits";
+import { refundCredits, CREDITS_PER_VIDEO } from "@/lib/credits";
 import { releaseReservationInTx } from "@/lib/pricing/ledger";
 import { resolveProjectCreditOwnerId } from "@/lib/workspace";
 
@@ -76,10 +76,19 @@ async function finalizeJobTerminal(
         where: { id: job.projectId },
         data: { status: "failed", errorMessage: message }
       });
-      await releaseReservationInTx(tx, reservation.id);
+      await releaseReservationInTx(tx, reservation.id, status);
     });
   } else {
-    // Legacy fallback: no reservation (demo job)
+    // Legacy fallback: no reservation (pre-new-pricing jobs)
+    // Refund credits using the old system
+    const creditOwner = job.project
+      ? await resolveProjectCreditOwnerId(job.project)
+      : (await db.project.findUnique({ where: { id: job.projectId }, select: { userId: true } }))?.userId;
+
+    if (creditOwner) {
+      await refundCredits(creditOwner, CREDITS_PER_VIDEO);
+    }
+
     await db.$transaction(async (tx) => {
       await tx.job.update({
         where: { id: job.id },
@@ -94,45 +103,22 @@ async function finalizeJobTerminal(
 }
 
 /** Atomically claim the next queued job, or return null if none available.
- * Checks backpressure limits (per-user, per-workspace pending jobs) and
- * returns 429 via shouldThrottle. Returns 503 via shouldDegrade if checking
- * limits fails (prefer graceful degradation over blocking users). */
+ * Backpressure enforcement (user/workspace pending-job limits) is the
+ * responsibility of the API routes that CREATE jobs, not the worker claiming them.
+ * The worker simply claims the next job in priority order. */
 export async function claimNextQueuedJob(
-  workerId: string,
-  userId?: string,
-  workspaceId?: string | null
-): Promise<{ job: ClaimedJob; shouldThrottle: boolean; shouldDegrade: boolean } | null> {
-  // Backpressure: if user/workspace has too many pending jobs, throttle
-  if (userId) {
-    const pendingCount = await db.job.count({
-      where: {
-        userId,
-        status: { in: ["queued", "leased", "processing"] }
-      }
-    }).catch(() => -1);
-
-    if (pendingCount === -1) return { job: null as never, shouldThrottle: false, shouldDegrade: true };
-    if (pendingCount >= 50) return { job: null as never, shouldThrottle: true, shouldDegrade: false };
-  }
-
-  if (workspaceId) {
-    const pendingCount = await db.job.count({
-      where: {
-        project: { workspaceId },
-        status: { in: ["queued", "leased", "processing"] }
-      }
-    }).catch(() => -1);
-
-    if (pendingCount === -1) return { job: null as never, shouldThrottle: false, shouldDegrade: true };
-    if (pendingCount >= 200) return { job: null as never, shouldThrottle: true, shouldDegrade: false };
-  }
+  workerId: string
+): Promise<ClaimedJob | null> {
 
   // Claim: find oldest queued job (priority DESC, createdAt ASC) that passes
   // notBeforeAt gate (backoff-respecting), update atomically to leased
   const job = await db.job.findFirst({
     where: {
       status: "queued",
-      notBeforeAt: { lte: new Date() } // null or in the past = claimable
+      OR: [
+        { notBeforeAt: null },           // legacy jobs or cleared backoff
+        { notBeforeAt: { lte: new Date() } } // backoff expired
+      ]
     },
     orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
     include: { project: { select: { type: true, userId: true, workspaceId: true } } }
@@ -143,11 +129,12 @@ export async function claimNextQueuedJob(
   const now = new Date();
   const leaseExpires = new Date(now.getTime() + LEASE_DURATION_MS);
 
-  // Atomic: transition queued → leased and stamp lease info
+  // Atomic: transition queued → processing and stamp lease info
+  // The leaseExpiresAt field signals that this job is active/claimed
   const updated = await db.job.updateMany({
     where: { id: job.id, status: "queued" },
     data: {
-      status: "leased",
+      status: "processing",
       leaseExpiresAt: leaseExpires,
       workerId,
       heartbeatAt: now,
@@ -161,15 +148,6 @@ export async function claimNextQueuedJob(
     return null;
   }
 
-  // Second atomic: queued → processing (both changes committed in the update above)
-  // Note: in this design, "leased" and "processing" are not separate statuses;
-  // the transition happens in one atomic update. They are distinguished via
-  // leaseExpiresAt for observability.
-  await db.job.update({
-    where: { id: job.id },
-    data: { status: "processing" }
-  });
-
   if (!isJobType(job.project.type)) {
     // Defensive: unrecognized project type at claim time (should never happen)
     // Fail and refund immediately
@@ -181,11 +159,7 @@ export async function claimNextQueuedJob(
     return null;
   }
 
-  return {
-    job: { id: job.id, type: job.project.type as JobType },
-    shouldThrottle: false,
-    shouldDegrade: false
-  };
+  return { id: job.id, type: job.project.type as JobType };
 }
 
 /** Renew a processing job's lease if we're still the owner. Safe no-op if
@@ -281,28 +255,38 @@ export async function reconcileAbandonedProcessingJobs(): Promise<void> {
   });
 
   for (const job of abandoned) {
-    if (job.attemptCount < job.maxAttempts) {
-      // Retryable: requeue with backoff
-      const backoffMs = computeBackoffMs(job.attemptCount);
-      const notBeforeAt = new Date(now.getTime() + backoffMs);
+    try {
+      if (job.attemptCount < job.maxAttempts) {
+        // Retryable: requeue with backoff
+        const backoffMs = computeBackoffMs(job.attemptCount);
+        const notBeforeAt = new Date(now.getTime() + backoffMs);
 
-      await db.job.update({
-        where: { id: job.id },
-        data: {
-          status: "queued",
-          notBeforeAt,
-          leaseExpiresAt: null,
-          workerId: null,
-          heartbeatAt: null,
-          log: `Retried after stale lease (attempt ${job.attemptCount + 1}/${job.maxAttempts})`
-        }
-      });
-    } else {
-      // Dead-letter: exhausted retries
-      await finalizeJobTerminal(
-        { id: job.id, projectId: job.projectId, project: job.project },
-        `Job exhausted max attempts (${job.maxAttempts}) after stale lease`,
-        "dead_letter"
+        await db.job.update({
+          where: { id: job.id },
+          data: {
+            status: "queued",
+            notBeforeAt,
+            leaseExpiresAt: null,
+            workerId: null,
+            heartbeatAt: null,
+            log: `Retried after stale lease (attempt ${job.attemptCount + 1}/${job.maxAttempts})`
+          }
+        });
+      } else {
+        // Dead-letter: exhausted retries
+        await finalizeJobTerminal(
+          { id: job.id, projectId: job.projectId, project: job.project },
+          `Job exhausted max attempts (${job.maxAttempts}) after worker restart/stale lease`,
+          "dead_letter"
+        );
+      }
+    } catch (err) {
+      // Log the error but continue processing other jobs.
+      // If the error occurred partway through a finalization, the job remains
+      // recoverable as processing/reserved for the next reconciliation pass.
+      console.error(
+        `[reconcile] Failed to process job ${job.id}; remains recoverable as processing/reserved:`,
+        err instanceof Error ? err.message : String(err)
       );
     }
   }

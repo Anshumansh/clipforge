@@ -143,6 +143,7 @@ describe("claimNextQueuedJob", () => {
           workerId: WORKER_ID,
           heartbeatAt: expect.any(Date),
           attemptCount: { increment: 1 },
+          notBeforeAt: null,
         },
       });
     }

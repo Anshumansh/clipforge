@@ -1,0 +1,538 @@
+<title>Clipforge — Growth &amp; Positioning Memo</title>
+<style>
+  :root {
+    --ground: #16110f;
+    --surface: #1e1815;
+    --surface-2: #251e1a;
+    --text: #f3ede7;
+    --text-muted: #a79b92;
+    --text-faint: #766a62;
+    --accent: #e1402b;
+    --accent-soft: rgba(225, 64, 43, 0.14);
+    --gold: #d6a345;
+    --border: #332b26;
+    --good: #6fae7c;
+    --bad: #766a62;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --ground: #faf6f1;
+      --surface: #ffffff;
+      --surface-2: #f2ebe3;
+      --text: #201a16;
+      --text-muted: #6e645c;
+      --text-faint: #948779;
+      --accent: #c7351f;
+      --accent-soft: rgba(199, 53, 31, 0.08);
+      --gold: #a97a1f;
+      --border: #e5dbd0;
+      --good: #3f7a4d;
+      --bad: #948779;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #16110f;
+    --surface: #1e1815;
+    --surface-2: #251e1a;
+    --text: #f3ede7;
+    --text-muted: #a79b92;
+    --text-faint: #766a62;
+    --accent: #e1402b;
+    --accent-soft: rgba(225, 64, 43, 0.14);
+    --gold: #d6a345;
+    --border: #332b26;
+    --good: #6fae7c;
+    --bad: #766a62;
+  }
+  :root[data-theme="light"] {
+    --ground: #faf6f1;
+    --surface: #ffffff;
+    --surface-2: #f2ebe3;
+    --text: #201a16;
+    --text-muted: #6e645c;
+    --text-faint: #948779;
+    --accent: #c7351f;
+    --accent-soft: rgba(199, 53, 31, 0.08);
+    --gold: #a97a1f;
+    --border: #e5dbd0;
+    --good: #3f7a4d;
+    --bad: #948779;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "SF Pro Text", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body { padding: 0 20px 96px; }
+
+  .mono {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .page {
+    max-width: 760px;
+    margin: 0 auto;
+  }
+
+  /* ---------- masthead ---------- */
+  .masthead {
+    padding: 56px 0 28px;
+    border-bottom: 1px solid var(--border);
+  }
+  .eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 18px;
+  }
+  .eyebrow::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+    flex: none;
+  }
+  h1 {
+    font-size: clamp(32px, 5vw, 44px);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0 0 14px;
+    text-wrap: balance;
+    font-weight: 750;
+  }
+  .dek {
+    font-size: 17px;
+    line-height: 1.55;
+    color: var(--text-muted);
+    max-width: 62ch;
+    margin: 0 0 22px;
+  }
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    font-size: 12px;
+    color: var(--text-faint);
+  }
+  .meta-row span b { color: var(--text-muted); font-weight: 600; }
+
+  /* ---------- section rhythm ---------- */
+  section { padding: 44px 0; border-bottom: 1px solid var(--border); }
+  section:last-of-type { border-bottom: none; }
+
+  .sec-label {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 16px;
+  }
+  .sec-label .idx { color: var(--gold); font-weight: 700; }
+
+  h2 {
+    font-size: 24px;
+    letter-spacing: -0.01em;
+    margin: 0 0 14px;
+    text-wrap: balance;
+    font-weight: 700;
+  }
+  p { line-height: 1.7; color: var(--text-muted); max-width: 66ch; }
+  p.lead { color: var(--text); font-size: 16px; }
+  strong { color: var(--text); font-weight: 650; }
+  a { color: var(--gold); text-decoration-color: var(--border); text-underline-offset: 3px; }
+  a:hover { text-decoration-color: var(--gold); }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- positioning callout ---------- */
+  .callout {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    border-radius: 8px;
+    padding: 18px 20px;
+    margin-top: 18px;
+  }
+  .callout .tag {
+    flex: none;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--accent);
+    padding-top: 2px;
+  }
+  .callout p { margin: 0; color: var(--text); max-width: none; }
+
+  /* ---------- comparison table ---------- */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 13.5px; }
+  thead th {
+    text-align: left;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    font-weight: 600;
+    padding: 12px 14px;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  thead th.us { color: var(--accent); }
+  tbody td {
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  tbody td.us { background: var(--accent-soft); color: var(--text); font-weight: 600; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody td:first-child { color: var(--text); font-weight: 500; white-space: normal; min-width: 180px; }
+  .yes { color: var(--good); font-weight: 700; }
+  .no { color: var(--bad); }
+  .table-note { font-size: 12px; color: var(--text-faint); margin-top: 10px; }
+
+  /* ---------- stat grid ---------- */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-top: 18px;
+  }
+  .stat { background: var(--surface); padding: 20px; }
+  .stat .num {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--gold);
+    letter-spacing: -0.01em;
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+  .stat .label { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+  @media (max-width: 520px) { .stats { grid-template-columns: 1fr; } }
+
+  /* ---------- ranked builds ---------- */
+  .build {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 18px;
+    padding: 22px 0;
+    border-top: 1px solid var(--border);
+  }
+  .build:first-of-type { border-top: none; padding-top: 6px; }
+  .build .rank {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-faint);
+  }
+  .build.priority .rank { color: var(--accent); }
+  .build h3 { font-size: 16.5px; margin: 0 0 6px; font-weight: 650; }
+  .build .why { font-size: 14px; line-height: 1.65; color: var(--text-muted); margin: 0 0 8px; max-width: 60ch; }
+  .build .effort {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    font-weight: 600;
+  }
+  .effort .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); }
+
+  /* ---------- growth channels ---------- */
+  .channel {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 16px 0;
+    border-top: 1px solid var(--border);
+  }
+  .channel:first-of-type { border-top: none; padding-top: 4px; }
+  .channel .name { font-weight: 650; color: var(--text); font-size: 15px; margin-bottom: 4px; }
+  .channel .desc { font-size: 13.5px; color: var(--text-muted); line-height: 1.6; max-width: 48ch; }
+  .channel .cost { flex: none; text-align: right; font-size: 12px; color: var(--text-faint); padding-top: 2px; white-space: nowrap; }
+  .channel .cost b { display: block; color: var(--gold); font-size: 13px; }
+
+  /* ---------- sources ---------- */
+  .sources { padding-top: 44px; }
+  .sources ol { padding-left: 20px; margin: 0; }
+  .sources li { font-size: 12.5px; color: var(--text-faint); line-height: 2; }
+  .sources a { color: var(--text-muted); }
+  .sources a:hover { color: var(--gold); }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <div class="eyebrow">Growth &amp; positioning memo</div>
+    <h1>Where Clipforge stands, and what to build next</h1>
+    <p class="dek">Competitive teardown of the AI short-form video category, current market signal, and the five product bets most likely to move the needle — ranked, with why and what they cost to build.</p>
+    <div class="meta-row mono">
+      <span><b>Prepared for</b> forgecut.app</span>
+      <span><b>Category</b> AI short-form video generation</span>
+      <span><b>Compared against</b> Opus Clip, revid.ai, InVideo AI, Pictory</span>
+    </div>
+  </header>
+
+  <section>
+    <div class="sec-label"><span class="idx">01</span> Position</div>
+    <h2>The free tier is doing more work than it's getting credit for</h2>
+    <p class="lead">Clipforge covers three workflows — script-to-video, long-form repurposing, and UGC/avatar ads — in one credit pool. Every direct competitor researched below splits those across separate products or paywalls them behind a trial.</p>
+    <p>The sharper edge: Clipforge ships 50 free credits with no card required. revid.ai — the product this build was originally modeled on — has <strong>no free plan at all</strong>. Opus Clip's free tier exists but is clipping-only, not full generation. That gap is real, underused ammunition for both SEO and comparison-page marketing (see §5).</p>
+    <div class="callout">
+      <div class="tag">Read</div>
+      <p>Don't lead marketing with feature parity — lead with "try it free, no card," because for this specific category that claim is currently rare, not routine.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-label"><span class="idx">02</span> Landscape</div>
+    <h2>Four products, one shared gap</h2>
+    <p>Pricing and features pulled from current listings for each product. Every competitor here is missing at least one thing another has — Clipforge's gap cluster (auto-post, virality scoring, multi-ratio export) is what §4 targets.</p>
+    <div class="table-wrap">
+      <table class="mono">
+        <thead>
+          <tr>
+            <th>&nbsp;</th>
+            <th class="us">Clipforge</th>
+            <th>Opus Clip</th>
+            <th>revid.ai</th>
+            <th>InVideo AI</th>
+            <th>Pictory</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Free plan</td>
+            <td class="us"><span class="yes">Yes — 50 cr.</span></td>
+            <td><span class="yes">Yes — 60 cr.</span></td>
+            <td><span class="no">None</span></td>
+            <td>Trial, 7d</td>
+            <td>Trial, 14d</td>
+          </tr>
+          <tr>
+            <td>Entry price</td>
+            <td class="us">$29/mo</td>
+            <td>$15/mo</td>
+            <td>$29/mo</td>
+            <td>$28/mo</td>
+            <td>$25/mo</td>
+          </tr>
+          <tr>
+            <td>Script / URL → video</td>
+            <td class="us"><span class="yes">Yes</span></td>
+            <td><span class="no">No</span></td>
+            <td><span class="yes">Yes</span></td>
+            <td><span class="yes">Yes</span></td>
+            <td><span class="yes">Yes</span></td>
+          </tr>
+          <tr>
+            <td>Repurpose long-form</td>
+            <td class="us"><span class="yes">Yes</span></td>
+            <td><span class="yes">Yes — core</span></td>
+            <td>Limited</td>
+            <td><span class="yes">Yes</span></td>
+            <td><span class="no">No</span></td>
+          </tr>
+          <tr>
+            <td>UGC / avatar ads</td>
+            <td class="us"><span class="yes">Yes</span></td>
+            <td><span class="no">No</span></td>
+            <td><span class="yes">Yes</span></td>
+            <td><span class="no">No</span></td>
+            <td><span class="no">No</span></td>
+          </tr>
+          <tr>
+            <td>Auto-post to socials</td>
+            <td class="us"><span class="no">No</span></td>
+            <td><span class="yes">6 platforms</span></td>
+            <td><span class="no">No</span></td>
+            <td><span class="no">No</span></td>
+            <td><span class="no">No</span></td>
+          </tr>
+          <tr>
+            <td>Virality / hook score</td>
+            <td class="us"><span class="no">No</span></td>
+            <td><span class="yes">Signature feature</span></td>
+            <td><span class="no">No</span></td>
+            <td><span class="no">No</span></td>
+            <td><span class="no">No</span></td>
+          </tr>
+          <tr>
+            <td>Multi-ratio export</td>
+            <td class="us">Vertical only</td>
+            <td><span class="yes">Yes</span></td>
+            <td>Vertical only</td>
+            <td><span class="yes">4 ratios</span></td>
+            <td>Limited</td>
+          </tr>
+          <tr>
+            <td>Voice cloning</td>
+            <td class="us"><span class="no">No</span></td>
+            <td><span class="no">No</span></td>
+            <td>Top tier only</td>
+            <td><span class="no">No</span></td>
+            <td><span class="no">No</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="table-note">Sources for competitor pricing/features: see §6.</p>
+  </section>
+
+  <section>
+    <div class="sec-label"><span class="idx">03</span> Market signal</div>
+    <h2>The category is growing faster than most SaaS niches right now</h2>
+    <div class="stats">
+      <div class="stat">
+        <div class="num mono">19–20%</div>
+        <div class="label">YoY growth of the AI video generation market in 2026, valued at roughly $850–950M</div>
+      </div>
+      <div class="stat">
+        <div class="num mono">23.5%</div>
+        <div class="label">CAGR through 2034 for the social-video application segment specifically — the segment Clipforge sits in</div>
+      </div>
+      <div class="stat">
+        <div class="num mono">78%</div>
+        <div class="label">of marketing teams now use AI-generated video in at least one campaign per quarter</div>
+      </div>
+      <div class="stat">
+        <div class="num mono">36%</div>
+        <div class="label">of brands have started using AI avatars to present scripts on camera — Clipforge's UGC flow already covers this</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-label"><span class="idx">04</span> Recommendation</div>
+    <h2>Five builds, in the order to build them</h2>
+    <p>Ranked by impact against the gap table in §2, weighted down when a build adds real variable cost or a hard external dependency (platform API approval, a paid third-party model).</p>
+
+    <div class="build priority">
+      <div class="rank mono">01</div>
+      <div>
+        <h3>Auto-post &amp; schedule to TikTok, Reels, and Shorts</h3>
+        <p class="why">This is the one gap that shows up across nearly every competitor teardown in 2026 — Opus Clip built a posting calendar into the product; standalone tools like PostLink and FlowShorts exist purely for this. It's the last manual step between "video is ready" and "video is live." Highest payoff on this list, also the biggest lift: each platform requires its own OAuth app review.</p>
+        <div class="effort"><span class="dot"></span>New integrations — 3 platform API approvals</div>
+      </div>
+    </div>
+
+    <div class="build priority">
+      <div class="rank mono">02</div>
+      <div>
+        <h3>Clip hook / virality score</h3>
+        <p class="why">Opus Clip's most-cited feature is a 0–100 score per clip predicting performance. Clipforge already runs an LLM over every transcript to plan highlight segments — scoring hook strength is an extension of a call that already exists in the pipeline, not a new provider or a new cost. Cheapest build on this list relative to its marketing value.</p>
+        <div class="effort"><span class="dot"></span>Prompt + UI work on existing LLM call</div>
+      </div>
+    </div>
+
+    <div class="build">
+      <div class="rank mono">03</div>
+      <div>
+        <h3>Multi-aspect-ratio export</h3>
+        <p class="why">InVideo AI auto-generates 9:16, 16:9, 1:1, and 4:5 from one input; Clipforge currently renders vertical only, which rules out YouTube long-form thumbnails and Instagram feed placements outright. The render pipeline already parametrizes composition dimensions — this is new crop/composition logic, not a new render engine.</p>
+        <div class="effort"><span class="dot"></span>Render pipeline extension</div>
+      </div>
+    </div>
+
+    <div class="build">
+      <div class="rank mono">04</div>
+      <div>
+        <h3>Smart subject tracking on Repurpose crops</h3>
+        <p class="why">Going from horizontal long-form to vertical currently means a fixed center-crop. Competitors' "keep the speaker framed as they move" reframing is the single biggest quality gap a viewer notices in the first two seconds of a repurposed clip — it's a perception problem more than a feature gap, but it's the one most likely to cost a trial user on first render.</p>
+        <div class="effort"><span class="dot"></span>Face/subject-tracking model in the render step</div>
+      </div>
+    </div>
+
+    <div class="build">
+      <div class="rank mono">05</div>
+      <div>
+        <h3>Voice cloning</h3>
+        <p class="why">revid.ai gates this behind its $166/mo Ultra tier. Offering it on Clipforge's $99 Business plan undercuts a competitor on their own premium feature. Sequenced last deliberately: it's the only item here that adds ongoing variable cost (a paid third-party voice model), so it should land after the free-tier-driven growth in §5 has real usage data to size demand against.</p>
+        <div class="effort"><span class="dot"></span>Paid third-party API, new variable cost</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-label"><span class="idx">05</span> Growth plan</div>
+    <h2>Channels worth working, roughly in spend order</h2>
+
+    <div class="channel">
+      <div>
+        <div class="name">Dogfood as marketing</div>
+        <div class="desc">Post Clipforge-generated shorts on TikTok/Shorts/Reels with a "made with Clipforge" hook. The output is the demo — no separate creative budget needed.</div>
+      </div>
+      <div class="cost mono"><b>$0</b>slow burn</div>
+    </div>
+
+    <div class="channel">
+      <div>
+        <div class="name">Free-tier-led SEO</div>
+        <div class="desc">robots.txt, sitemap, and structured data are already live. Target long-tail queries competitors' trial-gated pages can't own as easily — "script to video no credit card," "free AI UGC ad generator" — because most of them don't have a real free plan to rank that phrase against.</div>
+      </div>
+      <div class="cost mono"><b>$0</b>weeks to rank</div>
+    </div>
+
+    <div class="channel">
+      <div>
+        <div class="name">Community launch</div>
+        <div class="desc">Product Hunt, Indie Hackers, and creator-focused subreddits (r/SaaS, content-creator communities). Audience already wants exactly this category of tool.</div>
+      </div>
+      <div class="cost mono"><b>$0</b>one-time spike</div>
+    </div>
+
+    <div class="channel">
+      <div>
+        <div class="name">Referral credits</div>
+        <div class="desc">Bonus credits on both sides of a referral instead of a cash payout — cost is bounded by your own generation COGS, and it's a natural fit for a credit-based product.</div>
+      </div>
+      <div class="cost mono"><b>Credits</b>not cash</div>
+    </div>
+
+    <div class="channel">
+      <div>
+        <div class="name">Paid acquisition</div>
+        <div class="desc">Deliberately last. Hold off until live Stripe conversion data exists to know real CAC tolerance — spending on ads before that is a guess, not a strategy.</div>
+      </div>
+      <div class="cost mono"><b>$$</b>hold for now</div>
+    </div>
+  </section>
+
+  <section class="sources">
+    <div class="sec-label"><span class="idx">06</span> Sources</div>
+    <ol class="mono">
+      <li><a href="https://coldiq.com/tools/opus-clip" target="_blank" rel="noopener">Opus Clip Review: Features, Pricing &amp; Alternatives (2026) — ColdIQ</a></li>
+      <li><a href="https://www.g2.com/compare/pictory-ai-vs-invideo" target="_blank" rel="noopener">Pictory AI vs InVideo — G2</a></li>
+      <li><a href="https://fluxnote.io/guides/revid-pricing-guide-2026" target="_blank" rel="noopener">Revid Pricing 2026: Full Plan Breakdown — FluxNote</a></li>
+      <li><a href="https://zapier.com/blog/best-ai-video-generator/" target="_blank" rel="noopener">The 16 best AI video generators in 2026 — Zapier</a></li>
+      <li><a href="https://postlinkapp.com/features/tiktok-scheduler" target="_blank" rel="noopener">TikTok Scheduler 2026 — PostLink</a></li>
+      <li><a href="https://www.coherentmarketinsights.com/blog/information-and-communication-technology/the-future-of-the-ai-video-market-key-trends-shaping-3676" target="_blank" rel="noopener">The Future of the AI Video Market: Key Trends Shaping 2026 — Coherent Market Insights</a></li>
+      <li><a href="https://resource.digen.ai/ai-video-generator-market-trends-2026-2/" target="_blank" rel="noopener">AI Video Generator Market Trends 2026 — Digen</a></li>
+      <li><a href="https://pictory.ai/blog/ai-video-trends-2026" target="_blank" rel="noopener">AI Video Trends 2026: What Marketers Need to Know — Pictory</a></li>
+    </ol>
+  </section>
+
+</div>
