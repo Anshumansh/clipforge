@@ -90,7 +90,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Pinned to a matched pair: unpinned installs resolved mismatched torch/
 # torchaudio ABI versions (torchaudio's compiled extension expected a symbol
 # that didn't exist in the torch build installed alongside it).
-RUN pip install --no-cache-dir --break-system-packages torch==2.1.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cpu
+#
+# --index-url replaces pip's default index entirely, not just adds to it --
+# the pytorch CPU index only hosts torch/torchaudio themselves, not every
+# transitive dependency's wheel or its own build-time dependencies (e.g.
+# typing-extensions' sdist needs flit_core, which isn't on that index at
+# all). Without --extra-index-url falling back to real PyPI, that resolves
+# fine on some builder snapshots and breaks on others depending on exactly
+# which wheels the pytorch index happens to have cached for a given
+# dependency version at build time -- reproduced as a real, non-transient
+# build failure (P1012-unrelated) on Railway 2026-08-14: "Could not find a
+# version that satisfies the requirement flit_core<4,>=3.11 (from
+# versions: none)".
+RUN pip install --no-cache-dir --break-system-packages torch==2.1.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
 RUN pip install --no-cache-dir --break-system-packages TTS==0.22.0
 
 COPY voice-clone/clone.py /app/voice-clone/clone.py
