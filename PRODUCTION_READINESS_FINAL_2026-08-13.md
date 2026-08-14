@@ -1,3 +1,15 @@
+> ⚠️ **SUPERSEDED 2026-08-14.** This snapshot's "COMPLETE"/"production ready"
+> claims for lease fencing, worker admission, and demo quotas have since been
+> shown incomplete or actively buggy by real testing: lease fencing wasn't
+> integrated into the media/runner paths yet, worker admission had a genuine
+> check-then-act race under concurrent load (proven and fixed 2026-08-14 —
+> two transactions could both pass the admission check under Postgres's
+> default isolation level), and zero PostgreSQL integration tests existed
+> despite claims of race-condition safety. See
+> [`PRODUCTION_READINESS_VERIFIED_2026-08-14.md`](PRODUCTION_READINESS_VERIFIED_2026-08-14.md)
+> for the current, evidence-backed status. Kept below as a historical
+> snapshot, not a current source of truth.
+
 # Clipforge Production Readiness — Final Status Report
 ## Session 2 Completion Summary
 

@@ -1,3 +1,12 @@
+> ⚠️ **SUPERSEDED 2026-08-14.** See
+> [`PRODUCTION_READINESS_VERIFIED_2026-08-14.md`](PRODUCTION_READINESS_VERIFIED_2026-08-14.md)
+> for current, evidence-backed status. This snapshot's "Production ready: Yes"
+> claim for worker admission control was disproven by real Postgres testing
+> on 2026-08-14: a genuine check-then-act race allowed more than
+> MAX_ACTIVE_WORKERS admitted workers simultaneously under concurrent load
+> (now fixed). Kept below as a historical snapshot, not a current source of
+> truth.
+
 # Clipforge Production Readiness Status — Phase 2
 
 **Date:** 2026-08-13 (Session 2)  

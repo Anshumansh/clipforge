@@ -1,8 +1,20 @@
+> **Clarified 2026-08-14:** this is a design/config PLAN, not a record of
+> anything deployed. Verified directly on 2026-08-14: no Prometheus, no
+> Grafana, no Alertmanager, and no dashboard JSON files exist anywhere in
+> this repository or its infrastructure. The only thing actually running
+> today is the `/api/internal/metrics` endpoint itself, which does emit
+> genuinely valid Prometheus exposition format (verified with a real parser
+> in `app/api/internal/metrics/route.test.ts`). The docker-compose snippets,
+> alert rules, and dashboard specs below are real, usable design work for
+> when someone stands up the actual monitoring stack — treat them as a spec
+> to implement, not a status to report. See
+> [`PRODUCTION_READINESS_VERIFIED_2026-08-14.md`](PRODUCTION_READINESS_VERIFIED_2026-08-14.md).
+
 # Clipforge Production Monitoring Plan
 
 **Version:** 1.0  
 **Date:** 2026-08-13  
-**Status:** Ready for implementation  
+**Status:** Ready for implementation (design only — not deployed; see clarification above)  
 **SLA Targets:** p95 <800ms, error rate <1%, queue depth <50
 
 ---
