@@ -5,6 +5,10 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["**/*.test.ts"],
+    // Integration tests need lib/testing/integration-global-setup.ts (which
+    // starts a real local Postgres) and run via `npm run test:integration`
+    // instead -- see vitest.integration.config.mts.
+    exclude: ["**/node_modules/**", "**/*.integration.test.ts"],
     // The backup-code tests hash 8 codes with bcryptjs (pure-JS, no native
     // binding -- chosen so the Docker image doesn't need a bcrypt build step)
     // and came within ~0.8s of the 5s default under light load; a slower CI

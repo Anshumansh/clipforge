@@ -14,12 +14,29 @@ export const MAX_ACTIVE_WORKERS = Number(process.env.MAX_ACTIVE_WORKERS ?? "1");
 export const HEARTBEAT_TIMEOUT_MS = 60_000; // Workers renew every ~15s, so 60s is 4x the interval
 export const ADMISSION_CHECK_INTERVAL_MS = 10_000; // Periodically check if this worker is still admitted
 
+// Fixed key for pg_advisory_xact_lock -- arbitrary but must stay constant
+// across the whole app (two different keys would fail to serialize against
+// each other). Scoped to the transaction (auto-released on commit/rollback),
+// not the session, so a crashed connection can never leak a held lock.
+const ADMISSION_LOCK_KEY = 822_310_147n;
+
 /**
  * Attempts to register this worker and claim an admission slot. If successful,
  * returns true. If another worker holds the only available slot, returns false
  * and the caller should exit gracefully (or enter idle mode if desired).
  *
  * Atomically:
+ * 0. Takes a transaction-scoped advisory lock so two concurrent callers can
+ *    never both read "under limit" from the same pre-insert snapshot --
+ *    proven to happen without this lock by a real, deterministic two-connection
+ *    Postgres integration test (lib/workers/admission-race.integration.test.ts):
+ *    under READ COMMITTED (Postgres's default), a plain SELECT COUNT inside
+ *    db.$transaction does not see another still-open transaction's uncommitted
+ *    insert, so two transactions started close enough together can both
+ *    compute shouldAdmit=true and both commit a distinct 'admitted' row,
+ *    exceeding MAX_ACTIVE_WORKERS. The lock forces the second caller's count
+ *    read to wait until the first caller's transaction has fully committed
+ *    (or rolled back), so it always counts the first caller's row.
  * 1. Deletes stale registrations (no heartbeat for HEARTBEAT_TIMEOUT_MS)
  * 2. Counts active admissions
  * 3. If under limit, inserts new registration with status="admitted"
@@ -32,6 +49,10 @@ export async function requestAdmission(workerId: string): Promise<boolean> {
   try {
     // Use a transaction to make this atomic
     const result = await db.$transaction(async (tx) => {
+      // 0. Serialize against every other concurrent requestAdmission() call
+      // for the whole rest of this transaction.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ADMISSION_LOCK_KEY})`;
+
       // 1. Clean up stale registrations
       await tx.workerRegistration.deleteMany({
         where: {

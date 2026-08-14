@@ -111,6 +111,19 @@ async function finalizeJobTerminal(
   }
 }
 
+// findFirst + conditional updateMany (below) is a read-then-write, not a
+// single atomic statement -- under concurrent claimers, multiple workers can
+// findFirst the SAME top-priority job before any of their updates commit
+// (Postgres's read-committed snapshot shows all of them the same still-queued
+// row). Only one updateMany wins; a bare single attempt would let the losers
+// return null immediately even when OTHER queued jobs were available for
+// them to claim instead -- proven by a real multi-worker Postgres integration
+// test (lib/jobs/claim.integration.test.ts) that under-claimed 5 of 6 jobs
+// with 6 workers racing before this retry loop was added. Retrying picks up
+// the next-highest-priority still-queued job on each pass, since a job lost
+// to another worker no longer matches status:"queued" on the next findFirst.
+const MAX_CLAIM_RACE_RETRIES = 8;
+
 /** Atomically claim the next queued job, or return null if none available.
  * Backpressure enforcement (user/workspace pending-job limits) is the
  * responsibility of the API routes that CREATE jobs, not the worker claiming them.
@@ -118,61 +131,68 @@ async function finalizeJobTerminal(
 export async function claimNextQueuedJob(
   workerId: string
 ): Promise<ClaimedJob | null> {
+  for (let attempt = 0; attempt < MAX_CLAIM_RACE_RETRIES; attempt++) {
+    // Claim: find oldest queued job (priority DESC, createdAt ASC) that passes
+    // notBeforeAt gate (backoff-respecting), update atomically to leased
+    const job = await db.job.findFirst({
+      where: {
+        status: "queued",
+        OR: [
+          { notBeforeAt: null },           // legacy jobs or cleared backoff
+          { notBeforeAt: { lte: new Date() } } // backoff expired
+        ]
+      },
+      orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
+      include: { project: { select: { type: true, userId: true, workspaceId: true } } }
+    });
 
-  // Claim: find oldest queued job (priority DESC, createdAt ASC) that passes
-  // notBeforeAt gate (backoff-respecting), update atomically to leased
-  const job = await db.job.findFirst({
-    where: {
-      status: "queued",
-      OR: [
-        { notBeforeAt: null },           // legacy jobs or cleared backoff
-        { notBeforeAt: { lte: new Date() } } // backoff expired
-      ]
-    },
-    orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
-    include: { project: { select: { type: true, userId: true, workspaceId: true } } }
-  });
+    if (!job) return null;
 
-  if (!job) return null;
+    const now = new Date();
+    const leaseExpires = new Date(now.getTime() + LEASE_DURATION_MS);
+    // Generate a unique token for this attempt to prevent stale-worker mutations
+    const attemptToken = crypto.randomUUID();
 
-  const now = new Date();
-  const leaseExpires = new Date(now.getTime() + LEASE_DURATION_MS);
-  // Generate a unique token for this attempt to prevent stale-worker mutations
-  const attemptToken = crypto.randomUUID();
+    // Atomic: transition queued → processing and stamp lease info
+    // The leaseExpiresAt field signals that this job is active/claimed
+    // The attemptToken prevents stale workers from mutating this job
+    const updated = await db.job.updateMany({
+      where: { id: job.id, status: "queued" },
+      data: {
+        status: "processing",
+        leaseExpiresAt: leaseExpires,
+        workerId,
+        heartbeatAt: now,
+        attemptToken, // unique token for this attempt
+        attemptCount: { increment: 1 },
+        notBeforeAt: null // clear any prior backoff gate
+      }
+    });
 
-  // Atomic: transition queued → processing and stamp lease info
-  // The leaseExpiresAt field signals that this job is active/claimed
-  // The attemptToken prevents stale workers from mutating this job
-  const updated = await db.job.updateMany({
-    where: { id: job.id, status: "queued" },
-    data: {
-      status: "processing",
-      leaseExpiresAt: leaseExpires,
-      workerId,
-      heartbeatAt: now,
-      attemptToken, // unique token for this attempt
-      attemptCount: { increment: 1 },
-      notBeforeAt: null // clear any prior backoff gate
+    if (updated.count === 0) {
+      // Lost the race for THIS job; another worker claimed it first. Loop
+      // back and try the next-highest-priority still-queued job rather than
+      // giving up for the whole poll cycle.
+      continue;
     }
-  });
 
-  if (updated.count === 0) {
-    // Lost the race; another worker claimed this job first
-    return null;
+    if (!isJobType(job.project.type)) {
+      // Defensive: unrecognized project type at claim time (should never happen)
+      // Fail and refund immediately
+      await finalizeJobTerminal(
+        { id: job.id, projectId: job.projectId, project: job.project },
+        `Unrecognized project type: ${job.project.type}`,
+        "failed_terminal"
+      );
+      return null;
+    }
+
+    return { id: job.id, type: job.project.type as JobType, attemptToken };
   }
 
-  if (!isJobType(job.project.type)) {
-    // Defensive: unrecognized project type at claim time (should never happen)
-    // Fail and refund immediately
-    await finalizeJobTerminal(
-      { id: job.id, projectId: job.projectId, project: job.project },
-      `Unrecognized project type: ${job.project.type}`,
-      "failed_terminal"
-    );
-    return null;
-  }
-
-  return { id: job.id, type: job.project.type as JobType, attemptToken };
+  // Exhausted retries under extremely heavy contention -- the next poll
+  // tick (a few seconds away) will try again rather than looping forever.
+  return null;
 }
 
 /** Renew a processing job's lease if we're still the owner. Throws LeaseLostError
