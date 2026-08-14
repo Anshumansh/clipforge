@@ -175,8 +175,9 @@ export async function claimNextQueuedJob(
   return { id: job.id, type: job.project.type as JobType, attemptToken };
 }
 
-/** Renew a processing job's lease if we're still the owner. Safe no-op if
- * workerId/attemptToken doesn't match (job was reassigned to another attempt).
+/** Renew a processing job's lease if we're still the owner. Throws LeaseLostError
+ * if the job no longer matches our ownership (workerId/attemptToken). Database or
+ * network errors are logged but do not throw (heartbeat failures are transient).
  * Requires valid attemptToken to prevent stale workers from extending expired leases. */
 export async function renewLease(
   jobId: string,
@@ -187,14 +188,21 @@ export async function renewLease(
   const newExpiry = new Date(now.getTime() + LEASE_DURATION_MS);
 
   try {
-    await db.job.updateMany({
+    const updated = await db.job.updateMany({
       where: { id: jobId, status: "processing", workerId, attemptToken },
       data: {
         leaseExpiresAt: newExpiry,
         heartbeatAt: now
       }
     });
+
+    // Lease lost: job was reassigned to another worker or status changed
+    if (updated.count === 0) {
+      throw new LeaseLostError(jobId);
+    }
   } catch (err) {
+    // Distinguish lease loss from transient failures
+    if (err instanceof LeaseLostError) throw err;
     // Heartbeat failure shouldn't crash the worker; log and continue
     console.error(`[worker] Failed to renew lease for job ${jobId}:`, err instanceof Error ? err.message : String(err));
   }

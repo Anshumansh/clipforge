@@ -155,51 +155,61 @@ export async function runScriptJob(jobId: string, workerId: string, attemptToken
     const reservationId = await findReservationId(jobId).catch(() => null);
 
     if (reservationId) {
-      // Reservation-backed job: Project failed + Job failed + reservation
-      // released + balance restored + refund ledger entry must land
-      // together or not at all -- a crash between separate writes here
-      // used to be able to leave a "failed" job with its reservation stuck
-      // "reserved" forever, invisible to startup reconciliation (which
-      // only ever looks at "processing" jobs). See releaseReservationInTx
-      // in lib/pricing/ledger.ts.
-      await db
-        .$transaction(async (tx) => {
+      // Reservation-backed job: verify lease ownership BEFORE finalizing failure.
+      // Atomic transaction ensures Job failed + Project failed + credits released
+      // land together or not at all. If ownership check fails, stale worker aborts.
+      try {
+        await db.$transaction(async (tx) => {
+          // Atomic lease check + status update: only succeeds if we still own the job
+          const updated = await tx.job.updateMany({
+            where: { id: jobId, status: "processing", workerId, attemptToken },
+            data: { status: "failed", log: message }
+          });
+          if (updated.count === 0) {
+            throw new LeaseLostError(jobId);
+          }
+          // Lease verified; safe to finalize
           await tx.project.update({ where: { id: project.id }, data: { status: "failed", errorMessage: message } });
-          await tx.job.update({ where: { id: jobId }, data: { status: "failed", log: message } });
           await releaseReservationInTx(tx, reservationId, message);
-        })
-        .catch((e) => {
-          // Deliberately no fallback writes here -- if the transaction
-          // failed, NOTHING committed, so the job is still exactly as it
-          // was before this catch block ran ("processing", reservation
-          // still "reserved"). That's a safe, recoverable state: the next
-          // worker startup's reconciliation will find and finalize it.
-          // Writing a partial "failed" status here without the matching
-          // release would recreate the exact bug this pass closes.
-          console.error(
-            "[script-runner] atomic failure finalization failed -- job remains recoverable as processing/reserved:",
-            e instanceof Error ? e.message : e
-          );
         });
+      } catch (e) {
+        // Lease lost during error finalization: stale worker, abort
+        if (e instanceof LeaseLostError) {
+          console.error(`[script-runner] lease lost during error handling for job ${jobId}, not finalizing`);
+          return;
+        }
+        // Transaction failure: job remains in "processing" state, recoverable by reconciliation
+        console.error(
+          "[script-runner] atomic failure finalization failed -- job remains recoverable as processing/reserved:",
+          e instanceof Error ? e.message : e
+        );
+      }
     } else {
-      // Legacy/demo fallback: no reservation exists for this job (a demo
-      // job -- see lib/demo-user.ts, which never gets a reservation at all
-      // -- or a job that predates the reservation system). This path is
-      // NOT part of this hardening pass: it uses lib/credits.ts's simpler,
-      // older charge/refund mechanism, never wired into the ledger's
-      // transactional guarantees. Marking Project/Job failed and calling
-      // refundCredits() remain separate statements here, same as before --
-      // see OPERATIONS.md for why this residual gap is accepted rather
-      // than silently expanded into a new billing path.
-      await db.project.update({ where: { id: project.id }, data: { status: "failed", errorMessage: message } });
-      await db.job.update({ where: { id: jobId }, data: { status: "failed", log: message } });
-      const creditOwnerId = await resolveProjectCreditOwnerId(project).catch(() => project.userId);
-      await refundCredits(creditOwnerId, CREDITS_PER_VIDEO).catch((e) =>
-        console.error("[script-runner] legacy credit refund failed:", e instanceof Error ? e.message : e)
-      );
+      // Legacy/demo fallback: verify lease before marking failed
+      try {
+        const updated = await db.job.updateMany({
+          where: { id: jobId, status: "processing", workerId, attemptToken },
+          data: { status: "failed", log: message }
+        });
+        if (updated.count === 0) {
+          console.error(`[script-runner] lease lost during error handling for job ${jobId}, not finalizing`);
+          return;
+        }
+        // Lease verified; safe to update project and refund legacy credits
+        await db.project.update({ where: { id: project.id }, data: { status: "failed", errorMessage: message } });
+        const creditOwnerId = await resolveProjectCreditOwnerId(project).catch(() => project.userId);
+        await refundCredits(creditOwnerId, CREDITS_PER_VIDEO).catch((e) =>
+          console.error("[script-runner] legacy credit refund failed:", e instanceof Error ? e.message : e)
+        );
+      } catch (e) {
+        console.error(
+          "[script-runner] failure finalization failed -- job remains in processing state:",
+          e instanceof Error ? e.message : e
+        );
+      }
     }
 
-    // Record that credits were refunded in the cost record.
+    // Record that credits were refunded in the cost record (best-effort, outside transaction).
     await upsertCostRecord({
       jobId,
       projectId: project.id,

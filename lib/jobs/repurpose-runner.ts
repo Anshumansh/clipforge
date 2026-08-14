@@ -209,30 +209,57 @@ export async function runRepurposeJob(jobId: string, workerId: string, attemptTo
     const reservationId = await findReservationId(jobId).catch(() => null);
 
     if (reservationId) {
-      // Atomic failure finalization -- see the identical comment in
-      // lib/jobs/script-runner.ts and releaseReservationInTx in
-      // lib/pricing/ledger.ts.
-      await db
-        .$transaction(async (tx) => {
+      // Atomic failure finalization with lease verification. Only proceeds if
+      // we still own the job (workerId + attemptToken match). See lib/pricing/ledger.ts.
+      try {
+        await db.$transaction(async (tx) => {
+          // Atomic lease check + status update
+          const updated = await tx.job.updateMany({
+            where: { id: jobId, status: "processing", workerId, attemptToken },
+            data: { status: "failed", log: message }
+          });
+          if (updated.count === 0) {
+            throw new LeaseLostError(jobId);
+          }
+          // Lease verified; safe to finalize
           await tx.project.update({ where: { id: project.id }, data: { status: "failed", errorMessage: message } });
-          await tx.job.update({ where: { id: jobId }, data: { status: "failed", log: message } });
           await releaseReservationInTx(tx, reservationId, message);
-        })
-        .catch((e) => {
-          console.error(
-            "[repurpose-runner] atomic failure finalization failed -- job remains recoverable as processing/reserved:",
-            e instanceof Error ? e.message : e
-          );
         });
+      } catch (e) {
+        // Lease lost during error finalization: stale worker, abort
+        if (e instanceof LeaseLostError) {
+          console.error(`[repurpose-runner] lease lost during error handling for job ${jobId}, not finalizing`);
+          return;
+        }
+        // Transaction failure: job remains in "processing" state
+        console.error(
+          "[repurpose-runner] atomic failure finalization failed -- job remains recoverable as processing/reserved:",
+          e instanceof Error ? e.message : e
+        );
+      }
     } else {
-      // Legacy/demo fallback -- see the identical comment in
-      // lib/jobs/script-runner.ts.
-      await db.project.update({ where: { id: project.id }, data: { status: "failed", errorMessage: message } });
-      await db.job.update({ where: { id: jobId }, data: { status: "failed", log: message } });
-      const creditOwnerId = await resolveProjectCreditOwnerId(project).catch(() => project.userId);
-      await refundCredits(creditOwnerId, CREDITS_PER_VIDEO).catch((e) =>
-        console.error("[repurpose-runner] legacy credit refund failed:", e instanceof Error ? e.message : e)
-      );
+      // Legacy/demo fallback: verify lease before marking failed
+      try {
+        const updated = await db.job.updateMany({
+          where: { id: jobId, status: "processing", workerId, attemptToken },
+          data: { status: "failed", log: message }
+        });
+        if (updated.count === 0) {
+          console.error(`[repurpose-runner] lease lost during error handling for job ${jobId}, not finalizing`);
+          return;
+        }
+        // Lease verified; safe to update project and refund
+        await db.project.update({ where: { id: project.id }, data: { status: "failed", errorMessage: message } });
+        const creditOwnerId = await resolveProjectCreditOwnerId(project).catch(() => project.userId);
+        await refundCredits(creditOwnerId, CREDITS_PER_VIDEO).catch((e) =>
+          console.error("[repurpose-runner] legacy credit refund failed:", e instanceof Error ? e.message : e)
+        );
+      } catch (e) {
+        console.error(
+          "[repurpose-runner] failure finalization failed -- job remains in processing state:",
+          e instanceof Error ? e.message : e
+        );
+      }
     }
 
     await upsertCostRecord({

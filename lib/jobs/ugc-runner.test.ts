@@ -152,11 +152,13 @@ describe("runUgcJob — UGC runner (TEST-001 + REL-001 + COST-001)", () => {
   it("marks project failed, job failed, and releases the reservation in the SAME transaction, in order", async () => {
     generateAdScriptFn.mockRejectedValue(new Error("script fail"));
     const callOrder: string[] = [];
+    // Error path now uses updateMany for job (with lease check) within transaction
+    jobUpdateMany.mockImplementation(async (args: { data?: { status?: string } }) => {
+      if (args?.data?.status === "failed") callOrder.push("job-failed");
+      return { count: 1 };
+    });
     projectUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
       if (args?.data?.status === "failed") callOrder.push("project-failed");
-    });
-    jobUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
-      if (args?.data?.status === "failed") callOrder.push("job-failed");
     });
     releaseReservationInTxFn.mockImplementation(async () => {
       callOrder.push("release");
@@ -164,7 +166,8 @@ describe("runUgcJob — UGC runner (TEST-001 + REL-001 + COST-001)", () => {
 
     await runUgcJob("job-1", "worker-1", "token-abc123");
 
-    expect(callOrder).toEqual(["project-failed", "job-failed", "release"]);
+    // Order: job checked and updated first (atomic lease check), then project, then release
+    expect(callOrder).toEqual(["job-failed", "project-failed", "release"]);
   });
 
   it("a DB failure during atomic failure finalization leaves the job untouched and is logged", async () => {

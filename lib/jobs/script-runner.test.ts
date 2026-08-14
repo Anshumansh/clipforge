@@ -233,18 +233,24 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
 
     await runScriptJob("job-1", "worker-1", "token-abc123");
 
+    // Error path now uses updateMany for job (atomic lease check)
+    expect(jobUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "job-1", status: "processing", workerId: "worker-1", attemptToken: "token-abc123" },
+      data: expect.objectContaining({ status: "failed" })
+    }));
     expect(projectUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "failed" }) }));
-    expect(jobUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "failed" }) }));
   });
 
   it("marks project failed, job failed, and releases the reservation in the SAME transaction, in order -- no crash window between them", async () => {
     generateScriptFn.mockRejectedValue(new Error("provider error"));
     const callOrder: string[] = [];
+    // Error path now uses updateMany for job (with lease check) within transaction
+    jobUpdateMany.mockImplementation(async (args: { data?: { status?: string } }) => {
+      if (args?.data?.status === "failed") callOrder.push("job-failed");
+      return { count: 1 };
+    });
     projectUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
       if (args?.data?.status === "failed") callOrder.push("project-failed");
-    });
-    jobUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
-      if (args?.data?.status === "failed") callOrder.push("job-failed");
     });
     releaseReservationInTxFn.mockImplementation(async () => {
       callOrder.push("release");
@@ -252,7 +258,8 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
 
     await runScriptJob("job-1", "worker-1", "token-abc123");
 
-    expect(callOrder).toEqual(["project-failed", "job-failed", "release"]);
+    // Order: job checked and updated first (atomic lease check), then project, then release
+    expect(callOrder).toEqual(["job-failed", "project-failed", "release"]);
   });
 
   it("a DB failure during atomic failure finalization leaves the job untouched (no partial failed-without-release state) and is logged", async () => {
