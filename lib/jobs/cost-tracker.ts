@@ -44,7 +44,8 @@ export interface JobCostData {
 
 /** Creates or updates the JobCostRecord for a given job. Each field is only
  * written when explicitly provided, so callers can upsert partial data at
- * each stage of execution without needing to carry full state. */
+ * each stage of execution without needing to carry full state. Fire-and-forget:
+ * failures are logged but not propagated. */
 export async function upsertCostRecord(data: JobCostData): Promise<void> {
   const updatePayload: Record<string, unknown> = {};
   if (data.aiProvider !== undefined) updatePayload.aiProvider = data.aiProvider;
@@ -79,4 +80,55 @@ export async function upsertCostRecord(data: JobCostData): Promise<void> {
     },
     update: updatePayload,
   });
+}
+
+/** Transaction-safe version of upsertCostRecord. Call this inside a db.$transaction
+ * block to ensure cost recording is atomic with job completion/failure. Returns
+ * true if upsert succeeded, false on error (error is still logged by caller). */
+export async function upsertCostRecordInTx(
+  tx: any, // Prisma transaction client (PrismaClient or TransactionClient)
+  data: JobCostData
+): Promise<boolean> {
+  const updatePayload: Record<string, unknown> = {};
+  if (data.aiProvider !== undefined) updatePayload.aiProvider = data.aiProvider;
+  if (data.aiModel !== undefined) updatePayload.aiModel = data.aiModel;
+  if (data.aiInputTokens !== undefined) updatePayload.aiInputTokens = data.aiInputTokens;
+  if (data.aiOutputTokens !== undefined) updatePayload.aiOutputTokens = data.aiOutputTokens;
+  if (data.transcriptionSeconds !== undefined) updatePayload.transcriptionSeconds = data.transcriptionSeconds;
+  if (data.ttsCharacters !== undefined) updatePayload.ttsCharacters = data.ttsCharacters;
+  if (data.ttsSeconds !== undefined) updatePayload.ttsSeconds = data.ttsSeconds;
+  if (data.renderSeconds !== undefined) updatePayload.renderSeconds = data.renderSeconds;
+  if (data.storageBytes !== undefined) updatePayload.storageBytes = data.storageBytes;
+  if (data.creditsCharged !== undefined) updatePayload.creditsCharged = data.creditsCharged;
+  if (data.creditsRefunded !== undefined) updatePayload.creditsRefunded = data.creditsRefunded;
+
+  try {
+    await tx.jobCostRecord.upsert({
+      where: { jobId: data.jobId },
+      create: {
+        jobId: data.jobId,
+        projectId: data.projectId,
+        userId: data.userId,
+        aiProvider: data.aiProvider ?? null,
+        aiModel: data.aiModel ?? null,
+        aiInputTokens: data.aiInputTokens ?? null,
+        aiOutputTokens: data.aiOutputTokens ?? null,
+        transcriptionSeconds: data.transcriptionSeconds ?? null,
+        ttsCharacters: data.ttsCharacters ?? null,
+        ttsSeconds: data.ttsSeconds ?? null,
+        renderSeconds: data.renderSeconds ?? null,
+        storageBytes: data.storageBytes ?? null,
+        creditsCharged: data.creditsCharged ?? 0,
+        creditsRefunded: data.creditsRefunded ?? 0,
+      },
+      update: updatePayload,
+    });
+    return true;
+  } catch (err) {
+    console.error(
+      `[cost-tracker] failed to record cost for job ${data.jobId}:`,
+      err instanceof Error ? err.message : String(err)
+    );
+    return false;
+  }
 }

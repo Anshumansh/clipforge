@@ -88,8 +88,10 @@ vi.mock("@/lib/workspace", () => ({
   resolveProjectCreditOwnerId: vi.fn().mockResolvedValue("user-1"),
 }));
 
+const costRecordUpsertInTx = vi.fn().mockResolvedValue(true);
 vi.mock("@/lib/jobs/cost-tracker", () => ({
   upsertCostRecord: (...a: unknown[]) => costRecordUpsert(...a),
+  upsertCostRecordInTx: (...a: unknown[]) => costRecordUpsertInTx(...a),
 }));
 
 const { runScriptJob } = await import("@/lib/jobs/script-runner");
@@ -299,7 +301,9 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
   it("creates a JobCostRecord with AI provider, TTS characters, and render seconds on success", async () => {
     await runScriptJob("job-1", "worker-1", "token-abc123");
 
-    expect(costRecordUpsert).toHaveBeenCalledWith(
+    // Cost record is now recorded inside the success transaction via costRecordUpsertInTx
+    expect(costRecordUpsertInTx).toHaveBeenCalledWith(
+      expect.anything(), // tx client
       expect.objectContaining({
         jobId: "job-1",
         projectId: "proj-1",
@@ -319,9 +323,9 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
 
     await runScriptJob("job-1", "worker-1", "token-abc123");
 
-    // The cost record should record the refund, not the charge
+    // The cost record should record the refund via the old upsertCostRecord (still called post-transaction)
     expect(costRecordUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({ creditsRefunded: 10 })
+      expect.objectContaining({ creditsRefunded: 10, jobId: "job-1" })
     );
     // The success cost record (with creditsCharged) should NOT have been written
     const calls = costRecordUpsert.mock.calls;

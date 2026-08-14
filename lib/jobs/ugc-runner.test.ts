@@ -67,7 +67,11 @@ vi.mock("@/lib/remotion-render", () => ({ renderScriptVideo: (...a: unknown[]) =
 vi.mock("@/lib/streaks", () => ({ recordActivity: vi.fn() }));
 vi.mock("@/lib/brand-server", () => ({ getBrandForRender: vi.fn().mockResolvedValue(null) }));
 vi.mock("@/lib/workspace", () => ({ resolveProjectCreditOwnerId: vi.fn().mockResolvedValue("user-1") }));
-vi.mock("@/lib/jobs/cost-tracker", () => ({ upsertCostRecord: (...a: unknown[]) => costRecordUpsert(...a) }));
+const costRecordUpsertInTx = vi.fn().mockResolvedValue(true);
+vi.mock("@/lib/jobs/cost-tracker", () => ({
+  upsertCostRecord: (...a: unknown[]) => costRecordUpsert(...a),
+  upsertCostRecordInTx: (...a: unknown[]) => costRecordUpsertInTx(...a),
+}));
 
 const { runUgcJob } = await import("@/lib/jobs/ugc-runner");
 
@@ -194,7 +198,9 @@ describe("runUgcJob — UGC runner (TEST-001 + REL-001 + COST-001)", () => {
   it("creates a JobCostRecord with cost metrics on success", async () => {
     await runUgcJob("job-1", "worker-1", "token-abc123");
 
-    expect(costRecordUpsert).toHaveBeenCalledWith(
+    // Cost record is now recorded inside the success transaction
+    expect(costRecordUpsertInTx).toHaveBeenCalledWith(
+      expect.anything(), // tx client
       expect.objectContaining({
         jobId: "job-1",
         aiProvider: "groq",

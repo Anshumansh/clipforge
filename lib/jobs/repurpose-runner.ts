@@ -9,7 +9,7 @@ import { getBrandForRender } from "@/lib/brand-server";
 import { refundCredits, CREDITS_PER_VIDEO } from "@/lib/credits";
 import { captureReservationInTx, releaseReservationInTx } from "@/lib/pricing/ledger";
 import { resolveProjectCreditOwnerId } from "@/lib/workspace";
-import { upsertCostRecord } from "@/lib/jobs/cost-tracker";
+import { upsertCostRecord, upsertCostRecordInTx } from "@/lib/jobs/cost-tracker";
 import { LeaseLostError } from "@/lib/jobs/claim";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 
@@ -167,7 +167,7 @@ export async function runRepurposeJob(jobId: string, workerId: string, attemptTo
       throw new Error("All clip renders failed");
     }
 
-    // Project "ready", Job "done", and the reservation capture must land
+    // Project "ready", Job "done", cost record, and the reservation capture must land
     // together or not at all -- see the identical comment in
     // lib/jobs/script-runner.ts and captureReservationInTx in
     // lib/pricing/ledger.ts. Verify lease ownership before commit.
@@ -184,18 +184,16 @@ export async function runRepurposeJob(jobId: string, workerId: string, attemptTo
       if (reservationId) {
         await captureReservationInTx(tx, reservationId);
       }
+      // Record cost atomically with completion
+      await upsertCostRecordInTx(tx, {
+        jobId,
+        projectId: project.id,
+        userId: project.userId,
+        transcriptionSeconds: input.durationSec,
+        renderSeconds: totalRenderSeconds,
+        creditsCharged: CREDITS_PER_VIDEO,
+      });
     });
-
-    // Best-effort telemetry, deliberately outside the transaction above --
-    // see the identical comment in lib/jobs/script-runner.ts.
-    await upsertCostRecord({
-      jobId,
-      projectId: project.id,
-      userId: project.userId,
-      transcriptionSeconds: input.durationSec,
-      renderSeconds: totalRenderSeconds,
-      creditsCharged: CREDITS_PER_VIDEO,
-    }).catch((e) => console.error("[repurpose-runner] cost record write failed:", e instanceof Error ? e.message : e));
 
     await recordActivity(project.userId);
   } catch (err) {

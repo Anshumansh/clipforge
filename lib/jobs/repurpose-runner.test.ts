@@ -76,7 +76,11 @@ vi.mock("@/lib/remotion-render", () => ({ renderRepurposeClip: (...a: unknown[])
 vi.mock("@/lib/streaks", () => ({ recordActivity: vi.fn() }));
 vi.mock("@/lib/brand-server", () => ({ getBrandForRender: vi.fn().mockResolvedValue(null) }));
 vi.mock("@/lib/workspace", () => ({ resolveProjectCreditOwnerId: vi.fn().mockResolvedValue("user-1") }));
-vi.mock("@/lib/jobs/cost-tracker", () => ({ upsertCostRecord: (...a: unknown[]) => costRecordUpsert(...a) }));
+const costRecordUpsertInTx = vi.fn().mockResolvedValue(true);
+vi.mock("@/lib/jobs/cost-tracker", () => ({
+  upsertCostRecord: (...a: unknown[]) => costRecordUpsert(...a),
+  upsertCostRecordInTx: (...a: unknown[]) => costRecordUpsertInTx(...a),
+}));
 
 const { runRepurposeJob } = await import("@/lib/jobs/repurpose-runner");
 
@@ -233,7 +237,9 @@ describe("runRepurposeJob — repurpose runner (TEST-001 + REL-001 + COST-001)",
   it("records transcriptionSeconds in the cost record", async () => {
     await runRepurposeJob("job-1", "worker-1", "token-abc123");
 
-    expect(costRecordUpsert).toHaveBeenCalledWith(
+    // Cost record is now recorded inside the success transaction
+    expect(costRecordUpsertInTx).toHaveBeenCalledWith(
+      expect.anything(), // tx client
       expect.objectContaining({
         jobId: "job-1",
         transcriptionSeconds: 60, // from input.durationSec

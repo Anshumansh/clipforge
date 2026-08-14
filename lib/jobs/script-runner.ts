@@ -11,7 +11,7 @@ import { getBrandForRender } from "@/lib/brand-server";
 import { refundCredits, CREDITS_PER_VIDEO } from "@/lib/credits";
 import { captureReservationInTx, releaseReservationInTx } from "@/lib/pricing/ledger";
 import { resolveProjectCreditOwnerId } from "@/lib/workspace";
-import { upsertCostRecord } from "@/lib/jobs/cost-tracker";
+import { upsertCostRecord, upsertCostRecordInTx } from "@/lib/jobs/cost-tracker";
 import { LeaseLostError } from "@/lib/jobs/claim";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 
@@ -101,11 +101,12 @@ export async function runScriptJob(jobId: string, workerId: string, attemptToken
     );
     const renderSeconds = (Date.now() - renderStart) / 1000;
 
-    // Project "ready", Job "done", and the reservation capture must land
+    // Project "ready", Job "done", cost record, and the reservation capture must land
     // together or not at all -- a crash between separate writes here used
     // to leave a "done" job with its reservation stuck "reserved" forever,
     // invisible to startup reconciliation (which only ever looks at
-    // "processing" jobs). See captureReservationInTx in lib/pricing/ledger.ts.
+    // "processing" jobs). Cost record is now inside transaction for atomicity.
+    // See captureReservationInTx in lib/pricing/ledger.ts.
     // Verify lease ownership (stale worker rejection) before commit.
     const reservationId = await findReservationId(jobId);
     await db.$transaction(async (tx) => {
@@ -120,28 +121,24 @@ export async function runScriptJob(jobId: string, workerId: string, attemptToken
       if (reservationId) {
         await captureReservationInTx(tx, reservationId);
       }
+      // Record cost atomically with completion
+      await upsertCostRecordInTx(tx, {
+        jobId,
+        projectId: project.id,
+        userId: project.userId,
+        aiProvider: scriptResult.provider ?? null,
+        aiModel:
+          scriptResult.provider === "openai" ? "gpt-4o-mini"
+          : scriptResult.provider === "groq" ? "llama-3.3-70b-versatile"
+          : null,
+        aiInputTokens: scriptResult.inputTokens ?? null,
+        aiOutputTokens: scriptResult.outputTokens ?? null,
+        ttsCharacters: voiceover.characterCount ?? null,
+        ttsSeconds: voiceover.durationSec,
+        renderSeconds,
+        creditsCharged: CREDITS_PER_VIDEO,
+      });
     });
-
-    // Record measurable usage for cost tracking (best-effort — never throws,
-    // and deliberately outside the transaction above: this is non-critical
-    // telemetry that should never roll back a successful render's status/
-    // capture if it fails for an unrelated reason).
-    await upsertCostRecord({
-      jobId,
-      projectId: project.id,
-      userId: project.userId,
-      aiProvider: scriptResult.provider ?? null,
-      aiModel:
-        scriptResult.provider === "openai" ? "gpt-4o-mini"
-        : scriptResult.provider === "groq" ? "llama-3.3-70b-versatile"
-        : null,
-      aiInputTokens: scriptResult.inputTokens ?? null,
-      aiOutputTokens: scriptResult.outputTokens ?? null,
-      ttsCharacters: voiceover.characterCount ?? null,
-      ttsSeconds: voiceover.durationSec,
-      renderSeconds,
-      creditsCharged: CREDITS_PER_VIDEO,
-    }).catch((e) => console.error("[script-runner] cost record write failed:", e instanceof Error ? e.message : e));
 
     await recordActivity(project.userId);
   } catch (err) {
