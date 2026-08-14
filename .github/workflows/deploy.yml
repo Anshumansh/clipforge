@@ -3,6 +3,14 @@ name: Deploy to production
 on:
   push:
     branches: [main]
+  # Validation-only trigger: lets build-check run on a PR before merge, so a
+  # branch's readiness can be confirmed by real CI ahead of a merge/deploy
+  # decision. The deploy job below is explicitly gated to an actual push to
+  # main (see its `if:`), so opening or updating a PR can never itself
+  # reach the SSH/redeploy step -- only build-check runs for pull_request
+  # events.
+  pull_request:
+    branches: [main]
   workflow_dispatch: {}
 
 jobs:
@@ -60,6 +68,14 @@ jobs:
 
   deploy:
     needs: build-check
+    # Only an actual push to main deploys. This also means workflow_dispatch
+    # alone no longer triggers a real deploy (previously it did, regardless
+    # of which ref was selected, since the deploy step always pulls
+    # origin/main on the VPS itself) -- re-add a workflow_dispatch path
+    # deliberately if a manual "redeploy main" button is wanted back; don't
+    # let it be an accidental side effect of adding the pull_request trigger
+    # above.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: SSH and redeploy
