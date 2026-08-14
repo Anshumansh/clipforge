@@ -12,7 +12,8 @@ import { refundCredits, CREDITS_PER_VIDEO } from "@/lib/credits";
 import { captureReservationInTx, releaseReservationInTx } from "@/lib/pricing/ledger";
 import { resolveProjectCreditOwnerId } from "@/lib/workspace";
 import { upsertCostRecord, upsertCostRecordInTx } from "@/lib/jobs/cost-tracker";
-import { LeaseLostError } from "@/lib/jobs/claim";
+import { LeaseLostError, renewLease } from "@/lib/jobs/claim";
+import { getAttemptMediaKey } from "@/lib/jobs/media-fencing";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 
 async function setJobProgress(jobId: string, progress: number, log?: string) {
@@ -82,8 +83,20 @@ export async function runScriptJob(jobId: string, workerId: string, attemptToken
       },
     });
 
+    // Checkpoint: before rendering, verify lease still held
+    try {
+      await renewLease(jobId, workerId, attemptToken);
+    } catch (err) {
+      if (err instanceof LeaseLostError) throw err;
+      // Transient DB failure: log but continue (will be caught at finalization)
+      console.error(`[script-runner] failed to verify lease before render for job ${jobId}:`, err instanceof Error ? err.message : String(err));
+    }
+
     await setJobProgress(jobId, 60, "Rendering video…");
     const renderStart = Date.now();
+
+    // Upload to attempt-scoped key: jobs/{jobId}/attempts/{attemptToken}/output.mp4
+    const attemptMediaKey = getAttemptMediaKey(jobId, attemptToken, "output.mp4");
     const videoUrl = await renderScriptVideo(
       {
         words: voiceover.words,
@@ -94,12 +107,25 @@ export async function runScriptJob(jobId: string, workerId: string, attemptToken
         watermark: input.watermark,
         brand,
       },
-      `${mediaKeyPrefix}/final.mp4`,
+      attemptMediaKey,
       (percent) => {
         void setJobProgress(jobId, 60 + Math.round(percent * 0.35));
       }
     );
     const renderSeconds = (Date.now() - renderStart) / 1000;
+
+    // Checkpoint: after upload, verify lease still held before database finalization
+    try {
+      await renewLease(jobId, workerId, attemptToken);
+    } catch (err) {
+      if (err instanceof LeaseLostError) {
+        // Lease lost after upload: stale worker. Stop mutations but object remains in storage.
+        // Another worker has claimed the job. Do not update Project.videoUrl or finalize.
+        console.error(`[script-runner] lease lost after upload for job ${jobId}, aborting finalization`);
+        throw err;
+      }
+      console.error(`[script-runner] failed to verify lease after upload for job ${jobId}:`, err instanceof Error ? err.message : String(err));
+    }
 
     // Project "ready", Job "done", cost record, and the reservation capture must land
     // together or not at all -- a crash between separate writes here used

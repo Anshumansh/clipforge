@@ -255,4 +255,65 @@ describe("runRepurposeJob — repurpose runner (TEST-001 + REL-001 + COST-001)",
 
     expect(costRecordUpsert).toHaveBeenCalledWith(expect.objectContaining({ creditsRefunded: 10 }));
   });
+
+  describe("media fencing (Phase A)", () => {
+    it("uploads each clip to an attempt-scoped key", async () => {
+      await runRepurposeJob("job-1", "worker-1", "token-abc123");
+
+      expect(renderClipFn).toHaveBeenCalledWith(
+        expect.anything(),
+        "jobs/job-1/attempts/token-abc123/clip-clip-1.mp4",
+        expect.any(Function)
+      );
+    });
+
+    it("checks the lease before rendering each clip and stops rendering further clips once it's lost", async () => {
+      planHighlightsFn.mockResolvedValue([
+        { startSec: 0, endSec: 15, title: "Clip 1", score: 80 },
+        { startSec: 20, endSec: 35, title: "Clip 2", score: 70 },
+      ]);
+      clipCreate.mockImplementation((args: { data: { title: string } }) => ({
+        id: `clip-${args.data.title.replace(" ", "-")}`,
+        ...args.data,
+      }));
+
+      let renewCalls = 0;
+      jobUpdateMany.mockImplementation(async (args: { data?: { leaseExpiresAt?: Date; status?: string } }) => {
+        if (args?.data?.leaseExpiresAt) {
+          renewCalls++;
+          // Own the lease for the first clip's checkpoint, lose it before the second.
+          return { count: renewCalls === 1 ? 1 : 0 };
+        }
+        return { count: 1 };
+      });
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await runRepurposeJob("job-1", "worker-1", "token-abc123");
+
+      // Only the first clip should have started rendering -- the second
+      // checkpoint throws LeaseLostError before the loop reaches clip 2.
+      expect(renderClipFn).toHaveBeenCalledTimes(1);
+      expect(jobUpdateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "done" }) }));
+      expect(projectUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "ready" }) }));
+
+      errorSpy.mockRestore();
+    });
+
+    it("does not count a previous abandoned attempt's leftover 'ready' clip rows toward this attempt's success", async () => {
+      // Simulate the only clip this attempt itself created failing to render --
+      // even though some OTHER project-wide clip.count query might have found
+      // ready rows from an earlier stale attempt, this attempt must still fail
+      // because it tracks readiness from its own clips array, not a project-wide count.
+      renderClipFn.mockRejectedValue(new Error("render fail"));
+      clipCount.mockResolvedValue(5); // stale attempt's leftover ready clips, if this were still queried
+
+      await runRepurposeJob("job-1", "worker-1", "token-abc123");
+
+      // db.clip.count must never be consulted for readiness -- readiness is
+      // computed locally from this attempt's own clip renders.
+      expect(clipCount).not.toHaveBeenCalled();
+      expect(releaseReservationInTxFn).toHaveBeenCalledWith(expect.anything(), "res-1", expect.stringContaining("All clip renders failed"));
+      expect(captureReservationInTxFn).not.toHaveBeenCalled();
+    });
+  });
 });

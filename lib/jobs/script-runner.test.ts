@@ -278,7 +278,7 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
     });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(runScriptJob("job-1")).resolves.toBeUndefined(); // the runner's own catch swallows this, doesn't crash the process
+    await expect(runScriptJob("job-1", "worker-1", "token-abc123")).resolves.toBeUndefined(); // the runner's own catch swallows this, doesn't crash the process
     expect(releaseReservationInTxFn).not.toHaveBeenCalled();
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining("remains recoverable as processing/reserved"),
@@ -340,5 +340,59 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
     // releaseReservation itself is idempotent (exact-once), but the runner should
     // only call it once per failure — not once per retry of a crashed runner.
     expect(releaseReservationInTxFn).toHaveBeenCalledTimes(1);
+  });
+
+  describe("media fencing (Phase A)", () => {
+    it("uploads the render to an attempt-scoped key, not a fixed final.mp4 key two attempts could collide on", async () => {
+      await runScriptJob("job-1", "worker-1", "token-abc123");
+
+      expect(renderScriptVideoFn).toHaveBeenCalledWith(
+        expect.anything(),
+        "jobs/job-1/attempts/token-abc123/output.mp4",
+        expect.any(Function)
+      );
+    });
+
+    it("checks the lease (via renewLease's updateMany) before rendering and again after upload, before finalizing", async () => {
+      const leaseCheckOrder: string[] = [];
+      jobUpdateMany.mockImplementation(async (args: { data?: { leaseExpiresAt?: Date; status?: string } }) => {
+        if (args?.data?.leaseExpiresAt) leaseCheckOrder.push("lease-renew");
+        if (args?.data?.status === "done") leaseCheckOrder.push("finalize");
+        return { count: 1 };
+      });
+
+      await runScriptJob("job-1", "worker-1", "token-abc123");
+
+      // Two renewLease calls (before render, after upload) both before the
+      // finalize updateMany that actually marks the job "done".
+      expect(leaseCheckOrder).toEqual(["lease-renew", "lease-renew", "finalize"]);
+    });
+
+    it("a stale worker that loses the lease AFTER upload never finalizes the job or exposes the attempt's video", async () => {
+      let renewCalls = 0;
+      jobUpdateMany.mockImplementation(async (args: { data?: { leaseExpiresAt?: Date; status?: string } }) => {
+        if (args?.data?.leaseExpiresAt) {
+          renewCalls++;
+          // First checkpoint (before render) still owns the lease; second
+          // checkpoint (after upload) has lost it to another worker.
+          return { count: renewCalls === 1 ? 1 : 0 };
+        }
+        return { count: 1 };
+      });
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await runScriptJob("job-1", "worker-1", "token-abc123");
+
+      // The render still happened (upload already in flight before the lease
+      // was lost), but finalization must never run: no "done" job write, no
+      // Project.videoUrl write exposing this attempt's output, no capture.
+      expect(renderScriptVideoFn).toHaveBeenCalled();
+      expect(jobUpdateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "done" }) }));
+      expect(projectUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "ready" }) }));
+      expect(captureReservationInTxFn).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("lease lost after upload"));
+
+      errorSpy.mockRestore();
+    });
   });
 });

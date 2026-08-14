@@ -185,7 +185,7 @@ describe("runUgcJob — UGC runner (TEST-001 + REL-001 + COST-001)", () => {
     });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(runUgcJob("job-1")).resolves.toBeUndefined();
+    await expect(runUgcJob("job-1", "worker-1", "token-abc123")).resolves.toBeUndefined();
     expect(releaseReservationInTxFn).not.toHaveBeenCalled();
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining("remains recoverable as processing/reserved"),
@@ -219,5 +219,39 @@ describe("runUgcJob — UGC runner (TEST-001 + REL-001 + COST-001)", () => {
     await runUgcJob("job-1", "worker-1", "token-abc123");
 
     expect(costRecordUpsert).toHaveBeenCalledWith(expect.objectContaining({ creditsRefunded: 10 }));
+  });
+
+  describe("media fencing (Phase A)", () => {
+    it("uploads the render to an attempt-scoped key, not a fixed final.mp4 key two attempts could collide on", async () => {
+      await runUgcJob("job-1", "worker-1", "token-abc123");
+
+      expect(renderScriptVideoFn).toHaveBeenCalledWith(
+        expect.anything(),
+        "jobs/job-1/attempts/token-abc123/output.mp4",
+        expect.any(Function)
+      );
+    });
+
+    it("a stale worker that loses the lease AFTER upload never finalizes the job or exposes the attempt's video", async () => {
+      let renewCalls = 0;
+      jobUpdateMany.mockImplementation(async (args: { data?: { leaseExpiresAt?: Date; status?: string } }) => {
+        if (args?.data?.leaseExpiresAt) {
+          renewCalls++;
+          return { count: renewCalls === 1 ? 1 : 0 };
+        }
+        return { count: 1 };
+      });
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await runUgcJob("job-1", "worker-1", "token-abc123");
+
+      expect(renderScriptVideoFn).toHaveBeenCalled();
+      expect(jobUpdateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "done" }) }));
+      expect(projectUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "ready" }) }));
+      expect(captureReservationInTxFn).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("lease lost after upload"));
+
+      errorSpy.mockRestore();
+    });
   });
 });

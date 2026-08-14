@@ -10,7 +10,8 @@ import { refundCredits, CREDITS_PER_VIDEO } from "@/lib/credits";
 import { captureReservationInTx, releaseReservationInTx } from "@/lib/pricing/ledger";
 import { resolveProjectCreditOwnerId } from "@/lib/workspace";
 import { upsertCostRecord, upsertCostRecordInTx } from "@/lib/jobs/cost-tracker";
-import { LeaseLostError } from "@/lib/jobs/claim";
+import { LeaseLostError, renewLease } from "@/lib/jobs/claim";
+import { getAttemptMediaKey } from "@/lib/jobs/media-fencing";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 
 async function setJobProgress(jobId: string, progress: number, log?: string) {
@@ -75,8 +76,6 @@ export async function runRepurposeJob(jobId: string, workerId: string, attemptTo
       topic: string;
       aspectRatio?: AspectRatio;
     };
-    const mediaKeyPrefix = `media/${project.userId}/${project.id}`;
-
     await setJobProgress(jobId, 10, "Transcribing audio…");
     const transcript = await transcribeVideo(input.sourcePath, input.durationSec);
 
@@ -123,8 +122,19 @@ export async function runRepurposeJob(jobId: string, workerId: string, attemptTo
     const brand = await getBrandForRender(project.userId);
 
     let completed = 0;
+    let readyCount = 0;
     let totalRenderSeconds = 0;
     for (const clip of clips) {
+      // Checkpoint before each clip: a stale worker stops burning render time
+      // on a job it no longer owns as soon as the next heartbeat interval would
+      // have caught the lease loss anyway.
+      try {
+        await renewLease(jobId, workerId, attemptToken);
+      } catch (err) {
+        if (err instanceof LeaseLostError) throw err;
+        console.error(`[repurpose-runner] failed to verify lease before clip render for job ${jobId}:`, err instanceof Error ? err.message : String(err));
+      }
+
       await db.clip.update({ where: { id: clip.id }, data: { status: "processing" } });
       try {
         await setJobProgress(jobId, Math.round(25 + (completed / clips.length) * 70), "Tracking subject…");
@@ -136,6 +146,9 @@ export async function runRepurposeJob(jobId: string, workerId: string, attemptTo
           : null;
 
         const clipRenderStart = Date.now();
+        // clip.id is a fresh cuid minted by db.clip.create() above (this attempt's
+        // own row), so this key can never collide with another attempt's clip --
+        // attemptToken is included anyway for a single consistent key scheme.
         const videoUrl = await renderRepurposeClip(
           {
             sourcePath: input.sourcePath,
@@ -146,7 +159,7 @@ export async function runRepurposeJob(jobId: string, workerId: string, attemptTo
             panKeyframes: panKeyframes ?? undefined,
             brand,
           },
-          `${mediaKeyPrefix}/clip-${clip.id}.mp4`,
+          getAttemptMediaKey(jobId, attemptToken, `clip-${clip.id}.mp4`),
           (percent) => {
             const overallPercent = 25 + ((completed + percent / 100) / clips.length) * 70;
             void setJobProgress(jobId, Math.round(overallPercent));
@@ -154,6 +167,7 @@ export async function runRepurposeJob(jobId: string, workerId: string, attemptTo
         );
         totalRenderSeconds += (Date.now() - clipRenderStart) / 1000;
         await db.clip.update({ where: { id: clip.id }, data: { status: "ready", videoUrl } });
+        readyCount += 1;
       } catch {
         await db.clip.update({ where: { id: clip.id }, data: { status: "failed" } });
       }
@@ -162,9 +176,22 @@ export async function runRepurposeJob(jobId: string, workerId: string, attemptTo
 
     await cleanupLocalSource();
 
-    const readyClips = await db.clip.count({ where: { projectId: project.id, status: "ready" } });
-    if (readyClips === 0) {
+    // Counted locally from this attempt's own clip rows, not re-queried from the
+    // DB by projectId -- a DB-wide count would also pick up "ready" clips left
+    // behind by an earlier abandoned attempt on the same project.
+    if (readyCount === 0) {
       throw new Error("All clip renders failed");
+    }
+
+    // Checkpoint: after all uploads, verify lease still held before database finalization
+    try {
+      await renewLease(jobId, workerId, attemptToken);
+    } catch (err) {
+      if (err instanceof LeaseLostError) {
+        console.error(`[repurpose-runner] lease lost after render for job ${jobId}, aborting finalization`);
+        throw err;
+      }
+      console.error(`[repurpose-runner] failed to verify lease after render for job ${jobId}:`, err instanceof Error ? err.message : String(err));
     }
 
     // Project "ready", Job "done", cost record, and the reservation capture must land

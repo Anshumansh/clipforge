@@ -63,7 +63,7 @@ export interface WorkerOptions {
   skipAdmission?: boolean;
 }
 
-const DEFAULT_RUNNERS: Record<JobType, (jobId: string) => Promise<void>> = {
+const DEFAULT_RUNNERS: Record<JobType, (jobId: string, workerId: string, attemptToken: string) => Promise<void>> = {
   script: runScriptJob,
   repurpose: runRepurposeJob,
   ugc: runUgcJob,
@@ -101,7 +101,7 @@ export class Worker {
   private reconcileTimer: ReturnType<typeof setInterval> | null = null;
   private admissionTimer: ReturnType<typeof setInterval> | null = null;
   private readonly inFlight = new Set<Promise<void>>();
-  private readonly runners: Record<JobType, (jobId: string) => Promise<void>>;
+  private readonly runners: Record<JobType, (jobId: string, workerId: string, attemptToken: string) => Promise<void>>;
   private readonly claim: () => Promise<ClaimedJob | null>;
   private readonly renewLeaseFn: (jobId: string, workerId: string, attemptToken: string) => Promise<void>;
   private readonly reconcileFn: () => Promise<void>;

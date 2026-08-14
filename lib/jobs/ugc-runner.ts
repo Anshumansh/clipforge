@@ -9,7 +9,8 @@ import { refundCredits, CREDITS_PER_VIDEO } from "@/lib/credits";
 import { captureReservationInTx, releaseReservationInTx } from "@/lib/pricing/ledger";
 import { resolveProjectCreditOwnerId } from "@/lib/workspace";
 import { upsertCostRecord, upsertCostRecordInTx } from "@/lib/jobs/cost-tracker";
-import { LeaseLostError } from "@/lib/jobs/claim";
+import { LeaseLostError, renewLease } from "@/lib/jobs/claim";
+import { getAttemptMediaKey } from "@/lib/jobs/media-fencing";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 
 async function setJobProgress(jobId: string, progress: number, log?: string) {
@@ -59,8 +60,20 @@ export async function runUgcJob(jobId: string, workerId: string, attemptToken: s
 
     const brand = await getBrandForRender(project.userId);
 
+    // Checkpoint: before rendering, verify lease still held
+    try {
+      await renewLease(jobId, workerId, attemptToken);
+    } catch (err) {
+      if (err instanceof LeaseLostError) throw err;
+      console.error(`[ugc-runner] failed to verify lease before render for job ${jobId}:`, err instanceof Error ? err.message : String(err));
+    }
+
     await setJobProgress(jobId, 60, "Rendering ad video…");
     const renderStart = Date.now();
+
+    // Upload to attempt-scoped key so a stale worker's re-render can never
+    // overwrite the winning attempt's bytes at the same object key.
+    const attemptMediaKey = getAttemptMediaKey(jobId, attemptToken, "output.mp4");
     const videoUrl = await renderScriptVideo(
       {
         words: voiceover.words,
@@ -71,12 +84,23 @@ export async function runUgcJob(jobId: string, workerId: string, attemptToken: s
         aspectRatio: input.aspectRatio,
         brand,
       },
-      `${mediaKeyPrefix}/final.mp4`,
+      attemptMediaKey,
       (percent) => {
         void setJobProgress(jobId, 60 + Math.round(percent * 0.35));
       }
     );
     const renderSeconds = (Date.now() - renderStart) / 1000;
+
+    // Checkpoint: after upload, verify lease still held before database finalization
+    try {
+      await renewLease(jobId, workerId, attemptToken);
+    } catch (err) {
+      if (err instanceof LeaseLostError) {
+        console.error(`[ugc-runner] lease lost after upload for job ${jobId}, aborting finalization`);
+        throw err;
+      }
+      console.error(`[ugc-runner] failed to verify lease after upload for job ${jobId}:`, err instanceof Error ? err.message : String(err));
+    }
 
     // Project "ready", Job "done", cost record, and the reservation capture must land
     // together or not at all -- see the identical comment in
