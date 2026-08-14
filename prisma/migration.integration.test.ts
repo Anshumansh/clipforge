@@ -1,16 +1,28 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { execSync } from "node:child_process";
+import path from "node:path";
+import fs from "node:fs";
 import { Client as PgClient } from "pg";
 import { PrismaClient } from "@prisma/client";
 import { PostgresTestDB } from "@/lib/testing/postgres-integration";
 
 /**
- * Phase D: validates the newly generated prisma/migrations/*_baseline
- * migration (see commit history for why it was needed -- the repo had 3
- * incremental migration files with no baseline covering the core schema,
- * so `prisma migrate deploy` failed outright on a clean database with
- * P3018 "relation Job does not exist"). This test proves the FIX, using
- * the same real local Postgres infrastructure as the Phase C tests.
+ * Phase D (baseline existence) + Release Candidate Validation item 1
+ * (migration reconciliation): validates prisma/migrations/, which is now
+ * two migrations, not one --
+ *   20260814103037_baseline_matches_production -- ONLY schema confirmed
+ *     present in the real production database via read-only introspection
+ *   20260814103100_add_queue_lifecycle_fencing -- the genuinely new schema
+ *     (Job lease-fencing columns, WorkerRegistration, DemoQuota) that does
+ *     NOT exist in production yet
+ * split apart specifically so the baseline can be marked
+ * `prisma migrate resolve --applied` against production without falsely
+ * claiming the second migration's objects already exist there. See
+ * PRODUCTION_READINESS_VERIFIED_2026-08-14.md's migration reconciliation
+ * table for the full column-by-column comparison this split was generated
+ * from. This test proves both migrations apply cleanly in order and that
+ * the baseline ALONE reproduces production's exact shape (not the full
+ * current schema) -- the property the whole split exists to guarantee.
  */
 describe("prisma migrate deploy against a clean database (Phase D)", () => {
   let pgTestDb: PostgresTestDB | null = null;
@@ -40,15 +52,16 @@ describe("prisma migrate deploy against a clean database (Phase D)", () => {
       });
     }).not.toThrow();
 
-    // Confirm the migration was actually recorded as applied, and every
-    // table Prisma's schema defines actually exists.
+    // Confirm both migrations were recorded as applied, in order, and every
+    // table Prisma's current schema defines actually exists.
     const verify = new PgClient({ connectionString: pgTestDb.getUrl() });
     await verify.connect();
-    const migrations = await verify.query(`SELECT migration_name, finished_at, rolled_back_at FROM "_prisma_migrations"`);
-    expect(migrations.rows).toHaveLength(1);
-    expect(migrations.rows[0].migration_name).toMatch(/_baseline$/);
-    expect(migrations.rows[0].finished_at).not.toBeNull();
-    expect(migrations.rows[0].rolled_back_at).toBeNull();
+    const migrations = await verify.query(`SELECT migration_name, finished_at, rolled_back_at FROM "_prisma_migrations" ORDER BY started_at ASC`);
+    expect(migrations.rows).toHaveLength(2);
+    expect(migrations.rows[0].migration_name).toMatch(/_baseline_matches_production$/);
+    expect(migrations.rows[1].migration_name).toMatch(/_add_queue_lifecycle_fencing$/);
+    expect(migrations.rows.every((r) => r.finished_at !== null)).toBe(true);
+    expect(migrations.rows.every((r) => r.rolled_back_at === null)).toBe(true);
 
     const tables = await verify.query(
       `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`
@@ -121,5 +134,44 @@ describe("prisma migrate deploy against a clean database (Phase D)", () => {
     } finally {
       await prisma.$disconnect();
     }
+  });
+
+  it("the baseline migration ALONE (before the fencing migration runs) does not create Job's new lease-fencing columns or WorkerRegistration/DemoQuota -- the property the whole split exists to guarantee", async () => {
+    pgTestDb = await PostgresTestDB.create();
+    const client = new PgClient({ connectionString: pgTestDb.getUrl() });
+    await client.connect();
+    await client.query(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`);
+
+    const migrationsDir = path.join(process.cwd(), "prisma", "migrations");
+    const baselineSql = fs.readFileSync(
+      path.join(migrationsDir, "20260814103037_baseline_matches_production", "migration.sql"),
+      "utf-8"
+    );
+    await client.query(baselineSql);
+
+    // What a `prisma migrate resolve --applied <baseline>` against the real
+    // production database would leave it looking like, if only the baseline
+    // had ever actually run there (which is the real, current state).
+    const tables = await client.query(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`
+    );
+    const tableNames = tables.rows.map((r) => r.table_name);
+    expect(tableNames).not.toContain("WorkerRegistration");
+    expect(tableNames).not.toContain("DemoQuota");
+
+    const jobColumns = await client.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'Job'`
+    );
+    const jobColumnNames = jobColumns.rows.map((r) => r.column_name);
+    expect(jobColumnNames).not.toContain("attemptToken");
+    expect(jobColumnNames).not.toContain("workerId");
+    expect(jobColumnNames).not.toContain("leaseExpiresAt");
+    expect(jobColumnNames).not.toContain("priority");
+    // The original 9 production columns must still be exactly there.
+    expect(jobColumnNames.sort()).toEqual(
+      ["id", "userId", "projectId", "type", "status", "progress", "log", "createdAt", "updatedAt"].sort()
+    );
+
+    await client.end();
   });
 });

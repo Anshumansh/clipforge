@@ -1,3 +1,18 @@
+-- Baseline reflecting ONLY schema confirmed present in the production
+-- database (Neon) via read-only introspection on 2026-08-14 (information_
+-- schema.tables/columns/indexes -- no row data was read). This does NOT
+-- include the Job lease-fencing columns/indexes, WorkerRegistration, or
+-- DemoQuota -- those are unapplied development schema and live in the
+-- next migration (20260814103100_add_queue_lifecycle_fencing) as an
+-- explicit additive migration instead, specifically so this baseline can
+-- be marked `prisma migrate resolve --applied` against production without
+-- falsely claiming objects exist there that don't. See
+-- PRODUCTION_READINESS_VERIFIED_2026-08-14.md's migration reconciliation
+-- section for the full column-by-column comparison this was generated from.
+-- Generated via: prisma migrate diff --from-empty
+--   --to-schema-datamodel=<schema.prisma with Job's 15 new columns/4 new
+--   indexes and the WorkerRegistration/DemoQuota models removed> --script
+
 -- CreateTable
 CREATE TABLE "User" (
     "id" TEXT NOT NULL,
@@ -233,21 +248,6 @@ CREATE TABLE "Job" (
     "log" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
-    "priority" INTEGER NOT NULL DEFAULT 0,
-    "attemptCount" INTEGER NOT NULL DEFAULT 0,
-    "maxAttempts" INTEGER NOT NULL DEFAULT 3,
-    "leaseExpiresAt" TIMESTAMP(3),
-    "workerId" TEXT,
-    "heartbeatAt" TIMESTAMP(3),
-    "attemptToken" TEXT,
-    "stage" TEXT,
-    "completedAt" TIMESTAMP(3),
-    "failedAt" TIMESTAMP(3),
-    "deadLetteredAt" TIMESTAMP(3),
-    "cancelledAt" TIMESTAMP(3),
-    "notBeforeAt" TIMESTAMP(3),
-    "failureReason" TEXT,
-    "idempotencyKey" TEXT,
 
     CONSTRAINT "Job_pkey" PRIMARY KEY ("id")
 );
@@ -608,30 +608,6 @@ CREATE TABLE "BrandPreset" (
     CONSTRAINT "BrandPreset_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
-CREATE TABLE "WorkerRegistration" (
-    "workerId" TEXT NOT NULL,
-    "registeredAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "lastHeartbeat" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "status" TEXT NOT NULL DEFAULT 'admitted',
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "WorkerRegistration_pkey" PRIMARY KEY ("workerId")
-);
-
--- CreateTable
-CREATE TABLE "DemoQuota" (
-    "id" TEXT NOT NULL,
-    "ipAddress" TEXT NOT NULL,
-    "utcDate" TIMESTAMP(3) NOT NULL,
-    "submissionCount" INTEGER NOT NULL DEFAULT 0,
-    "estimatedCost" DOUBLE PRECISION NOT NULL DEFAULT 0,
-    "lastUpdated" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "DemoQuota_pkey" PRIMARY KEY ("id")
-);
-
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
@@ -685,18 +661,6 @@ CREATE UNIQUE INDEX "SocialAccount_userId_platform_key" ON "SocialAccount"("user
 
 -- CreateIndex
 CREATE INDEX "SocialPost_status_scheduledAt_idx" ON "SocialPost"("status", "scheduledAt");
-
--- CreateIndex
-CREATE INDEX "Job_status_priority_createdAt_idx" ON "Job"("status", "priority", "createdAt");
-
--- CreateIndex
-CREATE INDEX "Job_status_leaseExpiresAt_idx" ON "Job"("status", "leaseExpiresAt");
-
--- CreateIndex
-CREATE INDEX "Job_userId_status_idx" ON "Job"("userId", "status");
-
--- CreateIndex
-CREATE INDEX "Job_workerId_status_idx" ON "Job"("workerId", "status");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "UserNiche_userId_key" ON "UserNiche"("userId");
@@ -784,21 +748,6 @@ CREATE UNIQUE INDEX "PlanVersion_planId_versionLabel_key" ON "PlanVersion"("plan
 
 -- CreateIndex
 CREATE INDEX "BrandPreset_userId_idx" ON "BrandPreset"("userId");
-
--- CreateIndex
-CREATE INDEX "WorkerRegistration_status_idx" ON "WorkerRegistration"("status");
-
--- CreateIndex
-CREATE INDEX "WorkerRegistration_lastHeartbeat_idx" ON "WorkerRegistration"("lastHeartbeat");
-
--- CreateIndex
-CREATE INDEX "DemoQuota_utcDate_idx" ON "DemoQuota"("utcDate");
-
--- CreateIndex
-CREATE INDEX "DemoQuota_ipAddress_utcDate_idx" ON "DemoQuota"("ipAddress", "utcDate");
-
--- CreateIndex
-CREATE UNIQUE INDEX "DemoQuota_ipAddress_utcDate_key" ON "DemoQuota"("ipAddress", "utcDate");
 
 -- AddForeignKey
 ALTER TABLE "AdminAction" ADD CONSTRAINT "AdminAction_adminId_fkey" FOREIGN KEY ("adminId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
