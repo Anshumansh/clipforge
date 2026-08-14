@@ -19,7 +19,11 @@ jobs:
       # calls a real provider, it just needs these present so module-level
       # client construction (Prisma, etc.) doesn't throw. A broken push
       # (ours or the weekly maintenance bot's) fails here, never reaching prod.
-      - name: Typecheck + build
+      - name: Prisma schema validation
+        run: npx prisma validate
+      - name: Typecheck
+        run: npx tsc --noEmit -p .
+      - name: Build
         env:
           DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci"
           NEXTAUTH_SECRET: "ci-build-only-not-a-real-secret"
@@ -35,8 +39,24 @@ jobs:
       # esbuild only statically bundles imports, it never executes app code.
       - name: Worker build
         run: npm run build:worker
+      # Mocked-DB tests: covers job runners, credit ledger, Stripe webhook
+      # handling (signature verification, idempotency), the /api/internal/metrics
+      # route, admission control, demo quotas, cost tracking, etc. Fast, no
+      # external services.
       - name: Unit tests
         run: npm test
+      # Real PostgreSQL (via the embedded-postgres package -- a real local
+      # binary, not a mock), separate connections, genuine concurrent
+      # transactions: proves queue-claiming, lease fencing, worker admission,
+      # and demo-quota enforcement are actually race-safe, and that
+      # `prisma migrate deploy` succeeds against a clean database and
+      # produces a schema identical to `db push`. See lib/testing/
+      # integration-global-setup.ts for why this never touches a real
+      # DATABASE_URL. A regression here (e.g. someone reintroducing a
+      # check-then-act race, or a migration that doesn't apply cleanly)
+      # fails the deploy gate the same as a broken build would.
+      - name: PostgreSQL integration tests
+        run: npm run test:integration
 
   deploy:
     needs: build-check
