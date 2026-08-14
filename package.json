@@ -42,7 +42,7 @@
     "lucide-react": "^0.446.0",
     "msedge-tts": "^2.0.7",
     "music-metadata": "^10.5.1",
-    "next": "14.2.15",
+    "next": "^14.2.35",
     "next-auth": "^4.24.8",
     "otpauth": "^9.5.1",
     "qrcode": "^1.5.4",
