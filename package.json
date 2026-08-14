@@ -65,6 +65,7 @@
     "esbuild": "^0.28.1",
     "eslint": "^8.57.1",
     "eslint-config-next": "14.2.15",
+    "parse-prometheus-text-format": "^1.1.1",
     "pg": "^8.23.0",
     "postcss": "^8.4.47",
     "prisma": "^5.20.0",
