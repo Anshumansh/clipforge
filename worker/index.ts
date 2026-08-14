@@ -54,7 +54,7 @@ export interface WorkerOptions {
    * of LEASE_DURATION_MS, so a stale lease is typically caught well before
    * a second full lease period elapses. */
   reconcileIntervalMs?: number;
-  runners?: Record<JobType, (jobId: string) => Promise<void>>;
+  runners?: Record<JobType, (jobId: string, workerId: string, attemptToken: string) => Promise<void>>;
   claim?: () => Promise<ClaimedJob | null>;
   renewLease?: (jobId: string, workerId: string, attemptToken: string) => Promise<void>;
   reconcile?: () => Promise<void>;
@@ -179,7 +179,7 @@ export class Worker {
       }, DEFAULT_HEARTBEAT_INTERVAL_MS);
 
       const runner = this.runners[claimed.type];
-      const jobPromise: Promise<void> = runner(claimed.id)
+      const jobPromise: Promise<void> = runner(claimed.id, this.instanceId, claimed.attemptToken)
         .then(() => {
           this.log(
             `[worker:${this.instanceId}] job completed id=${claimed.id} type=${claimed.type} durationMs=${Date.now() - start}`

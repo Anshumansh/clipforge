@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const jobFindUnique = vi.fn();
 const jobUpdate = vi.fn();
+const jobUpdateMany = vi.fn();
 const projectUpdate = vi.fn();
 const clipCreate = vi.fn();
 const clipUpdate = vi.fn();
@@ -13,6 +14,7 @@ type MockDb = {
   job: {
     findUniqueOrThrow: (...a: unknown[]) => unknown;
     update: (...a: unknown[]) => unknown;
+    updateMany: (...a: unknown[]) => unknown;
   };
   project: { update: (...a: unknown[]) => unknown };
   clip: {
@@ -28,6 +30,7 @@ const mockDb: MockDb = {
   job: {
     findUniqueOrThrow: (...a: unknown[]) => jobFindUnique(...a),
     update: (...a: unknown[]) => jobUpdate(...a),
+    updateMany: (...a: unknown[]) => jobUpdateMany(...a),
   },
   project: { update: (...a: unknown[]) => projectUpdate(...a) },
   clip: {
@@ -80,6 +83,8 @@ const { runRepurposeJob } = await import("@/lib/jobs/repurpose-runner");
 function makeJob() {
   return {
     id: "job-1",
+    workerId: "worker-1",
+    attemptToken: "token-abc123",
     project: {
       id: "proj-1",
       userId: "user-1",
@@ -98,6 +103,7 @@ describe("runRepurposeJob — repurpose runner (TEST-001 + REL-001 + COST-001)",
     vi.clearAllMocks();
     jobFindUnique.mockResolvedValue(makeJob());
     jobUpdate.mockResolvedValue({});
+    jobUpdateMany.mockResolvedValue({ count: 1 });
     projectUpdate.mockResolvedValue({});
     clipCreate.mockResolvedValue(fakeClip);
     clipUpdate.mockResolvedValue({});
@@ -113,7 +119,7 @@ describe("runRepurposeJob — repurpose runner (TEST-001 + REL-001 + COST-001)",
   });
 
   it("captures reservation on full success", async () => {
-    await runRepurposeJob("job-1");
+    await runRepurposeJob("job-1", "worker-1", "token-abc123");
 
     expect(captureReservationInTxFn).toHaveBeenCalledWith(expect.anything(), "res-1");
     expect(releaseReservationInTxFn).not.toHaveBeenCalled();
@@ -122,25 +128,27 @@ describe("runRepurposeJob — repurpose runner (TEST-001 + REL-001 + COST-001)",
 
   it("captures the reservation in the SAME transaction as the project/job success writes", async () => {
     const callOrder: string[] = [];
+    jobUpdateMany.mockImplementation(async (args: { data?: { status?: string } }) => {
+      if (args?.data?.status === "done") callOrder.push("job-done");
+      return { count: 1 };
+    });
     projectUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
       if (args?.data?.status === "ready") callOrder.push("project-ready");
-    });
-    jobUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
-      if (args?.data?.status === "done") callOrder.push("job-done");
     });
     captureReservationInTxFn.mockImplementation(async () => {
       callOrder.push("capture");
     });
 
-    await runRepurposeJob("job-1");
+    await runRepurposeJob("job-1", "worker-1", "token-abc123");
 
-    expect(callOrder).toEqual(["project-ready", "job-done", "capture"]);
+    // Job update via updateMany now happens before project update
+    expect(callOrder).toEqual(["job-done", "project-ready", "capture"]);
   });
 
   it("releases reservation when transcription throws", async () => {
     transcribeFn.mockRejectedValue(new Error("whisper unavailable"));
 
-    await runRepurposeJob("job-1");
+    await runRepurposeJob("job-1", "worker-1", "token-abc123");
 
     expect(releaseReservationInTxFn).toHaveBeenCalledWith(expect.anything(), "res-1", expect.any(String));
     expect(captureReservationInTxFn).not.toHaveBeenCalled();
@@ -150,7 +158,7 @@ describe("runRepurposeJob — repurpose runner (TEST-001 + REL-001 + COST-001)",
     renderClipFn.mockRejectedValue(new Error("render fail"));
     clipCount.mockResolvedValue(0); // no ready clips
 
-    await runRepurposeJob("job-1");
+    await runRepurposeJob("job-1", "worker-1", "token-abc123");
 
     expect(releaseReservationInTxFn).toHaveBeenCalledWith(expect.anything(), "res-1", expect.any(String));
   });
@@ -168,7 +176,7 @@ describe("runRepurposeJob — repurpose runner (TEST-001 + REL-001 + COST-001)",
       callOrder.push("release");
     });
 
-    await runRepurposeJob("job-1");
+    await runRepurposeJob("job-1", "worker-1", "token-abc123");
 
     expect(callOrder).toEqual(["project-failed", "job-failed", "release"]);
   });
@@ -213,14 +221,14 @@ describe("runRepurposeJob — repurpose runner (TEST-001 + REL-001 + COST-001)",
     }));
     clipCount.mockResolvedValue(1); // one ready clip
 
-    await runRepurposeJob("job-1");
+    await runRepurposeJob("job-1", "worker-1", "token-abc123");
 
     expect(captureReservationInTxFn).toHaveBeenCalled();
     expect(releaseReservationInTxFn).not.toHaveBeenCalled();
   });
 
   it("records transcriptionSeconds in the cost record", async () => {
-    await runRepurposeJob("job-1");
+    await runRepurposeJob("job-1", "worker-1", "token-abc123");
 
     expect(costRecordUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -234,7 +242,7 @@ describe("runRepurposeJob — repurpose runner (TEST-001 + REL-001 + COST-001)",
   it("records creditsRefunded in cost record on failure", async () => {
     transcribeFn.mockRejectedValue(new Error("fail"));
 
-    await runRepurposeJob("job-1");
+    await runRepurposeJob("job-1", "worker-1", "token-abc123");
 
     expect(costRecordUpsert).toHaveBeenCalledWith(expect.objectContaining({ creditsRefunded: 10 }));
   });

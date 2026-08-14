@@ -74,9 +74,10 @@ describe("Worker", () => {
       const runner = vi.fn().mockResolvedValue(undefined);
       const otherType = type === "script" ? "repurpose" : "script";
       const otherRunner = vi.fn().mockResolvedValue(undefined);
+      const attemptToken = "token-123";
       const claim = vi
         .fn()
-        .mockResolvedValueOnce({ id: "job-1", type })
+        .mockResolvedValueOnce({ id: "job-1", type, attemptToken })
         .mockResolvedValue(null);
 
       const worker = new Worker({
@@ -91,7 +92,7 @@ describe("Worker", () => {
       await worker.tick();
       await Promise.resolve(); // let the runner's .then/.finally microtasks settle
 
-      expect(runner).toHaveBeenCalledWith("job-1");
+      expect(runner).toHaveBeenCalledWith("job-1", worker.instanceId, attemptToken);
       expect(otherRunner).not.toHaveBeenCalled();
     });
   });
@@ -114,7 +115,7 @@ describe("Worker", () => {
       let claimCount = 0;
       const claim = vi.fn().mockImplementation(async () => {
         claimCount++;
-        return claimCount <= 2 ? { id: `job-${claimCount}`, type: "script" as const } : null;
+        return claimCount <= 2 ? { id: `job-${claimCount}`, type: "script" as const, attemptToken: `token-${claimCount}` } : null;
       });
 
       const worker = new Worker({
@@ -146,7 +147,7 @@ describe("Worker", () => {
     });
 
     it("defaults to WORKER_CONCURRENCY=1 semantics when constructed with concurrency:1 -- claims exactly one job before stopping", async () => {
-      const claim = vi.fn().mockResolvedValueOnce({ id: "job-1", type: "script" as const }).mockResolvedValue(null);
+      const claim = vi.fn().mockResolvedValueOnce({ id: "job-1", type: "script" as const, attemptToken: "token-1" }).mockResolvedValue(null);
       const runner = vi.fn().mockImplementation(() => new Promise<void>(() => {})); // never resolves during this test
 
       const worker = new Worker({ concurrency: 1, pollIntervalMs: 60_000, claim, runners: { script: runner, repurpose: runner, ugc: runner }, onLog, skipAdmission: true });
@@ -164,7 +165,7 @@ describe("Worker", () => {
       const succeeding = vi.fn().mockResolvedValue(undefined);
       const claim = vi
         .fn()
-        .mockResolvedValueOnce({ id: "job-fail", type: "script" as const })
+        .mockResolvedValueOnce({ id: "job-fail", type: "script" as const, attemptToken: "token-fail" })
         .mockResolvedValueOnce(null);
 
       const worker = new Worker({
@@ -185,11 +186,11 @@ describe("Worker", () => {
 
       // A subsequent poll can claim and run a different job normally --
       // the worker process itself is still alive and functional.
-      claim.mockResolvedValueOnce({ id: "job-ok", type: "repurpose" as const }).mockResolvedValue(null);
+      claim.mockResolvedValueOnce({ id: "job-ok", type: "repurpose" as const, attemptToken: "token-ok" }).mockResolvedValue(null);
       await worker.tick();
       await Promise.resolve();
 
-      expect(succeeding).toHaveBeenCalledWith("job-ok");
+      expect(succeeding).toHaveBeenCalledWith("job-ok", worker.instanceId, "token-ok");
     });
   });
 

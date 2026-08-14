@@ -9,6 +9,7 @@ import { refundCredits, CREDITS_PER_VIDEO } from "@/lib/credits";
 import { captureReservationInTx, releaseReservationInTx } from "@/lib/pricing/ledger";
 import { resolveProjectCreditOwnerId } from "@/lib/workspace";
 import { upsertCostRecord } from "@/lib/jobs/cost-tracker";
+import { LeaseLostError } from "@/lib/jobs/claim";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 
 async function setJobProgress(jobId: string, progress: number, log?: string) {
@@ -20,7 +21,7 @@ async function findReservationId(jobId: string): Promise<string | null> {
   return res?.id ?? null;
 }
 
-export async function runUgcJob(jobId: string) {
+export async function runUgcJob(jobId: string, workerId: string, attemptToken: string) {
   const job = await db.job.findUniqueOrThrow({ where: { id: jobId }, include: { project: { include: { user: true } } } });
   const project = job.project;
 
@@ -80,11 +81,17 @@ export async function runUgcJob(jobId: string) {
     // Project "ready", Job "done", and the reservation capture must land
     // together or not at all -- see the identical comment in
     // lib/jobs/script-runner.ts and captureReservationInTx in
-    // lib/pricing/ledger.ts.
+    // lib/pricing/ledger.ts. Verify lease ownership before commit.
     const reservationId = await findReservationId(jobId);
     await db.$transaction(async (tx) => {
+      const updated = await tx.job.updateMany({
+        where: { id: jobId, status: "processing", workerId, attemptToken },
+        data: { status: "done", progress: 100, log: "Done" }
+      });
+      if (updated.count === 0) {
+        throw new LeaseLostError(jobId);
+      }
       await tx.project.update({ where: { id: project.id }, data: { status: "ready", videoUrl } });
-      await tx.job.update({ where: { id: jobId }, data: { status: "done", progress: 100, log: "Done" } });
       if (reservationId) {
         await captureReservationInTx(tx, reservationId);
       }
@@ -111,6 +118,12 @@ export async function runUgcJob(jobId: string) {
 
     await recordActivity(project.userId);
   } catch (err) {
+    // Lease lost: stale worker, job reassigned to another worker
+    if (err instanceof LeaseLostError) {
+      console.error(`[ugc-runner] lease lost for job ${jobId}, stale worker aborting`);
+      return;
+    }
+
     const message = err instanceof Error ? err.message : "Unknown error";
     const reservationId = await findReservationId(jobId).catch(() => null);
 

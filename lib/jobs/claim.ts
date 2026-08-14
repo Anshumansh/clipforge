@@ -17,6 +17,14 @@ import { releaseReservationInTx } from "@/lib/pricing/ledger";
 import { resolveProjectCreditOwnerId } from "@/lib/workspace";
 
 export type JobType = "script" | "repurpose" | "ugc";
+
+export class LeaseLostError extends Error {
+  constructor(jobId: string) {
+    super(`Lease lost for job ${jobId}: stale worker attempt or job reassigned`);
+    this.name = "LeaseLostError";
+  }
+}
+
 export interface ClaimedJob {
   id: string;
   type: JobType;
@@ -192,14 +200,27 @@ export async function renewLease(
   }
 }
 
-/** Update job stage for observability (best-effort, never throws). */
-export async function updateJobStage(jobId: string, stage: string): Promise<void> {
-  await db.job.update({
-    where: { id: jobId },
-    data: { stage, updatedAt: new Date() }
-  }).catch(() => {
-    // Silent fail: stage is observability only, doesn't affect correctness
-  });
+/** Update job stage for observability, with lease fencing. Throws LeaseLostError
+ * if the worker's attemptToken doesn't match (stale worker, job reassigned).
+ * Best-effort on non-lease errors (silently fails on DB issues). */
+export async function updateJobStage(
+  jobId: string,
+  workerId: string,
+  attemptToken: string,
+  stage: string
+): Promise<void> {
+  try {
+    const updated = await db.job.updateMany({
+      where: { id: jobId, status: "processing", workerId, attemptToken },
+      data: { stage, updatedAt: new Date() }
+    });
+    if (updated.count === 0) {
+      throw new LeaseLostError(jobId);
+    }
+  } catch (err) {
+    if (err instanceof LeaseLostError) throw err;
+    // Non-lease errors: silently fail (stage is observability only)
+  }
 }
 
 /** Atomically cancel a queued job before it's claimed. Returns false if
@@ -302,25 +323,41 @@ export async function reconcileAbandonedProcessingJobs(): Promise<void> {
   }
 }
 
-/** Finalize a job as completed. Called by successful runner completion. */
-export async function completeJob(jobId: string): Promise<void> {
-  const job = await db.job.findUnique({ where: { id: jobId } });
-  if (!job) return;
-
+/** Finalize a job as completed with lease fencing. Throws LeaseLostError if
+ * the worker's attemptToken doesn't match (stale worker, job reassigned). */
+export async function completeJob(
+  jobId: string,
+  workerId: string,
+  attemptToken: string
+): Promise<void> {
   const now = new Date();
-  await db.job.update({
-    where: { id: jobId },
+  const updated = await db.job.updateMany({
+    where: { id: jobId, status: "processing", workerId, attemptToken },
     data: { status: "completed", completedAt: now }
   });
+  if (updated.count === 0) {
+    throw new LeaseLostError(jobId);
+  }
 }
 
-/** Finalize a job as failed (in-runner error, unretried). */
-export async function failJobTerminal(jobId: string, message: string): Promise<void> {
+/** Finalize a job as failed (in-runner error, unretried) with lease fencing.
+ * Throws LeaseLostError if the worker's attemptToken doesn't match (stale worker, job reassigned). */
+export async function failJobTerminal(
+  jobId: string,
+  workerId: string,
+  attemptToken: string,
+  message: string
+): Promise<void> {
   const job = await db.job.findUnique({
     where: { id: jobId },
     include: { project: { select: { userId: true, workspaceId: true } } }
   });
   if (!job) return;
+
+  // Verify lease ownership before proceeding with terminal failure
+  if (job.workerId !== workerId || job.attemptToken !== attemptToken) {
+    throw new LeaseLostError(jobId);
+  }
 
   await finalizeJobTerminal(job, message, "failed_terminal");
 }

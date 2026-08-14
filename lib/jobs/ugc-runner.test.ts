@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const jobFindUnique = vi.fn();
 const jobUpdate = vi.fn();
+const jobUpdateMany = vi.fn();
 const projectUpdate = vi.fn();
 const reservationFindUnique = vi.fn();
 const costRecordUpsert = vi.fn();
@@ -10,6 +11,7 @@ type MockDb = {
   job: {
     findUniqueOrThrow: (...a: unknown[]) => unknown;
     update: (...a: unknown[]) => unknown;
+    updateMany: (...a: unknown[]) => unknown;
   };
   project: { update: (...a: unknown[]) => unknown };
   creditReservation: { findUnique: (...a: unknown[]) => unknown };
@@ -20,6 +22,7 @@ const mockDb: MockDb = {
   job: {
     findUniqueOrThrow: (...a: unknown[]) => jobFindUnique(...a),
     update: (...a: unknown[]) => jobUpdate(...a),
+    updateMany: (...a: unknown[]) => jobUpdateMany(...a),
   },
   project: { update: (...a: unknown[]) => projectUpdate(...a) },
   creditReservation: { findUnique: (...a: unknown[]) => reservationFindUnique(...a) },
@@ -71,6 +74,8 @@ const { runUgcJob } = await import("@/lib/jobs/ugc-runner");
 function makeJob() {
   return {
     id: "job-1",
+    workerId: "worker-1",
+    attemptToken: "token-abc123",
     project: {
       id: "proj-1",
       userId: "user-1",
@@ -87,6 +92,7 @@ describe("runUgcJob — UGC runner (TEST-001 + REL-001 + COST-001)", () => {
     vi.clearAllMocks();
     jobFindUnique.mockResolvedValue(makeJob());
     jobUpdate.mockResolvedValue({});
+    jobUpdateMany.mockResolvedValue({ count: 1 });
     projectUpdate.mockResolvedValue({});
     generateAdScriptFn.mockResolvedValue({ title: "TestProduct Ad", script: "Buy TestProduct!", sceneKeywords: ["product"], provider: "groq", inputTokens: 30, outputTokens: 80 });
     pickBrollFn.mockResolvedValue([]);
@@ -100,7 +106,7 @@ describe("runUgcJob — UGC runner (TEST-001 + REL-001 + COST-001)", () => {
   });
 
   it("captures reservation on success — credits settled, not refunded", async () => {
-    await runUgcJob("job-1");
+    await runUgcJob("job-1", "worker-1", "token-abc123");
 
     expect(captureReservationInTxFn).toHaveBeenCalledWith(expect.anything(), "res-1");
     expect(releaseReservationInTxFn).not.toHaveBeenCalled();
@@ -109,25 +115,27 @@ describe("runUgcJob — UGC runner (TEST-001 + REL-001 + COST-001)", () => {
 
   it("captures the reservation in the SAME transaction as the project/job success writes", async () => {
     const callOrder: string[] = [];
+    jobUpdateMany.mockImplementation(async (args: { data?: { status?: string } }) => {
+      if (args?.data?.status === "done") callOrder.push("job-done");
+      return { count: 1 };
+    });
     projectUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
       if (args?.data?.status === "ready") callOrder.push("project-ready");
-    });
-    jobUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
-      if (args?.data?.status === "done") callOrder.push("job-done");
     });
     captureReservationInTxFn.mockImplementation(async () => {
       callOrder.push("capture");
     });
 
-    await runUgcJob("job-1");
+    await runUgcJob("job-1", "worker-1", "token-abc123");
 
-    expect(callOrder).toEqual(["project-ready", "job-done", "capture"]);
+    // Job update via updateMany now happens before project update
+    expect(callOrder).toEqual(["job-done", "project-ready", "capture"]);
   });
 
   it("releases reservation when script generation fails", async () => {
     generateAdScriptFn.mockRejectedValue(new Error("script fail"));
 
-    await runUgcJob("job-1");
+    await runUgcJob("job-1", "worker-1", "token-abc123");
 
     expect(releaseReservationInTxFn).toHaveBeenCalledWith(expect.anything(), "res-1", expect.any(String));
     expect(captureReservationInTxFn).not.toHaveBeenCalled();
@@ -136,7 +144,7 @@ describe("runUgcJob — UGC runner (TEST-001 + REL-001 + COST-001)", () => {
   it("releases reservation when render fails", async () => {
     renderScriptVideoFn.mockRejectedValue(new Error("render OOM"));
 
-    await runUgcJob("job-1");
+    await runUgcJob("job-1", "worker-1", "token-abc123");
 
     expect(releaseReservationInTxFn).toHaveBeenCalledWith(expect.anything(), "res-1", expect.any(String));
   });
@@ -154,7 +162,7 @@ describe("runUgcJob — UGC runner (TEST-001 + REL-001 + COST-001)", () => {
       callOrder.push("release");
     });
 
-    await runUgcJob("job-1");
+    await runUgcJob("job-1", "worker-1", "token-abc123");
 
     expect(callOrder).toEqual(["project-failed", "job-failed", "release"]);
   });
@@ -181,7 +189,7 @@ describe("runUgcJob — UGC runner (TEST-001 + REL-001 + COST-001)", () => {
   });
 
   it("creates a JobCostRecord with cost metrics on success", async () => {
-    await runUgcJob("job-1");
+    await runUgcJob("job-1", "worker-1", "token-abc123");
 
     expect(costRecordUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -199,7 +207,7 @@ describe("runUgcJob — UGC runner (TEST-001 + REL-001 + COST-001)", () => {
   it("records creditsRefunded in cost record on failure", async () => {
     generateAdScriptFn.mockRejectedValue(new Error("fail"));
 
-    await runUgcJob("job-1");
+    await runUgcJob("job-1", "worker-1", "token-abc123");
 
     expect(costRecordUpsert).toHaveBeenCalledWith(expect.objectContaining({ creditsRefunded: 10 }));
   });

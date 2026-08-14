@@ -85,6 +85,7 @@ const {
   computeBackoffMs,
   JOB_PRIORITY_STANDARD,
   JOB_PRIORITY_DEMO,
+  LeaseLostError,
 } = await import("./claim");
 
 const WORKER_ID = "worker-abc123";
@@ -264,14 +265,27 @@ describe("renewLease", () => {
 // ------------------------------------------------------------------
 
 describe("updateJobStage", () => {
-  it("writes the current stage", async () => {
-    await updateJobStage("job-1", "rendering");
-    expect(jobUpdate).toHaveBeenCalledWith({ where: { id: "job-1" }, data: { stage: "rendering", updatedAt: expect.any(Date) } });
+  const WORKER_ID = "worker-1";
+  const ATTEMPT_TOKEN = "token-123";
+
+  it("writes the current stage when ownership verified", async () => {
+    jobUpdateMany.mockResolvedValueOnce({ count: 1 });
+    await updateJobStage("job-1", WORKER_ID, ATTEMPT_TOKEN, "rendering");
+    expect(jobUpdateMany).toHaveBeenCalledWith({
+      where: { id: "job-1", status: "processing", workerId: WORKER_ID, attemptToken: ATTEMPT_TOKEN },
+      data: { stage: "rendering", updatedAt: expect.any(Date) }
+    });
   });
 
-  it("never throws even if the write fails (best-effort, must not interrupt an in-flight render)", async () => {
-    jobUpdate.mockRejectedValue(new Error("DB blip"));
-    await expect(updateJobStage("job-1", "rendering")).resolves.toBeUndefined();
+  it("throws LeaseLostError if ownership doesn't match (stale worker)", async () => {
+    jobUpdateMany.mockResolvedValueOnce({ count: 0 });
+    await expect(updateJobStage("job-1", "wrong-worker", "wrong-token", "rendering"))
+      .rejects.toThrow(LeaseLostError);
+  });
+
+  it("never throws on non-lease DB errors (best-effort, must not interrupt an in-flight render)", async () => {
+    jobUpdateMany.mockRejectedValue(new Error("DB blip"));
+    await expect(updateJobStage("job-1", WORKER_ID, ATTEMPT_TOKEN, "rendering")).resolves.toBeUndefined();
   });
 });
 

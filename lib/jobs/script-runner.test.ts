@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const jobFindUnique = vi.fn();
 const jobUpdate = vi.fn();
+const jobUpdateMany = vi.fn();
 const projectUpdate = vi.fn();
 const reservationFindUnique = vi.fn();
 const costRecordUpsert = vi.fn();
@@ -14,6 +15,7 @@ type MockDb = {
   job: {
     findUniqueOrThrow: (...a: unknown[]) => unknown;
     update: (...a: unknown[]) => unknown;
+    updateMany: (...a: unknown[]) => unknown;
   };
   project: { update: (...a: unknown[]) => unknown };
   creditReservation: { findUnique: (...a: unknown[]) => unknown };
@@ -24,6 +26,7 @@ const mockDb: MockDb = {
   job: {
     findUniqueOrThrow: (...a: unknown[]) => jobFindUnique(...a),
     update: (...a: unknown[]) => jobUpdate(...a),
+    updateMany: (...a: unknown[]) => jobUpdateMany(...a),
   },
   project: { update: (...a: unknown[]) => projectUpdate(...a) },
   creditReservation: { findUnique: (...a: unknown[]) => reservationFindUnique(...a) },
@@ -98,6 +101,8 @@ const { runScriptJob } = await import("@/lib/jobs/script-runner");
 function makeJob(overrides = {}) {
   return {
     id: "job-1",
+    workerId: "worker-1",
+    attemptToken: "token-abc123",
     project: {
       id: "proj-1",
       userId: "user-1",
@@ -137,6 +142,7 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
     vi.clearAllMocks();
     jobFindUnique.mockResolvedValue(makeJob());
     jobUpdate.mockResolvedValue({});
+    jobUpdateMany.mockResolvedValue({ count: 1 });
     projectUpdate.mockResolvedValue({});
     generateScriptFn.mockResolvedValue(mockScript);
     pickBrollFn.mockResolvedValue([]);
@@ -150,7 +156,7 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
   });
 
   it("captures the reservation on successful completion (credits settled, not refunded)", async () => {
-    await runScriptJob("job-1");
+    await runScriptJob("job-1", "worker-1", "token-abc123");
 
     // Second arg is the reservation id; first is the transaction client
     // (see the $transaction shim above) -- captureReservationInTx now runs
@@ -162,36 +168,42 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
 
   it("captures the reservation in the SAME transaction as the project/job success writes -- no crash window between them", async () => {
     const callOrder: string[] = [];
+    jobUpdateMany.mockImplementation(async (args: { data?: { status?: string } }) => {
+      if (args?.data?.status === "done") callOrder.push("job-done");
+      return { count: 1 };
+    });
     projectUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
       if (args?.data?.status === "ready") callOrder.push("project-ready");
-    });
-    jobUpdate.mockImplementation(async (args: { data?: { status?: string } }) => {
-      if (args?.data?.status === "done") callOrder.push("job-done");
     });
     captureReservationInTxFn.mockImplementation(async () => {
       callOrder.push("capture");
     });
 
-    await runScriptJob("job-1");
+    await runScriptJob("job-1", "worker-1", "token-abc123");
 
     // All three happened, in order, and (since they share the $transaction
     // shim's single synchronous pass over the same mock client) as part of
     // one atomic unit rather than three independent statements a crash
-    // could land between.
-    expect(callOrder).toEqual(["project-ready", "job-done", "capture"]);
+    // could land between. Note: job-done now happens via updateMany BEFORE project-ready.
+    expect(callOrder).toEqual(["job-done", "project-ready", "capture"]);
   });
 
   it("marks project and job as done on success", async () => {
-    await runScriptJob("job-1");
+    await runScriptJob("job-1", "worker-1", "token-abc123");
 
+    // Job update via updateMany (with lease fencing)
+    expect(jobUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "job-1", status: "processing", workerId: "worker-1", attemptToken: "token-abc123" },
+      data: expect.objectContaining({ status: "done" })
+    }));
+    // Project update via regular update
     expect(projectUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "ready" }) }));
-    expect(jobUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "done" }) }));
   });
 
   it("releases the reservation (not refundCredits) when LLM fails — idempotent refund", async () => {
     generateScriptFn.mockRejectedValue(new Error("LLM timeout"));
 
-    await runScriptJob("job-1");
+    await runScriptJob("job-1", "worker-1", "token-abc123");
 
     expect(releaseReservationInTxFn).toHaveBeenCalledWith(expect.anything(), "res-1", expect.any(String));
     expect(captureReservationInTxFn).not.toHaveBeenCalled();
@@ -201,7 +213,7 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
   it("releases the reservation when TTS fails", async () => {
     synthesizeVoiceoverFn.mockRejectedValue(new Error("All TTS providers failed"));
 
-    await runScriptJob("job-1");
+    await runScriptJob("job-1", "worker-1", "token-abc123");
 
     expect(releaseReservationInTxFn).toHaveBeenCalledWith(expect.anything(), "res-1", expect.any(String));
     expect(captureReservationInTxFn).not.toHaveBeenCalled();
@@ -210,7 +222,7 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
   it("releases the reservation when render fails", async () => {
     renderScriptVideoFn.mockRejectedValue(new Error("OOM during render"));
 
-    await runScriptJob("job-1");
+    await runScriptJob("job-1", "worker-1", "token-abc123");
 
     expect(releaseReservationInTxFn).toHaveBeenCalledWith(expect.anything(), "res-1", expect.any(String));
     expect(captureReservationInTxFn).not.toHaveBeenCalled();
@@ -219,7 +231,7 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
   it("marks project and job as failed when an error occurs", async () => {
     generateScriptFn.mockRejectedValue(new Error("provider error"));
 
-    await runScriptJob("job-1");
+    await runScriptJob("job-1", "worker-1", "token-abc123");
 
     expect(projectUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "failed" }) }));
     expect(jobUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "failed" }) }));
@@ -238,7 +250,7 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
       callOrder.push("release");
     });
 
-    await runScriptJob("job-1");
+    await runScriptJob("job-1", "worker-1", "token-abc123");
 
     expect(callOrder).toEqual(["project-failed", "job-failed", "release"]);
   });
@@ -271,14 +283,14 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
     reservationFindUnique.mockResolvedValue(null); // no reservation
 
     generateScriptFn.mockRejectedValue(new Error("LLM timeout"));
-    await runScriptJob("job-1");
+    await runScriptJob("job-1", "worker-1", "token-abc123");
 
     expect(refundCreditsFn).toHaveBeenCalledWith("user-1", 10);
     expect(releaseReservationInTxFn).not.toHaveBeenCalled();
   });
 
   it("creates a JobCostRecord with AI provider, TTS characters, and render seconds on success", async () => {
-    await runScriptJob("job-1");
+    await runScriptJob("job-1", "worker-1", "token-abc123");
 
     expect(costRecordUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -298,7 +310,7 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
   it("writes a cost record with creditsRefunded on failure (not charged)", async () => {
     generateScriptFn.mockRejectedValue(new Error("LLM error"));
 
-    await runScriptJob("job-1");
+    await runScriptJob("job-1", "worker-1", "token-abc123");
 
     // The cost record should record the refund, not the charge
     expect(costRecordUpsert).toHaveBeenCalledWith(
@@ -312,7 +324,7 @@ describe("runScriptJob — script runner (TEST-001 + REL-001 + COST-001)", () =>
   it("releasing a reservation is exact-once: releaseReservation is called exactly once, not twice", async () => {
     generateScriptFn.mockRejectedValue(new Error("fail"));
 
-    await runScriptJob("job-1");
+    await runScriptJob("job-1", "worker-1", "token-abc123");
 
     // releaseReservation itself is idempotent (exact-once), but the runner should
     // only call it once per failure — not once per retry of a crashed runner.
