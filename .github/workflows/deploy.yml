@@ -16,6 +16,19 @@ on:
 jobs:
   build-check:
     runs-on: ubuntu-latest
+    # Dummy-but-valid-format values, job-scoped so every step sees them
+    # (not just Build) — `prisma validate` and `prisma generate` both parse
+    # the schema's `url = env("DATABASE_URL")` line and fail immediately if
+    # the variable is merely unset, even though neither one connects to it.
+    # Discovered by an actual CI run failing here (2026-08-14, PR #1,
+    # run 31797082344): local verification always had .env loaded, which
+    # masked this — CI has no .env file at all. None of these steps query a
+    # live DB or call a real provider; a broken push (ours or the weekly
+    # maintenance bot's) fails here, never reaching prod.
+    env:
+      DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci"
+      NEXTAUTH_SECRET: "ci-build-only-not-a-real-secret"
+      NEXTAUTH_URL: "https://forgecut.app"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -23,19 +36,11 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      # Dummy-but-valid-format values — the build never queries a live DB or
-      # calls a real provider, it just needs these present so module-level
-      # client construction (Prisma, etc.) doesn't throw. A broken push
-      # (ours or the weekly maintenance bot's) fails here, never reaching prod.
       - name: Prisma schema validation
         run: npx prisma validate
       - name: Typecheck
         run: npx tsc --noEmit -p .
       - name: Build
-        env:
-          DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci"
-          NEXTAUTH_SECRET: "ci-build-only-not-a-real-secret"
-          NEXTAUTH_URL: "https://forgecut.app"
         run: |
           npx prisma generate
           npm run build
