@@ -160,11 +160,53 @@ reservation), and all four of Phase 3's original required crash-recovery scenari
 
 ## 5. Migration — exact steps and rollback
 
-This project uses `prisma db push`, not versioned migrations (`prisma/migrations/`
-doesn't exist — see `OPERATIONS.md` §5). The "migration" is the diff already in
-`prisma/schema.prisma` on this branch.
+> **Updated 2026-08-15 (Release Candidate Validation, item 1) — supersedes the `db push`
+> plan originally written below.** Reconciling this branch against production's actual
+> schema (read-only introspection, never touching row data) found that production has
+> been running on ad-hoc `prisma db push` with **no migration history table populated at
+> all** — safe for solo iteration, but with no record of exactly which schema state is
+> live, no repeatable/auditable apply step, and no clean way to verify a target database
+> matches what the branch expects before touching it. Rather than push this same
+> undocumented pattern for the highest-risk change yet (the first schema change on a
+> paid product with real customer rows), this branch now carries real versioned
+> migrations under `prisma/migrations/`:
+> - `20260814103037_baseline_matches_production` — the 40 tables independently confirmed
+>   already present in production via read-only introspection, exactly as they exist
+>   today. Contains no new columns from this pass. This migration is never *run* against
+>   production — it's marked pre-applied (`prisma migrate resolve --applied
+>   20260814103037_baseline_matches_production`), which only writes a row to
+>   `_prisma_migrations` recording "this state already exists," identical in effect to
+>   what years of `db push` calls already produced, just now with a name and a checksum.
+> - `20260814103100_add_queue_lifecycle_fencing` — the genuine delta this section
+>   describes: `Job`'s 15 new columns/4 indexes, plus `WorkerRegistration` and
+>   `DemoQuota`. This one is run for real via `prisma migrate deploy`.
+>
+> Both migrations were validated end-to-end against a disposable Postgres clone seeded
+> with production-shaped historical data (Release Candidate Validation items 1 and 4):
+> resolving the baseline as pre-applied, then deploying the delta, produces a schema
+> byte-for-byte identical to a fresh `prisma db push` of the current `schema.prisma` —
+> and the delta migration is idempotent (a second `migrate deploy` run is a clean no-op).
+> The `db push` command below still works and is not wrong, exactly as described — but it
+> would leave production's migration history exactly as absent as it is today. Use the
+> migration-history steps instead so this deploy is the point where production gets a
+> real, auditable schema history going forward instead of just one more undocumented
+> `db push`.
+>
+> **To apply for real (exact sequence, run once, in order):**
+> ```bash
+> # From a machine with DATABASE_URL pointed at production
+> npx prisma migrate resolve --applied 20260814103037_baseline_matches_production
+> npx prisma migrate deploy
+> npx prisma migrate status   # expect: "Database schema is up to date!"
+> ```
+> See `PRODUCTION_DEPLOYMENT_RUNBOOK.md` for where this fits relative to the code deploy
+> (schema must land before the new code that reads these columns starts running) and the
+> full pre-flight checklist. The reasoning below (additive-only, nullable/defaulted
+> columns, safe against live traffic, rollback must travel with the code) is unchanged by
+> this update — only the apply *mechanism* changed, not the schema content or its safety
+> properties.
 
-**To apply (when approved):**
+**To apply (original plan, schema-push form — superseded above, kept for reference):**
 ```bash
 # From a machine with DATABASE_URL pointed at the target database
 npx prisma db push
@@ -185,6 +227,10 @@ target first if one becomes available).
    any new column, and no code shipped *before* this migration reads these columns, a
    straightforward column-drop rollback is safe: the old code (pre-branch) never looks at
    `priority`/`attemptCount`/`leaseExpiresAt`/etc., so their removal doesn't affect it.
+   (With the migration-history approach above, the equivalent rollback is `npx prisma
+   migrate resolve --rolled-back 20260814103100_add_queue_lifecycle_fencing` followed by
+   the same manual column drops, since Prisma has no automatic "down" migration — see
+   `PRODUCTION_DEPLOYMENT_RUNBOOK.md`.)
 3. **Application rollback must happen together with (not after) the schema rollback**,
    same as the general worker-architecture rollback procedure in `OPERATIONS.md` §12b:
    the NEW code (this branch) assumes these columns exist — rolling back the schema while
