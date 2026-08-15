@@ -1,9 +1,13 @@
 #!/bin/bash
-# Runs every 5 minutes via cron. Checks app health, container status, and disk
-# space; auto-fixes what's safe to auto-fix (restart a down/unhealthy
-# container, prune disk space); emails an alert only on a state *transition*
-# (healthy -> unhealthy, or unhealthy -> resolved) so it doesn't spam every
-# 5 minutes while something stays broken.
+# Runs every 5 minutes via cron. Checks app health, container status, disk
+# space, worker heartbeat freshness, queue age, job failure rate, credit/
+# reservation consistency, database connection headroom, worker memory
+# pressure, media-proxy server errors, and Stripe webhook failures;
+# auto-fixes what's safe to auto-fix (restart a down/unhealthy container,
+# prune disk space); emails an alert only on a state *transition* (healthy ->
+# unhealthy, or unhealthy -> resolved) so it doesn't spam every 5 minutes
+# while something stays broken. Run with --test-alert to send one real,
+# clearly-labeled alert through this same path on demand.
 set -uo pipefail
 
 ENV_FILE="${ENV_FILE:-/opt/clipforge/.env}"
@@ -40,6 +44,18 @@ print(json.dumps({
     --max-time 15 > /dev/null || log "alert email send failed"
 }
 
+# --test-alert: send one clearly-labeled real alert through the exact same
+# path as a genuine detection (same send_alert function, same ALERT_TO, same
+# RESEND_API_KEY/EMAIL_FROM) and exit, without touching the state file or
+# running any real checks -- for proving delivery on demand, not for the
+# 5-minute cron loop.
+if [ "${1:-}" = "--test-alert" ]; then
+  log "sending test alert to $ALERT_TO"
+  send_alert "Clipforge watchdog: test alert ($(date -u +%Y-%m-%dT%H:%M:%SZ))" \
+    "This is a manually triggered test alert confirming the watchdog's alert path (Resend, from ${EMAIL_FROM:-unset}, to $ALERT_TO) is working. No action needed."
+  exit 0
+fi
+
 PROBLEMS=()
 
 # --- App health (HTTP + DB + storage, via the app's own /api/health) ---
@@ -70,6 +86,83 @@ for entry in "clipforge-app-1:app" "clipforge-caddy-1:caddy" "clipforge-worker-1
     docker restart "$name" > /dev/null 2>&1 || true
   fi
 done
+
+# --- Database-backed checks: worker heartbeat staleness, queue age, job
+# failure rate, credit/reservation consistency, connection-pool headroom.
+# Run through the same throwaway postgres:18-alpine container pattern
+# backup-db.sh already uses (no postgres client installed on the host) --
+# one round trip, five checks, to keep this at 5-minute-cron cost. ---
+DB_CHECKS=$(docker run --rm postgres:18-alpine psql "$DATABASE_URL" -tA -F'|' -c "
+  SELECT
+    (SELECT count(*) FROM \"WorkerRegistration\" WHERE status = 'admitted' AND \"lastHeartbeat\" < now() - interval '5 minutes'),
+    (SELECT count(*) FROM \"Job\" WHERE status = 'queued'),
+    (SELECT EXTRACT(EPOCH FROM (now() - MIN(\"createdAt\")))::int FROM \"Job\" WHERE status = 'queued'),
+    (SELECT count(*) FROM \"Job\" WHERE status = 'failed' AND \"updatedAt\" > now() - interval '1 hour'),
+    (SELECT count(*) FROM \"Job\" j JOIN \"CreditReservation\" r ON r.\"jobId\" = j.id WHERE (j.status = 'done' AND r.status = 'reserved') OR (j.status = 'failed' AND r.status = 'reserved')),
+    (SELECT count(*) FROM pg_stat_activity),
+    (SELECT setting::int FROM pg_settings WHERE name = 'max_connections')
+" 2>/tmp/watchdog-db-error.log)
+
+if [ -z "$DB_CHECKS" ]; then
+  PROBLEMS+=("Could not run database health checks: $(tail -3 /tmp/watchdog-db-error.log 2>/dev/null)")
+else
+  IFS='|' read -r STALE_WORKERS QUEUE_DEPTH OLDEST_QUEUED_AGE RECENT_FAILURES CREDIT_INCONSISTENCIES DB_CONNECTIONS DB_MAX_CONNECTIONS <<< "$DB_CHECKS"
+
+  if [ "${STALE_WORKERS:-0}" -gt 0 ]; then
+    PROBLEMS+=("$STALE_WORKERS worker registration(s) marked admitted with no heartbeat in 5+ minutes -- worker may be hung, not just crashed (the container-status loop above only catches a stopped/crashed container)")
+  fi
+
+  if [ -n "${OLDEST_QUEUED_AGE:-}" ] && [ "$OLDEST_QUEUED_AGE" -gt 900 ]; then
+    PROBLEMS+=("Oldest queued job is $((OLDEST_QUEUED_AGE / 60)) minutes old (queue depth: ${QUEUE_DEPTH:-?}) -- worker may not be keeping up or is stuck")
+  fi
+
+  if [ "${RECENT_FAILURES:-0}" -gt 3 ]; then
+    PROBLEMS+=("$RECENT_FAILURES job failures in the last hour -- possible provider outage or systemic bug")
+  fi
+
+  if [ "${CREDIT_INCONSISTENCIES:-0}" -gt 0 ]; then
+    PROBLEMS+=("$CREDIT_INCONSISTENCIES credit reservation(s) inconsistent with their job's terminal status -- the atomic capture/release guarantee may have broken")
+  fi
+
+  if [ -n "${DB_CONNECTIONS:-}" ] && [ -n "${DB_MAX_CONNECTIONS:-}" ] && [ "$DB_MAX_CONNECTIONS" -gt 0 ]; then
+    DB_PCT=$(( DB_CONNECTIONS * 100 / DB_MAX_CONNECTIONS ))
+    if [ "$DB_PCT" -ge 80 ]; then
+      PROBLEMS+=("Database connections at ${DB_CONNECTIONS}/${DB_MAX_CONNECTIONS} (${DB_PCT}%) -- approaching exhaustion")
+    fi
+  fi
+fi
+
+# --- Worker memory pressure (docker-compose.yml caps the worker at 4g;
+# measured real single-render peak is ~3.34GB -- alert before a render
+# actually gets OOM-killed, not after) ---
+WORKER_MEM_RAW=$(docker stats --no-stream --format '{{.MemUsage}}' clipforge-worker-1 2>/dev/null | awk -F'/' '{print $1}' | tr -d ' ')
+if [ -n "$WORKER_MEM_RAW" ]; then
+  WORKER_MEM_MB=$(python3 -c "
+v = '$WORKER_MEM_RAW'.strip()
+n = float(''.join(c for c in v if c.isdigit() or c=='.') or 0)
+print(int(n * 1024) if 'GiB' in v else int(n))
+" 2>/dev/null || echo "")
+  if [ -n "$WORKER_MEM_MB" ] && [ "$WORKER_MEM_MB" -ge 3584 ]; then
+    PROBLEMS+=("Worker memory at ${WORKER_MEM_MB}MiB, approaching the 4096MiB compose limit -- a render may be OOM-killed soon")
+  fi
+fi
+
+# --- Media-download failures: real server errors (5xx) on the media proxy
+# in the last 5 minutes. Deliberately 5xx only, not 4xx -- since the media
+# authorization fix, a 4xx is often *correct* behavior (an unauthorized
+# request being correctly rejected), not a failure. ---
+MEDIA_5XX=$(docker logs clipforge-caddy-1 --since 5m 2>/dev/null | grep -c '"uri":"/api/media/[^"]*".*"status":5[0-9][0-9]' || true)
+if [ "${MEDIA_5XX:-0}" -gt 0 ]; then
+  PROBLEMS+=("$MEDIA_5XX server error(s) (5xx) on /api/media in the last 5 minutes -- possible storage/B2 connectivity issue")
+fi
+
+# --- Stripe webhook failures: a failed signature check or unhandled error
+# never writes a StripeWebhookEvent row, so the signal lives in the app
+# container's own logs, not the database. ---
+WEBHOOK_FAILURES=$(docker logs clipforge-app-1 --since 5m 2>/dev/null | grep -ciE "stripe.*(signature verification failed|webhook.*error)" || true)
+if [ "${WEBHOOK_FAILURES:-0}" -gt 0 ]; then
+  PROBLEMS+=("$WEBHOOK_FAILURES Stripe webhook failure(s) logged in the last 5 minutes")
+fi
 
 # --- Cron script health (catches e.g. a script silently losing its exec bit
 # again on a future deploy — this exact bug shipped once already: backups,

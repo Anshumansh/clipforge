@@ -85,6 +85,35 @@ rules would have required. Going forward:
   whether a given fix qualifies as "still inside the approved action" or needs
   its own approval, ask rather than assume.
 
+### Emergency bypass policy (added 2026-08-15/16)
+
+The GitHub `production` environment's required-reviewer rule (§4 below) is the
+real technical gate — nothing in this policy weakens or routes around it. This
+section instead answers the question the rule above leaves open: *when* is it
+reasonable to ask for approval immediately, out of band, rather than through the
+normal round-trip, and what has to be true for that to count as legitimate
+incident response rather than a bypass.
+
+An emergency, out-of-band approval request is appropriate **only** when all of
+the following hold:
+1. There is an **active P0** — a real security exposure or a customer-facing
+   outage in progress, not a bug found during routine review.
+2. The fix is a **minimal, reviewed patch** scoped to exactly that issue — not
+   a bundled opportunity to ship other pending work.
+3. **CI passes** on that patch — the build-check gate is never skipped, even
+   under time pressure.
+4. The **owner is notified immediately** with the exact commit and what it
+   fixes, not discovered after the fact.
+5. **Rollback is ready** before the deploy runs (know the exact revert command
+   and, if a migration is involved, its rollback per `OPERATIONS.md` §12b /
+   `QUEUE_RECOVERY.md` §5 — not figured out after something goes wrong).
+6. A **post-incident report** follows, covering what broke, why, the fix, and
+   what (if anything) should change so it doesn't recur.
+
+Everything that doesn't meet all six is a **normal change** and waits for
+approval through the regular path, however urgent it feels in the moment. "I
+wanted to move fast" is not, on its own, one of the six conditions.
+
 ## 1. Pre-flight checklist (all must be true before starting)
 
 - [ ] PR for `scale/100-user-readiness` has a green `build-check` run on the exact
