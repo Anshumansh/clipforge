@@ -4,9 +4,18 @@ import { getToken } from "next-auth/jwt";
 // Paths that must stay reachable without staging basic-auth: health checks
 // (so Railway's own healthcheck probe never has to know a password),
 // Stripe's webhook (authenticates via signature, not a browser session --
-// Stripe's servers can't complete an HTTP Basic Auth challenge), and the
-// metrics endpoint (already gated by its own bearer-token auth).
-const STAGING_AUTH_EXEMPT_PREFIXES = ["/api/health", "/api/stripe/webhook", "/api/internal/metrics"];
+// Stripe's servers can't complete an HTTP Basic Auth challenge), the
+// metrics endpoint (already gated by its own bearer-token auth), and the
+// media proxy -- found failing live (Release Candidate Validation item 5,
+// 2026-08-15): the worker's Remotion renderer fetches source audio/video
+// through this route via a plain server-to-server HTTP request (no
+// browser, no credentials to attach), and every render failed with
+// "Received a status code of 401 ... Authentication required" once this
+// route was covered by the blanket staging gate. The route itself already
+// requires knowing an unguessable object key and redirects to a
+// short-lived presigned URL, which is the same protection level
+// production relies on with no basic-auth layer at all.
+const STAGING_AUTH_EXEMPT_PREFIXES = ["/api/health", "/api/stripe/webhook", "/api/internal/metrics", "/api/media"];
 
 function isStagingAuthExempt(pathname: string): boolean {
   return STAGING_AUTH_EXEMPT_PREFIXES.some((p) => pathname.startsWith(p));
