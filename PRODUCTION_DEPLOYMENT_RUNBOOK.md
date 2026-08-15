@@ -54,12 +54,44 @@ session's live-staging coverage, not in the code's test coverage.
 
 ---
 
+## 0a. Approval rule (added 2026-08-15, Production Security and Stabilization pass)
+
+Added after a governance review of how this branch actually reached production —
+see the Security and Stabilization report's governance section for the full
+retrace of what approval existed for the original migration/deploy vs. what these
+rules would have required. Going forward:
+
+- **Read-only production inspection does not authorize mutation.** Being able to
+  query production (introspection, health checks, log review) is not itself
+  permission to change anything — every migration, merge, or deploy still needs
+  its own explicit go-ahead per the rule below, no matter how much inspection
+  preceded it.
+- **Backup completion does not authorize migration.** A verified, restorable
+  backup is a *precondition* for migrating, not a substitute for the owner's
+  approval to actually run one.
+- **Staging success does not authorize production.** A green staging validation
+  (however thorough) is evidence to bring TO the owner when asking for approval,
+  not a trigger that lets a deploy proceed on its own.
+- **Production migration, merge, and deployment each require one explicit owner
+  approval that identifies the specific commit SHA and (if applicable) migration
+  name being approved** — not a general "go ahead," and not inferred from an
+  earlier standing instruction to "move quickly" or "fix blockers immediately".
+  A standing instruction to fix bugs does not by itself extend to deploying that
+  fix to production; an actively-broken production issue found *during* an
+  already-approved deploy's own verification step is the one case where
+  immediate remediation is reasonable without a fresh round-trip — but even
+  then, name the commit in the report afterward and treat the next planned
+  deploy as needing its own approval again. If there's any ambiguity about
+  whether a given fix qualifies as "still inside the approved action" or needs
+  its own approval, ask rather than assume.
+
 ## 1. Pre-flight checklist (all must be true before starting)
 
 - [ ] PR for `scale/100-user-readiness` has a green `build-check` run on the exact
       commit being deployed (`gh pr checks 1 --repo Anshumansh/clipforge`).
-- [ ] Owner has given explicit go-ahead for *this* deploy (repo rule: production changes
-      need explicit approval — this runbook does not constitute that approval).
+- [ ] Owner has given explicit go-ahead for *this* deploy, naming the specific commit
+      SHA (and migration name, if a migration is included) — see §0a. This runbook
+      document does not itself constitute that approval.
 - [ ] A fresh manual DB backup has been taken and confirmed uploaded, **not** relying on
       the last scheduled 3am run:
       ```bash
