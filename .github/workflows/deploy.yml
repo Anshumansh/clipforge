@@ -15,6 +15,8 @@ on:
 
 jobs:
   build-check:
+    outputs:
+      deploy_relevant: ${{ steps.check-deploy-relevant.outputs.relevant }}
     runs-on: ubuntu-latest
     # Dummy-but-valid-format values, job-scoped so every step sees them
     # (not just Build) — `prisma validate` and `prisma generate` both parse
@@ -31,6 +33,53 @@ jobs:
       NEXTAUTH_URL: "https://forgecut.app"
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Need the previous commit to diff against below. 2 is enough for
+          # a normal single-commit push; a force-push or multi-commit push
+          # still resolves correctly since we diff against the exact
+          # before/after SHAs GitHub gives us, not HEAD~1.
+          fetch-depth: 2
+      # Determines whether this push touched anything that actually needs a
+      # production redeploy, so the deploy job below can skip itself for a
+      # docs/report-only commit -- found necessary in production: a pure
+      # RELEASE_CANDIDATE_VALIDATION.md update rebuilt and restarted both
+      # live containers for zero reason, the exact class of unnecessary
+      # restart this check exists to prevent. Only affects the deploy job's
+      # `if:` -- validation below still runs unconditionally on every push,
+      # so this can never let a broken build skip its gate.
+      - name: Check whether this push changed anything deploy-relevant
+        id: check-deploy-relevant
+        if: github.event_name == 'push'
+        run: |
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.event.after }}"
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            # First push to a new branch/ref -- nothing to diff against.
+            # Fail open toward deploying rather than silently skipping a
+            # genuine first deploy.
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            echo "No previous commit to diff (new ref) -- treating as deploy-relevant."
+            exit 0
+          fi
+          CHANGED=$(git diff --name-only "$BEFORE" "$AFTER")
+          echo "Changed files in this push:"
+          echo "$CHANGED"
+          # Deploy-relevant = anything that isn't purely documentation/report
+          # markdown or repo-meta. Everything else (app code, Dockerfile,
+          # compose file, package.json/lockfile, prisma/, public/, CI
+          # workflows themselves, etc.) is deploy-relevant by default --
+          # this is an exclude-list, not an allow-list, so a new file type
+          # nobody has taught this check about still triggers a deploy
+          # rather than silently being skipped.
+          NON_DOCS=$(echo "$CHANGED" | grep -vE '\.md$|^\.github/(ISSUE_TEMPLATE|PULL_REQUEST_TEMPLATE)/' || true)
+          if [ -z "$NON_DOCS" ]; then
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "No deploy-relevant files changed -- documentation only, deploy job will skip itself."
+          else
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            echo "Deploy-relevant files changed:"
+            echo "$NON_DOCS"
+          fi
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -73,15 +122,36 @@ jobs:
 
   deploy:
     needs: build-check
-    # Only an actual push to main deploys. This also means workflow_dispatch
-    # alone no longer triggers a real deploy (previously it did, regardless
-    # of which ref was selected, since the deploy step always pulls
-    # origin/main on the VPS itself) -- re-add a workflow_dispatch path
-    # deliberately if a manual "redeploy main" button is wanted back; don't
-    # let it be an accidental side effect of adding the pull_request trigger
-    # above.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Two ways to reach this job, both requiring `main`:
+    # 1. A real push to main that changed something deploy-relevant (per
+    #    build-check's check-deploy-relevant step above) -- the normal path.
+    # 2. An explicit workflow_dispatch -- the "intentional release action"
+    #    escape hatch for redeploying with no code change (e.g. to pick up
+    #    a rotated secret or VPS-side config change), deliberately
+    #    independent of the path filter above.
+    # A pull_request event never satisfies either branch, so a PR can still
+    # never reach the SSH/redeploy step regardless of `needs:`.
+    if: |
+      github.ref == 'refs/heads/main' && (
+        (github.event_name == 'push' && needs.build-check.outputs.deploy_relevant == 'true') ||
+        github.event_name == 'workflow_dispatch'
+      )
     runs-on: ubuntu-latest
+    # Requires this repo to have a "production" environment configured
+    # (Settings -> Environments) with a required-reviewers protection rule
+    # for that approval gate to actually pause the run -- an environment
+    # with no protection rules behaves like no environment at all, so this
+    # reference alone is inert until that's set up (an explicit, separate
+    # owner action -- see PRODUCTION_DEPLOYMENT_RUNBOOK.md).
+    environment: production
+    # Same group for every push-to-main deploy attempt on this ref: if a
+    # second push arrives while an earlier deploy for the same ref is still
+    # running, cancel the older one rather than let both race to finish --
+    # otherwise an older commit's SSH step finishing after a newer one's
+    # would silently leave production on the older commit.
+    concurrency:
+      group: deploy-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - name: SSH and redeploy
         uses: appleboy/ssh-action@v1.0.3
