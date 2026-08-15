@@ -99,6 +99,34 @@ describe("middleware — staging protection (Release Candidate Validation item 3
     expect(res.headers.get("location")).toContain("/login");
   });
 
+  // Real bug found via live staging E2E testing (Release Candidate
+  // Validation item 5, 2026-08-15): behind Railway's reverse proxy,
+  // `req.url` resolved to the container's own internal bind address
+  // (http://0.0.0.0:8080) rather than the public hostname. The redirect's
+  // own target still landed correctly (Next.js resolves req.nextUrl's
+  // origin properly), but a value merely serialized from `req.url` into a
+  // query string did not -- `new URL("/login", req.url).searchParams.set
+  // ("callbackUrl", req.url)` produced
+  // "https://0.0.0.0:8080/dashboard", a host the browser can never reach,
+  // silently breaking every post-login redirect in that deployment. This
+  // unit test can't reproduce the proxy host-mismatch directly (NextRequest
+  // built in-process has no proxy in front of it to disagree with), so it
+  // instead asserts the actual robustness property the fix relies on: the
+  // callback value is a bare relative path+query, never an absolute URL --
+  // which by construction cannot encode a wrong host regardless of what a
+  // proxy in front of it does.
+  it("the redirect's callback value is a relative path, never an absolute URL that could carry a wrong host", async () => {
+    delete process.env.STAGING_ENVIRONMENT;
+    getTokenFn.mockResolvedValue(null);
+
+    const res = await middleware(req("/dashboard/settings?tab=billing"));
+
+    const location = res.headers.get("location")!;
+    const nextParam = new URL(location).searchParams.get("next");
+    expect(nextParam).toBe("/dashboard/settings?tab=billing");
+    expect(nextParam).not.toMatch(/^https?:\/\//); // relative, not absolute
+  });
+
   it("lets an authenticated /dashboard request through (existing behavior preserved)", async () => {
     delete process.env.STAGING_ENVIRONMENT;
     getTokenFn.mockResolvedValue({ sub: "user-1" });

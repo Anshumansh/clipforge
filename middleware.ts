@@ -57,8 +57,25 @@ export default async function middleware(req: NextRequest) {
   if (req.nextUrl.pathname.startsWith("/dashboard")) {
     const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
     if (!token) {
-      const loginUrl = new URL("/login", req.url);
-      loginUrl.searchParams.set("callbackUrl", req.url);
+      // `req.url`/`new URL(path, req.url)` resolve using whatever origin
+      // Next.js's edge runtime believes it is -- behind a reverse proxy
+      // that doesn't forward a Host header matching the public hostname
+      // (observed on Railway: resolves to the container's own bind
+      // address, e.g. http://0.0.0.0:8080), that produces a redirect
+      // target and callback value pointing at an address the browser can
+      // never reach. NextResponse.redirect() below still lands on the
+      // right host (Next.js resolves *that* URL's origin correctly), but
+      // a value merely written into a query string does not get the same
+      // treatment. Building the redirect from req.nextUrl (already
+      // same-origin-correct) and passing only a relative path+query as
+      // the callback value sidesteps host resolution entirely -- also
+      // matches the param name (`next`) the login page itself reads,
+      // which "callbackUrl" (NextAuth's own convention, but not this
+      // page's) never did.
+      const loginUrl = req.nextUrl.clone();
+      loginUrl.pathname = "/login";
+      loginUrl.search = "";
+      loginUrl.searchParams.set("next", req.nextUrl.pathname + req.nextUrl.search);
       return NextResponse.redirect(loginUrl);
     }
   }
