@@ -1,22 +1,26 @@
 # Clipforge Release Candidate Validation — Evidence Report
 
 **Date:** 2026-08-14 to 2026-08-15
-**Branch:** `scale/100-user-readiness`, starting commit `6543053`, final commit `a79c38e`
-**Status:** COMPLETE — all 9 items executed with real evidence.
-**Verdict: CONDITIONAL GO.** See §9 for the exact conditions.
+**Branch:** `scale/100-user-readiness`, starting commit `6543053`, merged to `main` at `dd03783`, hotfixed at `1add0d4`
+**Status:** COMPLETE — validated, approved by the owner, deployed to production, and verified live. See §11 for the deployment record, including a real bug found and fixed within minutes of going live.
+**Final outcome: DEPLOYED.** The `CONDITIONAL GO` verdict in §9 was the pre-deploy assessment; §11 records what actually happened once the owner approved it.
 
 This report follows the 9-item Release Candidate Validation request, plus the
 owner's mid-flight decision to reuse Railway project `clipforge-v2` for
 staging (with explicit boundaries, quoted in §3) and the later instruction to
-execute continuously without interim reports. No merge, no production
-deployment, no production mutation has occurred or will occur as part of
-this work — everything below ran against a disposable local Postgres clone,
-GitHub Actions, or the isolated `staging` environment inside `clipforge-v2`.
+execute continuously without interim reports. §1 through §10 describe the
+validation phase, during which no merge, no production deployment, and no
+production mutation occurred — everything in those sections ran against a
+disposable local Postgres clone, GitHub Actions, or the isolated `staging`
+environment inside `clipforge-v2`. §11 describes what happened after the
+owner reviewed this report and explicitly approved production deployment.
 
-**13 commits** were made during this phase (`9f52e2e` through `a79c38e`),
-every one of them a fix for a real, independently-discovered defect or a
-piece of this validation's own evidence trail — none speculative, none
-adding features beyond what validation itself required. Full list in §10.
+**13 commits** were made during the validation phase (`9f52e2e` through
+`a79c38e`), every one of them a fix for a real, independently-discovered
+defect or a piece of this validation's own evidence trail — none
+speculative, none adding features beyond what validation itself required.
+Full list in §10. Two more commits (`dd03783`'s merge to `main`, and a
+hotfix `1add0d4`) belong to the deployment itself — see §11.
 
 ---
 
@@ -466,3 +470,95 @@ per the explicit instruction this phase was run under.
 Every commit fixes a real, independently-discovered defect or records real
 evidence — none is speculative or adds scope beyond what validating this
 branch required.
+
+---
+
+## 11. Production deployment record (2026-08-15, post-approval)
+
+The owner reviewed §9's `CONDITIONAL GO` verdict and explicitly approved
+production deployment. Executed `PRODUCTION_DEPLOYMENT_RUNBOOK.md` exactly,
+in order:
+
+**Pre-flight (all confirmed before touching anything):**
+- CI green on the exact commit deployed (`dd03783`).
+- Fresh manual backup taken and verified in the bucket by listing, not just
+  trusting the script's own stdout: `db-20260815-114558.sql.gz`, 59,982
+  bytes.
+- Zero jobs in `queued`/`processing` on production — confirmed via read-only
+  query immediately before migrating.
+- `_prisma_migrations` did not yet exist on production, confirming no
+  conflict with the reconciliation work in §1.
+
+**Migration** — the exact sequence rehearsed in §4, run for real against
+production (`ep-lucky-tooth-ay3kmn09.c-5.us-east-2.aws.neon.tech`):
+```
+npx prisma migrate resolve --applied 20260814103037_baseline_matches_production
+npx prisma migrate deploy
+npx prisma migrate status   # "Database schema is up to date!"
+```
+Verified directly afterward, not just trusted: all 24 `Job` columns present
+with correct types/nullability/defaults, `WorkerRegistration` and
+`DemoQuota` present, and — the actual zero-data-loss proof — all 26
+pre-existing `Job` rows retained `leaseExpiresAt IS NULL` and got
+`priority=0`, matching their real pre-lease-fencing history exactly as
+designed. `User` (15 rows) and `Project` (26 rows) counts unchanged.
+
+**Code deploy** — merged `scale/100-user-readiness` into `main`
+(fast-forward, commit `dd03783`) and pushed, triggering the real
+`deploy.yml` pipeline: `build-check` passed, the SSH+`docker compose up -d
+--build` step succeeded, containers came up healthy
+(`clipforge-app-1`, `clipforge-worker-1`, `clipforge-caddy-1`), and
+`https://forgecut.app/api/health` returned `200 {"status":"ok"}`.
+
+**Post-deploy verification — found and fixed a real bug within minutes:**
+submitted one real, free-tier demo generation to prove the new lease-fencing
+worker path was genuinely live, not just schema-present. The `Job` row
+correctly showed a real `workerId`, `attemptToken`, `leaseExpiresAt`, and an
+actively-renewing `heartbeatAt` mid-render — direct proof the new claiming
+code was running. The render itself completed successfully
+(`Project.status = "ready"`), **but downloading the finished video returned
+404.**
+
+Root cause: `lib/jobs/media-fencing.ts` (this release's attempt-scoped media
+work) uploads every render to `jobs/<jobId>/attempts/<attemptToken>/...`,
+but `app/api/media/[...key]/route.ts`'s security check — added in an
+earlier, unrelated hardening pass (`OPERATIONS.md` §17, 2026-08-09, which
+restricted this unauthenticated route to a `media/` prefix so a predictable
+`backups/db-*.sql.gz` key could never be presigned and served) — only
+allowed that older `media/<userId>/...` prefix. The two changes were never
+reconciled: every render would complete successfully but its video would be
+permanently undownloadable. Pre-existing videos (already using the old
+prefix) were unaffected; this only broke *new* generations.
+
+**Blast radius, checked directly rather than assumed:** queried every `Job`
+row created between the first deploy and the fix — exactly one, my own
+verification job under the shared `demo@internal.forgecut.app` account. Zero
+real, paying customers were affected.
+
+**Fixed immediately** (commit `1add0d4`, ~18 minutes after the first
+deploy): the route now allows both prefixes, with the security property
+that motivated the original restriction re-verified in a new test — `backups/`
+and any other unrecognized prefix still 404 without ever calling
+`getPresignedDownloadUrl`. Added `app/api/media/[...key]/route.test.ts` (5
+tests, previously this route had zero test coverage at all), full suite run
+green (348 unit tests) before pushing. Deployed through the same gated
+pipeline, verified healthy, then **re-ran the exact failing scenario**: a
+fresh demo generation completed and its video downloaded successfully — `200
+video/mp4`, 23,191,458 bytes.
+
+**Why this wasn't caught earlier:** the media-fencing work and the
+media-route hardening were separate passes at different times, and no
+existing test exercised the route with the new key shape — staging's own
+E2E pass (§5) checked that a `videoUrl` was *returned* and *reachable* by
+status code but did not independently re-verify a full authenticated
+download after every subsequent code change reached staging. This is
+recorded here plainly rather than smoothed over: real post-deploy
+verification on the actual production infrastructure caught something
+staging validation did not, which is exactly why the runbook requires a
+live post-deploy check rather than treating a green CI run as sufficient
+proof.
+
+**Final state**: production is on `1add0d4`, migration fully applied and
+verified, both the intended feature set and the hotfix confirmed working
+end-to-end with real evidence (not projected), zero known open defects from
+this deployment, zero customer impact.
