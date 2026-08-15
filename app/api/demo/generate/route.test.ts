@@ -6,16 +6,26 @@ const getDemoUserIdFn = vi.fn();
 const jobCount = vi.fn();
 const projectCreate = vi.fn();
 const jobCreate = vi.fn();
+const executeRaw = vi.fn();
 
 vi.mock("@/lib/rate-limit", () => ({
   rateLimit: (...a: unknown[]) => rateLimitFn(...a),
   getClientIp: (...a: unknown[]) => getClientIpFn(...a),
 }));
 vi.mock("@/lib/demo-user", () => ({ getDemoUserId: (...a: unknown[]) => getDemoUserIdFn(...a) }));
+const mockDb = {
+  job: { count: (...a: unknown[]) => jobCount(...a), create: (...a: unknown[]) => jobCreate(...a) },
+  project: { create: (...a: unknown[]) => projectCreate(...a) },
+  $executeRaw: (...a: unknown[]) => executeRaw(...a),
+};
 vi.mock("@/lib/db", () => ({
   db: {
-    job: { count: (...a: unknown[]) => jobCount(...a), create: (...a: unknown[]) => jobCreate(...a) },
-    project: { create: (...a: unknown[]) => projectCreate(...a) },
+    ...mockDb,
+    // The route wraps its check-then-act sequence in a transaction (advisory
+    // lock + count + create) -- pass the same mocked client through as `tx`
+    // so existing per-call assertions still see job.count/project.create
+    // invoked, same as lib/jobs/repurpose-runner.test.ts's $transaction mock.
+    $transaction: (fn: (tx: typeof mockDb) => Promise<unknown>) => fn(mockDb),
   },
 }));
 

@@ -16,6 +16,10 @@ const MAX_TOPIC_LENGTH = 300;
 // see worker/index.ts) available for actual paying/signed-up users.
 const DEMO_LIMIT_PER_IP_PER_DAY = 3;
 const MAX_CONCURRENT_DEMO_JOBS = 1;
+// Arbitrary but must stay constant and distinct from lib/workers/admission.ts's
+// ADMISSION_LOCK_KEY (unrelated critical section -- sharing a key would
+// needlessly serialize demo-job admission against worker admission).
+const DEMO_ADMISSION_LOCK_KEY = 419_662_003n;
 // Company-wide ceiling across ALL anonymous visitors combined, independent of
 // per-IP limits (a botnet or NAT-shared office IP could otherwise still add up
 // to unbounded aggregate demo spend). Same in-memory rateLimit() mechanism as
@@ -72,35 +76,52 @@ export async function POST(req: Request) {
 
   const demoUserId = await getDemoUserId();
 
-  const activeDemoJobs = await db.job.count({
-    where: { userId: demoUserId, status: { in: ["queued", "processing"] } },
+  // The count-check and the job insert below must be atomic w.r.t. each
+  // other, or two requests arriving close together both read "0 active" and
+  // both proceed -- same class of check-then-act race as worker admission
+  // (lib/workers/admission.ts), fixed the same way: a transaction-scoped
+  // advisory lock forces the second caller's count to wait for the first
+  // caller's insert to commit. Distinct lock key from ADMISSION_LOCK_KEY
+  // (unrelated critical section -- must not serialize against it).
+  const result = await db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${DEMO_ADMISSION_LOCK_KEY})`;
+
+    const activeDemoJobs = await tx.job.count({
+      where: { userId: demoUserId, status: { in: ["queued", "processing"] } },
+    });
+    if (activeDemoJobs >= MAX_CONCURRENT_DEMO_JOBS) {
+      return { admitted: false as const };
+    }
+
+    const project = await tx.project.create({
+      data: {
+        userId: demoUserId,
+        type: "script",
+        title: topic.slice(0, 60),
+        status: "queued",
+        input: JSON.stringify({ topic, watermark: true, freeOnly: true }),
+      },
+    });
+
+    // priority: JOB_PRIORITY_DEMO -- demos must never outrank a paying
+    // customer's job in the claim order (section 13 of the scale-readiness
+    // brief). See lib/jobs/claim.ts's claimNextQueuedJob, which orders by
+    // priority DESC before createdAt ASC.
+    await tx.job.create({
+      data: { userId: demoUserId, projectId: project.id, type: "render", status: "queued", priority: JOB_PRIORITY_DEMO },
+    });
+
+    return { admitted: true as const, projectId: project.id };
   });
-  if (activeDemoJobs >= MAX_CONCURRENT_DEMO_JOBS) {
+
+  if (!result.admitted) {
     return NextResponse.json(
       { error: "High demand right now — give it a minute and try again." },
       { status: 429 }
     );
   }
 
-  const project = await db.project.create({
-    data: {
-      userId: demoUserId,
-      type: "script",
-      title: topic.slice(0, 60),
-      status: "queued",
-      input: JSON.stringify({ topic, watermark: true, freeOnly: true }),
-    },
-  });
-
-  // priority: JOB_PRIORITY_DEMO -- demos must never outrank a paying
-  // customer's job in the claim order (section 13 of the scale-readiness
-  // brief). See lib/jobs/claim.ts's claimNextQueuedJob, which orders by
-  // priority DESC before createdAt ASC.
-  const job = await db.job.create({
-    data: { userId: demoUserId, projectId: project.id, type: "render", status: "queued", priority: JOB_PRIORITY_DEMO },
-  });
-
   // No local enqueue step -- the worker process picks up this queued job
   // on its own poll loop (see worker/index.ts, lib/jobs/claim.ts).
-  return NextResponse.json({ projectId: project.id });
+  return NextResponse.json({ projectId: result.projectId });
 }
