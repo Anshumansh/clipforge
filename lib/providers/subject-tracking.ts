@@ -6,6 +6,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
+import { getAppBaseUrl } from "@/lib/storage";
 
 const execFileAsync = promisify(execFile);
 
@@ -72,7 +73,17 @@ export async function prepareLocalSource(sourcePath: string): Promise<{ localPat
   }
 
   const tempPath = path.join(os.tmpdir(), `clipforge-source-${Date.now()}-${Math.random().toString(36).slice(2)}.mp4`);
-  const res = await fetch(sourcePath);
+  // The app's own /api/media route now requires either a session belonging
+  // to the media's owner or this internal secret (see app/api/media/[...key]
+  // /route.ts) -- this is a plain server-to-server fetch with no session to
+  // present, so it authenticates as the trusted worker instead. Only sent
+  // when the URL is actually our own app, never to a third-party host this
+  // function might someday be pointed at.
+  const headers =
+    sourcePath.startsWith(getAppBaseUrl()) && process.env.INTERNAL_MEDIA_SECRET
+      ? { "x-internal-media-secret": process.env.INTERNAL_MEDIA_SECRET }
+      : undefined;
+  const res = await fetch(sourcePath, { headers });
   if (!res.ok || !res.body) throw new Error(`Failed to download source for analysis: ${res.status}`);
 
   await pipeline(Readable.fromWeb(res.body as never), createWriteStream(tempPath));

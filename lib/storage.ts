@@ -42,7 +42,7 @@ function getS3Client(config: S3Config): S3Client {
   return cachedClient;
 }
 
-function getAppBaseUrl(): string {
+export function getAppBaseUrl(): string {
   return (process.env.NEXTAUTH_URL ?? "http://localhost:3000").replace(/\/$/, "");
 }
 
