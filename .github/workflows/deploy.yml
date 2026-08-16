@@ -84,7 +84,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-            - run: npm ci
+      - run: npm ci
       - name: Prisma schema validation
         env:
           DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci"
@@ -92,9 +92,6 @@ jobs:
           NEXTAUTH_URL: "https://forgecut.app"
         run: npx prisma validate
       - name: Typecheck
-        run: npx tsc --noEmit -p .
-         run: npx prisma validate
-       - name: Typecheck
         run: npx tsc --noEmit -p .
       - name: Build
         run: |
@@ -200,5 +197,5 @@ jobs:
           curl -sS -X POST "https://api.resend.com/emails" \
             -H "Authorization: Bearer ${{ secrets.RESEND_API_KEY }}" \
             -H "Content-Type: application/json" \
-            -d "{\"from\":\"Clipforge <onboarding@resend.dev>\",\"to\":\"support@forgecut.app\",\"subject\":\"Clipforge: deploy succeeded but health check failed\",\"html\":\"<p>The deploy step completed but <code>/api/health</code> did not return 200 within 60s afterward. Check the VPS directly.</p>\"}" \
+            -d "{\"from\":\"Clipforge <onboarding@resend.dev>\",\"to\":\"support@forgecut.app\",\"subject\":\"Clipforge: deploy succeeded but health check failed\",\"html\":\"<p>The deploy step completed successfully, but the post-deploy health check (5 attempts, 10s between retries) failed.</p><p>Review the job logs for curl error details.</p>\"}" \
             --max-time 15 || true
