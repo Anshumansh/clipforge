@@ -84,12 +84,15 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      -  run: npm ci
-       - name: Prisma schema validation
-         env:
-           DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci"
-           NEXTAUTH_SECRET: "ci-build-only-not-a-real-secret"
-           NEXTAUTH_URL: "https://forgecut.app"
+            - run: npm ci
+      - name: Prisma schema validation
+        env:
+          DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci"
+          NEXTAUTH_SECRET: "ci-build-only-not-a-real-secret"
+          NEXTAUTH_URL: "https://forgecut.app"
+        run: npx prisma validate
+      - name: Typecheck
+        run: npx tsc --noEmit -p .
          run: npx prisma validate
        - name: Typecheck
         run: npx tsc --noEmit -p .
