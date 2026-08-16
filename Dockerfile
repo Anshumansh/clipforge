@@ -24,7 +24,7 @@ COPY . .
 # statically-rendered pages need the real site URL passed explicitly —
 # otherwise metadataBase (and things derived from it, like the og:image URL)
 # gets baked in as the localhost fallback.
-ARG NEXTAUTH_URL
+ARG NEXTAUTH_URL=http://localhost:3000
 ENV NEXTAUTH_URL=${NEXTAUTH_URL}
 
 RUN npx prisma generate
