@@ -84,7 +84,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      -        - run: npm ci
+      -  run: npm ci
        - name: Prisma schema validation
          env:
            DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci"
