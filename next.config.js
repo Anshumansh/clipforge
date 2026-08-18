@@ -16,7 +16,16 @@
 // The other real exception is Trend Radar's video thumbnails, which render the
 // YouTube Data API's own https://i.ytimg.com URL directly (app/dashboard/trends/
 // page.tsx) rather than proxying it.
-const STORAGE_HOST = "https://s3.us-west-004.backblazeb2.com";
+//
+// Listed, not a single value, because different environments use different
+// S3-compatible providers against this same built image: production's real
+// bucket is Backblaze B2; Railway's own bucket product (used on staging as of
+// 2026-08-18) presigns against *.storageapi.dev instead. Reproduced live: every
+// video/thumbnail silently failed to load on staging with a CSP media-src/
+// img-src violation in the console until this host was added -- the presigned
+// redirect itself returned a clean 307, so nothing server-side pointed at it.
+const STORAGE_HOSTS = ["https://s3.us-west-004.backblazeb2.com", "https://*.storageapi.dev"];
+const STORAGE_HOST = STORAGE_HOSTS.join(" ");
 
 const CSP = [
   "default-src 'self'",
