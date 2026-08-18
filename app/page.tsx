@@ -8,6 +8,7 @@ import { StatCounter } from "@/components/stat-counter";
 import { Marquee } from "@/components/marquee";
 import { db } from "@/lib/db";
 import { SOCIAL_PLATFORMS, PLATFORM_LABELS, getLivePlatforms } from "@/lib/social/platforms";
+import { getPresignedDownloadUrl, getAppBaseUrl } from "@/lib/storage";
 import { unstable_cache } from "next/cache";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -120,20 +121,41 @@ const tickerItems = [
 
 // Real, unedited renders pulled straight from production — not stock footage or
 // staged mockups. Muted/looped in the phone frames below.
-const showcaseClips = [
+//
+// These are private, ownership-gated storage keys (same /api/media/[...key]
+// family the render pipeline's own internal fetches use -- see
+// lib/remotion-render.ts's resolveInternalMediaUrls). An anonymous visitor's
+// browser has no session, so hitting that route directly 404s -- confirmed
+// live on production (both preview tiles here 404'd from a real anonymous
+// browser). Fixing this by presigning, NOT by loosening /api/media/[...key]'s
+// auth for everyone: this is a fixed, hand-picked allowlist of exactly the 3
+// keys the owner has chosen to show publicly, presigned server-side, same
+// mechanism (getPresignedDownloadUrl) the render pipeline already trusts.
+const SHOWCASE_CLIPS: { key: string; label: string }[] = [
+  { key: "media/cmsfwpkun00005ln9ty9j1vqs/cmsfwtaxc00025ln9310wv1dx/final.mp4", label: "Script to video" },
   {
-    src: "https://forgecut.app/api/media/media/cmsfwpkun00005ln9ty9j1vqs/cmsfwtaxc00025ln9310wv1dx/final.mp4",
-    label: "Script to video",
-  },
-  {
-    src: "https://forgecut.app/api/media/media/cmsfwpkun00005ln9ty9j1vqs/cmsjh8bs800017l6bezmf7umb/clip-cmsjh8rxw00057l6bn2le0p6g.mp4",
+    key: "media/cmsfwpkun00005ln9ty9j1vqs/cmsjh8bs800017l6bezmf7umb/clip-cmsjh8rxw00057l6bn2le0p6g.mp4",
     label: "Repurpose — auto face tracking",
   },
-  {
-    src: "https://forgecut.app/api/media/media/cmsfwpkun00005ln9ty9j1vqs/cmsfwtuq000065ln9yuuato5u/final.mp4",
-    label: "UGC-style ad",
-  },
+  { key: "media/cmsfwpkun00005ln9ty9j1vqs/cmsfwtuq000065ln9yuuato5u/final.mp4", label: "UGC-style ad" },
 ];
+
+// Presigned URLs are valid 1h; revalidating well inside that window means a
+// served URL still has plenty of life left, same pattern as
+// getVideosGeneratedCount below (this page has no dynamic APIs, so it would
+// otherwise statically prerender once at build time and freeze).
+const getShowcaseClips = unstable_cache(
+  async (): Promise<{ src: string; label: string }[]> => {
+    return Promise.all(
+      SHOWCASE_CLIPS.map(async ({ key, label }) => {
+        const signed = await getPresignedDownloadUrl(key, 3600);
+        return { src: signed ?? `${getAppBaseUrl()}/api/media/${key}`, label };
+      })
+    );
+  },
+  ["homepage-showcase-clips"],
+  { revalidate: 1800 }
+);
 
 const differentiators = [
   {
@@ -253,6 +275,7 @@ const PLATFORM_DOT: Record<(typeof SOCIAL_PLATFORMS)[number], string> = {
 export default async function LandingPage() {
   const videosGenerated = await getVideosGeneratedCount();
   const livePlatforms = getLivePlatforms();
+  const showcaseClips = await getShowcaseClips();
 
   return (
     <div className="flex min-h-screen flex-col">
