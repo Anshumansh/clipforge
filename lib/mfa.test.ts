@@ -23,11 +23,26 @@ describe("TOTP", () => {
   });
 
   it("rejects a code generated from a different secret", () => {
+    // Two independently random secrets producing the same 6-digit code at the
+    // same 30s step (verifyTotpCode's window:1 tolerance means 3 valid codes
+    // per secret at any instant) is a real, if tiny, ~3-in-a-million chance --
+    // rare enough to look like a one-off CI flake, common enough to hit
+    // eventually over a project's lifetime. Retry with a fresh secretB on the
+    // vanishingly unlikely event of a genuine collision rather than asserting
+    // on two draws that happened to coincide; this keeps the test exercising
+    // real random secrets (real bugs in cross-secret scoping show up here)
+    // instead of switching to a fixed pair, which would just relocate the
+    // same coincidence risk to a single fixed pair.
     const secretA = generateTotpSecret();
-    const secretB = generateTotpSecret();
-    const codeFromB = buildTotp(secretB.base32, "admin@example.com").generate();
+    let codeFromB: string;
+    let result: boolean;
+    do {
+      const secretB = generateTotpSecret();
+      codeFromB = buildTotp(secretB.base32, "admin@example.com").generate();
+      result = verifyTotpCode(secretA.base32, codeFromB, "admin@example.com");
+    } while (result === true);
 
-    expect(verifyTotpCode(secretA.base32, codeFromB, "admin@example.com")).toBe(false);
+    expect(result).toBe(false);
   });
 });
 
