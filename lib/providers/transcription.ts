@@ -94,14 +94,14 @@ async function transcribeAudioFile(audioPath: string): Promise<Transcript | null
  * Whisper (OpenAI, then Groq's free-tier Whisper as a fallback). Returns null in mock
  * mode, on failure, or if the audio is too large for the API — callers should fall
  * back to duration-based logic. */
-export async function transcribeVideo(sourcePath: string, durationSec: number): Promise<Transcript | null> {
+export async function transcribeVideo(sourcePath: string, durationSec: number, userId: string): Promise<Transcript | null> {
   if (getWhisperConfigs().length === 0) return null;
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "clipforge-transcribe-"));
   const audioPath = path.join(tempDir, "audio-extract.mp3");
 
   try {
-    await renderAudioExtract({ sourcePath, durationInSeconds: durationSec }, audioPath);
+    await renderAudioExtract({ sourcePath, durationInSeconds: durationSec }, audioPath, userId);
     const transcript = await transcribeAudioFile(audioPath);
     if (!transcript) console.error("[transcription] all configured providers returned no transcript");
     return transcript;

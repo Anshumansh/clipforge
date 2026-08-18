@@ -77,7 +77,7 @@ export async function runRepurposeJob(jobId: string, workerId: string, attemptTo
       aspectRatio?: AspectRatio;
     };
     await setJobProgress(jobId, 10, "Transcribing audio…");
-    const transcript = await transcribeVideo(input.sourcePath, input.durationSec);
+    const transcript = await transcribeVideo(input.sourcePath, input.durationSec, project.userId);
 
     let highlights: HighlightClip[] | null = null;
     if (transcript) {
