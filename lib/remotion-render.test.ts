@@ -12,6 +12,11 @@ vi.mock("@/lib/storage", () => ({
 const findUniqueJobMock = vi.fn();
 vi.mock("@/lib/db", () => ({ db: { job: { findUnique: (...a: unknown[]) => findUniqueJobMock(...a) } } }));
 
+const validateExternalAssetUrlMock = vi.fn();
+vi.mock("@/lib/asset-url-security", () => ({
+  validateExternalAssetUrl: (...a: unknown[]) => validateExternalAssetUrlMock(...a),
+}));
+
 const { resolveInternalMediaUrls } = await import("./remotion-render");
 const { getPresignedDownloadUrl } = await import("@/lib/storage");
 
@@ -29,24 +34,35 @@ describe("resolveInternalMediaUrls", () => {
     expect(getPresignedDownloadUrl).toHaveBeenCalledWith(`media/${OWNER}/proj456/voiceover.mp3`);
   });
 
-  it("leaves unrelated strings and other domains untouched", async () => {
+  it("leaves plain non-URL strings untouched (never sent to any validator)", async () => {
     const result = await resolveInternalMediaUrls(
-      {
-        topic: "morning routines",
-        externalUrl: "https://i.ytimg.com/vi/abc/default.jpg",
-        count: 3,
-        enabled: true,
-        nothing: null,
-      },
+      { topic: "morning routines", count: 3, enabled: true, nothing: null },
       OWNER
     );
 
-    expect(result).toEqual({
-      topic: "morning routines",
-      externalUrl: "https://i.ytimg.com/vi/abc/default.jpg",
-      count: 3,
-      enabled: true,
-      nothing: null,
+    expect(result).toEqual({ topic: "morning routines", count: 3, enabled: true, nothing: null });
+    expect(validateExternalAssetUrlMock).not.toHaveBeenCalled();
+  });
+
+  describe("external (non-Clipforge) URLs", () => {
+    it("delegates a URL-shaped string that isn't our own media route to the SSRF-safe validator", async () => {
+      validateExternalAssetUrlMock.mockResolvedValueOnce("https://images.pexels.com/photos/1/x.jpeg");
+
+      const result = await resolveInternalMediaUrls(
+        { mediaUrl: "https://images.pexels.com/photos/1/x.jpeg" },
+        OWNER
+      );
+
+      expect(validateExternalAssetUrlMock).toHaveBeenCalledWith("https://images.pexels.com/photos/1/x.jpeg");
+      expect(result.mediaUrl).toBe("https://images.pexels.com/photos/1/x.jpeg");
+    });
+
+    it("propagates rejection from the validator instead of silently passing an unsafe URL through", async () => {
+      validateExternalAssetUrlMock.mockRejectedValueOnce(new Error("Blocked asset host (resolves to a non-public address)"));
+
+      await expect(
+        resolveInternalMediaUrls({ mediaUrl: "https://images.pexels.com/redirect-to-metadata" }, OWNER)
+      ).rejects.toThrow(/Blocked asset host/);
     });
   });
 
