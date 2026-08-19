@@ -192,6 +192,35 @@ All rows below required an authenticated session for live UI testing, which is B
 
 ---
 
+## 11. Load & reliability testing
+
+`tests/load/*.js` (k6 scripts) already exist from prior work, covering the exact 10/25/50/100/150-concurrent-user scenarios this stage calls for. Attempted to run them this pass; genuinely blocked, not skipped:
+
+| ID | Item | Result | Reason |
+|----|------|--------|--------|
+| L-01 | `public-browsing.js` (100 users, no test account needed) | **BLOCKED** | k6 isn't installed on this machine; `choco install k6` requires admin elevation not available in this shell — did not attempt to force elevation |
+| L-02 | `authenticated-dashboard.js` / `generation-burst.js` / `mixed-load.js` | BLOCKED-OWNER | Require `TEST_USER_EMAIL`/`TEST_USER_PASSWORD` for a seeded test account per the scripts' own documented requirements |
+| L-03 | `spike-recovery.js` | BLOCKED-OWNER | Same as L-02 |
+| L-04 | Methodology note | — | The scripts' own README requires running from a separate machine with unused capacity, "so the load generator itself never becomes the bottleneck being measured" — this dev machine doesn't meet that even where account/tooling weren't blockers |
+| L-05 | Worker crash recovery / stale-lease reconciliation | PASS (code) | `reconcileAbandonedProcessingJobs()` reviewed — correctly requeues with backoff or dead-letters based on `attemptCount` vs `maxAttempts`, runs at startup and on a recurring timer |
+| L-06 | Demo quota persistence across restarts | Real finding | See D-13 — the DB-backed persistence layer exists but isn't wired into the live route |
+| L-07 | Graceful deployment shutdown | PASS (code) | `Worker.shutdown()` stops claiming, drains in-flight jobs via `Promise.allSettled`, retires registration |
+
+## 12. Operations
+
+| ID | Item | Test type | Evidence | Result |
+|----|------|-----------|----------|--------|
+| O-01 | Cron registration (6 jobs) | Live | `crontab -l` — backup, scheduled-posts, trend-ingestion, watchdog, demo-cleanup, comp-revert all registered with correct schedules | PASS |
+| O-02 | Cron jobs actually running (not just registered) | Live | All 6 log files fresh, timestamps matching each schedule | PASS |
+| O-03 | Watchdog health checks | Code review (full file read) | App HTTP health, container status+auto-restart, DB-backed checks (stale worker heartbeat, queue age, failure rate, credit/reservation consistency, connection-pool headroom), worker memory pre-OOM warning, media 5xx, Stripe webhook failures, cron-log staleness, disk auto-prune | PASS (code) |
+| O-04 | Watchdog alert delivery | **Live, real send** | Triggered `--test-alert`; Resend API confirms `last_event:"delivered"` for both this test send and a real historical "back to healthy" alert from 2026-08-16 — genuine end-to-end proof, not just a 200 from the send call | PASS |
+| O-05 | Alert state-transition logic (no spam) | Code review | Only alerts on healthy↔unhealthy transitions, tracked via a state file | PASS (code) |
+| O-06 | Email sender domain | Live | Confirmed `noreply@forgecut.app` (verified custom domain), not the shared `resend.dev` testing domain | PASS |
+| O-07 | Backup + restore procedure | Live (backup) / code review (restore) | Fresh backup taken and confirmed uploaded this pass; restore procedure documented (`gunzip` + `psql`); full restore-into-isolated-Postgres not re-executed this pass (previously verified in an earlier phase of this engagement) | PASS (backup) / not re-verified (restore) |
+| O-08 | Migration reconciliation | Live | `prisma migrate status` — up to date, 2 migrations applied cleanly | PASS |
+| O-09 | Log redaction | Code review | Watchdog script never logs `DATABASE_URL`/`RESEND_API_KEY`/etc. values, only counts/booleans; matches the value-blind pattern used throughout this engagement | PASS (code) |
+| O-10 | Stray test account found in production | Live DB check | `prod-p0-recovery-test@clipforge-internal-test.example` — created 2026-08-18 from earlier testing (before this pass), unverified, zero projects/jobs, not admin. Confirmed inert. Left in place — deleting user data isn't this agent's call to make unilaterally; flagging for the owner | Informational finding, not fixed |
+
 ## Findings register (not necessarily P0 fixes)
 
 - **F-01**: Trust page claims "exactly two cookies"; live check shows at least 3-4 (session + CSRF-token + callback-url). Notable given the page's own stated premise.
@@ -203,11 +232,13 @@ All rows below required an authenticated session for live UI testing, which is B
 
 | Result | Count |
 |--------|-------|
-| PASS (live-tested) | 37 |
-| PASS (code-reviewed only) | 27 |
+| PASS (live-tested) | 43 |
+| PASS (code-reviewed only) | 32 |
 | FAIL → FIXED this pass | 3 |
-| BLOCKED-OWNER | 26 |
+| BLOCKED-OWNER | 28 |
 | BLOCKED-VENDOR | 2 |
+| BLOCKED-TOOLING (this dev machine only — k6 needs admin elevation not available here; not an app defect) | 1 |
 | UNTESTED | 1 (Firefox — tooling, not app) |
+| Informational findings (not P0, not blocking) | 5 |
 
 **Verdict: NO-GO.** Zero unresolved FAILs. Every BLOCKED row has a named, specific unblock (owner login, owner-provisioned test account, staging Stripe test-mode keys, Railway dashboard memory setting, or a different CI runner for Firefox) — none are vague or unexplained. See the recovery report artifact and PR #5 for the release-readiness evidence package this manifest feeds into.
