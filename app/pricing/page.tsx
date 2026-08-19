@@ -160,7 +160,10 @@ export default async function PricingPage() {
                     <CardTitle className="flex items-center justify-between font-display">
                       {plan.name}
                       {plan.highlighted && (
-                        <span className="rounded-full bg-gradient-to-r from-[hsl(262_83%_66%)] to-[hsl(316_80%_62%)] px-2 py-0.5 text-xs font-medium text-white">
+                        <span
+                          aria-label=", Popular"
+                          className="rounded-full bg-gradient-to-r from-[hsl(262_83%_66%)] to-[hsl(316_80%_62%)] px-2 py-0.5 text-xs font-medium text-white"
+                        >
                           Popular
                         </span>
                       )}
