@@ -32,7 +32,7 @@ const facts = [
   {
     icon: EyeOff,
     title: "No ad tracking, no analytics scripts",
-    description: "We set exactly two cookies: a signed session cookie and a short-lived OAuth state cookie. Nothing else runs on the site to track you.",
+    description: "We set a signed session cookie once you're logged in, plus short-lived cookies NextAuth itself uses for CSRF protection and post-login redirects. Nothing else runs on the site to track you — no ad pixels, no analytics scripts.",
   },
   {
     icon: ShieldCheck,
