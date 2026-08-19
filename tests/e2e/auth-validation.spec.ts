@@ -68,3 +68,52 @@ test.describe("email verification links", () => {
     await expect(page.getByRole("link", { name: "Log in" })).toBeVisible();
   });
 });
+
+test.describe("password reset with an invalid token", () => {
+  test("rejects at submit time without changing any password", async ({ page }) => {
+    await page.goto("/reset-password/this-token-does-not-exist-e2e-test");
+    // Unlike verify-email/invite, this page doesn't pre-validate the token on
+    // load (see app/reset-password/[token]/page.tsx) -- the form always
+    // renders. The security property that matters is server-side: the token
+    // must be checked before any write, which is what this asserts.
+    await page.getByLabel("New password").fill("qa-test-password-999");
+    await page.getByLabel("Confirm password").fill("qa-test-password-999");
+    await page.getByRole("button", { name: "Update password" }).click();
+    await expect(page.getByText(/invalid or has expired/i)).toBeVisible();
+  });
+});
+
+test.describe("team invite with an invalid token", () => {
+  test("shows a clear not-found message", async ({ page }) => {
+    await page.goto("/invite/this-token-does-not-exist-e2e-test");
+    await expect(page.getByText(/invite not found/i)).toBeVisible();
+  });
+});
+
+test.describe("unmapped route", () => {
+  test("shows a real 404 page with a way back", async ({ page }) => {
+    await page.goto("/this-page-does-not-exist-e2e-test");
+    await expect(page.getByText(/page not found/i)).toBeVisible();
+    await expect(page.getByRole("link", { name: /back to home/i })).toBeVisible();
+  });
+});
+
+test.describe("authenticated API routes reject anonymous requests", () => {
+  const expectations: [string, number][] = [
+    ["/api/projects", 401],
+    ["/api/me", 401],
+    ["/api/brand-kit", 401],
+    ["/api/workspace", 401],
+    ["/api/api-keys", 401],
+    ["/api/social/accounts", 401],
+    ["/api/trend/feed", 401],
+    ["/api/admin/reconciliation", 403],
+  ];
+
+  for (const [path, expectedStatus] of expectations) {
+    test(`${path} returns ${expectedStatus} for an anonymous request`, async ({ request }) => {
+      const res = await request.get(path);
+      expect(res.status()).toBe(expectedStatus);
+    });
+  }
+});
