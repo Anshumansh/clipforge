@@ -131,15 +131,15 @@ export default function TrustPage() {
             </p>
             <p className="mt-6 text-sm text-muted-foreground">
               Full details in the{" "}
-              <Link href="/privacy" className="text-primary hover:underline">
+              <Link href="/privacy" className="text-primary underline underline-offset-2 hover:no-underline">
                 Privacy Policy
               </Link>{" "}
               and{" "}
-              <Link href="/terms" className="text-primary hover:underline">
+              <Link href="/terms" className="text-primary underline underline-offset-2 hover:no-underline">
                 Terms of Service
               </Link>
               . Questions go to{" "}
-              <a href="mailto:support@forgecut.app" className="text-primary hover:underline">
+              <a href="mailto:support@forgecut.app" className="text-primary underline underline-offset-2 hover:no-underline">
                 support@forgecut.app
               </a>
               .

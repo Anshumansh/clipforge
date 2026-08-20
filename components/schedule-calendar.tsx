@@ -136,7 +136,7 @@ export function ScheduleCalendar({ items }: { items: ScheduleItem[] }) {
               : "Upcoming"}
           </h2>
           {selectedDay && (
-            <button type="button" onClick={() => setSelectedDay(null)} className="text-xs text-primary hover:underline">
+            <button type="button" onClick={() => setSelectedDay(null)} className="text-xs text-primary underline underline-offset-2 hover:no-underline">
               Show all upcoming
             </button>
           )}

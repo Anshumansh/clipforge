@@ -81,7 +81,7 @@ function LoginForm() {
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <Label htmlFor="password">Password</Label>
-                <Link href="/forgot-password" className="text-xs text-primary hover:underline">
+                <Link href="/forgot-password" className="text-xs text-primary underline underline-offset-2 hover:no-underline">
                   Forgot password?
                 </Link>
               </div>
@@ -120,7 +120,7 @@ function LoginForm() {
           </form>
           <p className="mt-6 text-center text-sm text-muted-foreground">
             No account?{" "}
-            <Link href={`/register${next !== "/dashboard" ? `?next=${encodeURIComponent(next)}` : ""}`} className="text-primary hover:underline">
+            <Link href={`/register${next !== "/dashboard" ? `?next=${encodeURIComponent(next)}` : ""}`} className="text-primary underline underline-offset-2 hover:no-underline">
               Sign up free
             </Link>
           </p>

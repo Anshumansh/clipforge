@@ -201,7 +201,7 @@ export default function NewScriptVideoPage() {
                     I confirm this is my own voice, or I have the explicit, informed consent of the person whose
                     voice this is, to clone it through Clipforge. Cloning someone's voice without their consent
                     violates our{" "}
-                    <a href="/terms#4-1-voice-cloning" target="_blank" className="text-primary hover:underline">
+                    <a href="/terms#4-1-voice-cloning" target="_blank" className="text-primary underline underline-offset-2 hover:no-underline">
                       Terms of Service
                     </a>
                     .
