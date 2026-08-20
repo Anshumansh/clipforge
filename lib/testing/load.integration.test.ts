@@ -8,7 +8,7 @@ import { PostgresTestDB, ConcurrencyBarrier } from "@/lib/testing/postgres-integ
  * real Postgres.
  *
  * SCOPE, stated plainly: this exercises the database/queue layer directly
- * (claimNextQueuedJob, requestAdmission, incrementDemoQuota) bypassing HTTP,
+ * (claimNextQueuedJob, requestAdmission, checkAndReserveDemoQuota) bypassing HTTP,
  * auth/sessions, credit deduction, and every paid AI provider (script/TTS/
  * render). It does not load-test the full HTTP request path and does not
  * spend a cent on a provider call. That boundary is deliberate: this
@@ -21,7 +21,10 @@ import { PostgresTestDB, ConcurrencyBarrier } from "@/lib/testing/postgres-integ
  * system where load-bearing correctness was actually in question.
  */
 process.env.MAX_ACTIVE_WORKERS = "1"; // matches the documented production default
-process.env.DEMO_PER_IP_LIMIT = "30"; // lib/demo/quota.ts's own default
+// 30 here, not lib/demo/quota.ts's real default of 3 -- deliberately higher
+// so this load test can actually observe the cap engage at tier sizes above
+// 30 without every tier just trivially hitting "3 accepted, rest rejected".
+process.env.DEMO_PER_IP_LIMIT = "30";
 
 let activeDb: PrismaClient;
 vi.mock("@/lib/db", () => ({
@@ -32,7 +35,7 @@ vi.mock("@/lib/db", () => ({
 
 const { claimNextQueuedJob } = await import("@/lib/jobs/claim");
 const { requestAdmission } = await import("@/lib/workers/admission");
-const { incrementDemoQuota } = await import("@/lib/demo/quota");
+const { checkAndReserveDemoQuota } = await import("@/lib/demo/quota");
 
 interface TierResult {
   label: string;
@@ -219,8 +222,8 @@ describe("Load test: queue/admission/demo-quota under 10/25/50/100 users + 150 b
 
       await activeDb.demoQuota.deleteMany({});
       const demoIp = `203.0.${tier.count % 256}.1`;
-      const demoResults = await Promise.all(Array.from({ length: tier.count }, () => incrementDemoQuota(demoIp)));
-      const demoAccepted = demoResults.filter(Boolean).length;
+      const demoResults = await Promise.all(Array.from({ length: tier.count }, () => checkAndReserveDemoQuota(demoIp)));
+      const demoAccepted = demoResults.filter((r) => r.allowed).length;
       const demoExpected = Math.min(tier.count, 30);
 
       results.push({
