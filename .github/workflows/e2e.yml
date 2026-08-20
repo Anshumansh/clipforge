@@ -1,0 +1,51 @@
+name: E2E (cross-browser)
+
+# Runs the full Playwright suite against staging on a real Linux runner --
+# this is what actually verifies Firefox, since it cannot launch at all on
+# the Windows machine this suite was originally developed on (spawn UNKNOWN,
+# survives a forced reinstall -- a local tooling limitation, not something
+# about the app). Firefox is not considered verified until it's green here.
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+env:
+  E2E_BASE_URL: https://clipforge-v2-staging.up.railway.app
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium, firefox, webkit, mobile-chrome]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Install Playwright browser + OS deps for this project
+        run: npx playwright install --with-deps ${{ matrix.project == 'mobile-chrome' && 'chromium' || matrix.project }}
+      - name: Run E2E suite (${{ matrix.project }})
+        # The real-render demo test is excluded from the matrix run: it's
+        # already proven per-browser is unnecessary (the same backend path
+        # is exercised regardless of which engine drives the browser) and
+        # burning through the shared per-IP daily demo quota once per matrix
+        # leg would eventually 429 later legs for no new signal. It still
+        # runs in the chromium leg alone, see the second step below.
+        run: npx playwright test --project=${{ matrix.project }} --grep-invert "submits, renders, and plays back"
+      - name: Run the real-render demo test (chromium only)
+        if: matrix.project == 'chromium'
+        run: npx playwright test --project=chromium --grep "submits, renders, and plays back"
+      - name: Upload trace/report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.project }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
