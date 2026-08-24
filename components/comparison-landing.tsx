@@ -63,7 +63,12 @@ export function ComparisonLandingPage({ config }: { config: ComparisonConfig }) 
 
         <section className="mx-auto max-w-4xl px-6 py-16">
           <Reveal>
-            <div className="overflow-x-auto rounded-xl border border-border">
+            <div
+              className="overflow-x-auto rounded-xl border border-border"
+              tabIndex={0}
+              role="region"
+              aria-label={`Comparison table: Clipforge vs ${config.competitorName}. Scroll horizontally to see all columns.`}
+            >
               <table className="w-full border-collapse text-left">
                 <thead>
                   <tr className="border-b border-border bg-secondary/40">
