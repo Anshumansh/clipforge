@@ -146,6 +146,7 @@ export function AdminPanel() {
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
+              aria-label="Search accounts by email"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="user@example.com"
@@ -200,12 +201,14 @@ export function AdminPanel() {
                 <input
                   type="number"
                   min={1}
+                  aria-label="Credit amount to grant"
                   value={creditAmount}
                   onChange={(e) => setCreditAmount(e.target.value)}
                   className="rounded-md border border-border bg-background/60 px-3 py-2 text-sm"
                 />
                 <input
                   type="text"
+                  aria-label="Reason for granting credits"
                   value={creditNote}
                   onChange={(e) => setCreditNote(e.target.value)}
                   placeholder="Reason (e.g. support goodwill credit)"
@@ -221,6 +224,7 @@ export function AdminPanel() {
               <p className="mb-3 flex items-center gap-1.5 text-sm font-medium"><Sparkles className="h-4 w-4 text-primary" /> Comp a plan (free trial)</p>
               <div className="grid grid-cols-[1fr_90px] gap-2">
                 <select
+                  aria-label="Plan to comp"
                   value={compPlan}
                   onChange={(e) => setCompPlan(e.target.value)}
                   className="rounded-md border border-border bg-background/60 px-3 py-2 text-sm capitalize"
@@ -232,6 +236,7 @@ export function AdminPanel() {
                 <input
                   type="number"
                   min={1}
+                  aria-label="Number of days"
                   value={compDays}
                   onChange={(e) => setCompDays(e.target.value)}
                   className="rounded-md border border-border bg-background/60 px-3 py-2 text-sm"
@@ -240,6 +245,7 @@ export function AdminPanel() {
               </div>
               <input
                 type="text"
+                aria-label="Reason for comping this plan"
                 value={compNote}
                 onChange={(e) => setCompNote(e.target.value)}
                 placeholder="Reason (e.g. 14-day agency trial)"
