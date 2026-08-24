@@ -227,22 +227,25 @@ Owner-assisted staging login was completed this session (credentials never seen/
 - **F-07**: Roadmap vote silently reported success on real DB failures — **RESOLVED**, see P-17b.
 - **F-08**: 6 monitoring counters are permanently hardcoded to zero, never incremented — open, see S-19.
 - **F-09**: 3 of 3 homepage showcase clips broke when the storage bucket was replaced; 1 of 3 fixed — open, see P-03.
-- **F-10**: Billing page prematurely shows "Manage billing" instead of "Upgrade plan" once a Stripe customer record exists, even with no active subscription — open, minor, see DB-12.
-- **F-11**: Idea Radar and Trend Radar pages don't set their own `<title>` — open, minor, cosmetic.
+- **F-10**: ~~Billing page prematurely shows "Manage billing" instead of "Upgrade plan"~~ — **RESOLVED**: switched the condition from `stripeCustomerId` (set as soon as a checkout session exists) to `stripeSubscriptionId` (only set once a subscription actually does).
+- **F-11**: ~~Idea Radar and Trend Radar pages don't set their own `<title>`~~ — **RESOLVED**: added the same metadata-only `layout.tsx` pattern already used for `login`/`register`/`new/script`.
+- **F-12**: **RESOLVED**: there was no way to delete an individual project anywhere in the app (no API route, no UI) — a failed generation, or unwanted test data, had zero recourse short of deleting the entire account. Added `DELETE /api/projects/[id]` (creator-only, cleans up both storage key conventions this app has used) + a `DeleteProjectButton`. Live-verified end-to-end: deleted a real throwaway project on staging, project count went 3→2.
+- **F-13**: **RESOLVED**: `components/schedule-calendar.tsx`'s day-bucketing used the UTC calendar day while its grid used the local calendar day — misplaced every scheduled post (and the "today" highlight) for any user west of UTC, i.e. most of the US. Fixed and covered by a test that stubs `TZ=America/Los_Angeles` and proves the exact boundary case.
+- **F-14**: **RESOLVED**: 6 admin-panel form controls (account search, credit amount/note, comp-plan select, comp-days, comp-note) had no accessible name — inconsistent with every other form in the codebase. Added `aria-label` to each.
 
 ## Rollup
 
 | Result | Count (approx.) |
 |--------|-------|
-| PASS-LIVE (tested live this session or previously, with real evidence) | ~75 |
+| PASS-LIVE (tested live this session or previously, with real evidence) | ~80 |
 | PASS (code-reviewed only) | ~25 |
-| FAIL → FIXED this pass (2026-08-24) | 9 |
+| FAIL → FIXED this pass (2026-08-24) | 14 |
 | FAIL → PARTIALLY FIXED | 1 (P-03, 1 of 3 showcase clips) |
 | Real finding, not fixed (scoped as follow-up) | 2 (F-08 dead metrics, S-08b unmerged postcss gap) |
 | BLOCKED-OWNER (needs the owner's direct action or a real paid-plan account) | ~15 |
 | BLOCKED-VENDOR | 1 (Railway memory-limit visibility) |
 | UNTESTED (infrastructure exists, not yet executed in CI) | 2 (Firefox, load tests) |
-| Minor/cosmetic findings, not blocking | 3 |
+| Minor/cosmetic findings, not blocking | 0 (all resolved) |
 
 **Verdict: NO-GO.** Substantially more of this system now has real, live evidence than at the start of this session — most of Section 4 (Dashboard) and Section 6 (Stripe) moved from code-review-only to live-tested, and 9 real, previously-unknown bugs were found and fixed with regression tests. What remains genuinely blocking a READY verdict is narrower and more specific than before:
 
