@@ -10,6 +10,12 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
+/** JSON.stringify that survives Dates and other non-plain values in AWS SDK
+ * response objects -- used only for the copyObject diagnostic logging. */
+function safeStringify(value: unknown): string {
+  return JSON.stringify(value, (_key, v) => (v instanceof Date ? v.toISOString() : v));
+}
+
 interface S3Config {
   bucket: string;
   endpoint: string;
@@ -167,7 +173,11 @@ export async function copyObject(sourceKey: string, destKey: string): Promise<vo
   // nothing distinguishing them from a normal upload visible from the
   // client side alone.
   const buffer = Buffer.from(bytes);
-  console.log(`copyObject: ${sourceKey} -> ${destKey}, sourceContentLength=${got.ContentLength}, bytesRead=${bytes.length}, contentType=${got.ContentType}`);
+
+  const sourceHead = await client.send(new HeadObjectCommand({ Bucket: config.bucket, Key: sourceKey }));
+  const { Body: _sourceGetBody, ...sourceGetMeta } = got;
+  console.log(`copyObject: SOURCE HEAD for ${sourceKey}: ${safeStringify(sourceHead)}`);
+  console.log(`copyObject: SOURCE GET metadata for ${sourceKey}: ${safeStringify(sourceGetMeta)}`);
 
   const put = await client.send(
     new PutObjectCommand({
@@ -177,10 +187,10 @@ export async function copyObject(sourceKey: string, destKey: string): Promise<vo
       ContentType: got.ContentType ?? "video/mp4",
     })
   );
-  console.log(`copyObject: PUT completed for ${destKey}, ETag=${put.ETag}, $metadata=${JSON.stringify(put.$metadata)}`);
+  console.log(`copyObject: PUT response for ${destKey}: ${safeStringify(put)}`);
 
   const verify = await client.send(new HeadObjectCommand({ Bucket: config.bucket, Key: destKey }));
-  console.log(`copyObject: HEAD verify for ${destKey}: ContentLength=${verify.ContentLength}, ContentType=${verify.ContentType}, ETag=${verify.ETag}`);
+  console.log(`copyObject: DEST HEAD for ${destKey}: ${safeStringify(verify)}`);
 }
 
 /** Cheap connectivity check for /api/health — lists at most 1 key so it
