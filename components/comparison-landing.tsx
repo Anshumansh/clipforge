@@ -29,8 +29,8 @@ function Cell({ text, isWinner, isLoser }: { text: string; isWinner: boolean; is
   return (
     <div className="flex items-start gap-2 text-sm">
       {isWinner && <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />}
-      {isLoser && <X className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/50" />}
-      {!isWinner && !isLoser && <Minus className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/50" />}
+      {isLoser && <X className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />}
+      {!isWinner && !isLoser && <Minus className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />}
       <span className={isLoser ? "text-muted-foreground" : ""}>{text}</span>
     </div>
   );
