@@ -134,10 +134,13 @@ const tickerItems = [
 const SHOWCASE_CLIPS: { key: string; label: string }[] = [
   { key: "jobs/cmt6jv25i000jkvvgh9hvyc41/attempts/9a73c847-4c61-49d3-8984-10409a58c271/output.mp4", label: "Script to video" },
   {
-    key: "media/cmsfwpkun00005ln9ty9j1vqs/cmsjh8bs800017l6bezmf7umb/clip-cmsjh8rxw00057l6bn2le0p6g.mp4",
+    key: "jobs/cmt7cquhm000g12izqxtzt1o5/attempts/3787a716-69e5-4014-99fb-092373bdcd01/clip-cmt7cqw670005bf77mteof8ax.mp4",
     label: "Repurpose — auto face tracking",
   },
-  { key: "media/cmsfwpkun00005ln9ty9j1vqs/cmsfwtuq000065ln9yuuato5u/final.mp4", label: "UGC-style ad" },
+  {
+    key: "jobs/cmt7ctbxp000q12iz01r8jdz4/attempts/a329f508-8492-4d27-9944-62bb5bf7b9b4/output.mp4",
+    label: "UGC-style ad",
+  },
 ];
 
 // Presigned URLs are valid 1h; revalidating well inside that window means a

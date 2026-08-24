@@ -49,6 +49,41 @@ test.describe("homepage", () => {
       // that actually serves the file.
       expect(response, `${label} produced no video request`).not.toBeNull();
       expect(response!.status(), `${label} video request`).toBeLessThan(400);
+
+      // A successful network response isn't proof the clip actually plays --
+      // the browser cache can serve a stale/empty response as a 200, and a
+      // corrupt or undecodable file still "resolves" as a request. Check the
+      // real <video> element's own state instead, the same signal a viewer's
+      // browser relies on.
+      const video = tile.locator("video");
+      const handle = await video.elementHandle();
+      if (!handle) throw new Error(`${label}: <video> element never mounted after click`);
+
+      await page.waitForFunction((el) => (el as HTMLVideoElement).readyState >= 1, handle, { timeout: 15000 });
+
+      const state = await handle.evaluate((el) => {
+        const v = el as HTMLVideoElement;
+        return {
+          currentSrc: v.currentSrc,
+          readyState: v.readyState,
+          duration: v.duration,
+          error: v.error ? `${v.error.code}: ${v.error.message}` : null,
+        };
+      });
+      expect(state.currentSrc, `${label} currentSrc`).not.toBe("");
+      expect(state.readyState, `${label} readyState`).toBeGreaterThanOrEqual(1);
+      expect(state.duration, `${label} duration`).toBeGreaterThan(0);
+      expect(state.error, `${label} video.error`).toBeNull();
+
+      // muted autoplay should already be underway from the click (see
+      // ClipTile's loadThenPlay in components/hero-demo.tsx) -- confirm
+      // currentTime actually advances rather than trusting `paused` alone.
+      const t0 = await handle.evaluate((el) => (el as HTMLVideoElement).currentTime);
+      await page.waitForTimeout(500);
+      const t1 = await handle.evaluate((el) => (el as HTMLVideoElement).currentTime);
+      expect(t1, `${label} currentTime did not advance -- playback never actually started`).toBeGreaterThan(t0);
+
+      await handle.evaluate((el) => (el as HTMLVideoElement).pause());
     }
   });
 });
