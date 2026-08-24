@@ -1,6 +1,14 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  CopyObjectCommand,
+  ListObjectsV2Command,
+  DeleteObjectsCommand,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 interface S3Config {
@@ -92,6 +100,42 @@ export async function getPresignedDownloadUrl(key: string, expiresInSeconds = 36
   const client = getS3Client(config);
   const command = new GetObjectCommand({ Bucket: config.bucket, Key: key });
   return getSignedUrl(client, command, { expiresIn: expiresInSeconds });
+}
+
+/** True if an object exists at this key. Used to make a copy idempotent —
+ * checking first means a second call (a redeploy, a second concurrent
+ * request) never re-copies or throws on an already-satisfied destination. */
+export async function objectExists(key: string): Promise<boolean> {
+  const config = getS3Config();
+  if (!config) return false;
+
+  const client = getS3Client(config);
+  try {
+    await client.send(new HeadObjectCommand({ Bucket: config.bucket, Key: key }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Copies an object within the same bucket, entirely server-side (S3 streams
+ * it bucket-to-bucket, no bytes pass through this process). Used to promote
+ * a real generated output into a permanent, account-independent key — see
+ * app/page.tsx's showcase clips, which must not depend on any Project/Job
+ * row that a project deletion or the demo-account 24h cleanup could remove
+ * out from under a public marketing page. */
+export async function copyObject(sourceKey: string, destKey: string): Promise<void> {
+  const config = getS3Config();
+  if (!config) return;
+
+  const client = getS3Client(config);
+  await client.send(
+    new CopyObjectCommand({
+      Bucket: config.bucket,
+      CopySource: `${config.bucket}/${encodeURIComponent(sourceKey)}`,
+      Key: destKey,
+    })
+  );
 }
 
 /** Cheap connectivity check for /api/health — lists at most 1 key so it

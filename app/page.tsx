@@ -8,7 +8,7 @@ import { StatCounter } from "@/components/stat-counter";
 import { Marquee } from "@/components/marquee";
 import { db } from "@/lib/db";
 import { SOCIAL_PLATFORMS, PLATFORM_LABELS, getLivePlatforms } from "@/lib/social/platforms";
-import { getPresignedDownloadUrl, getAppBaseUrl } from "@/lib/storage";
+import { getPresignedDownloadUrl, getAppBaseUrl, objectExists, copyObject } from "@/lib/storage";
 import { unstable_cache } from "next/cache";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -122,26 +122,57 @@ const tickerItems = [
 // Real, unedited renders pulled straight from production — not stock footage or
 // staged mockups. Muted/looped in the phone frames below.
 //
-// These are private, ownership-gated storage keys (same /api/media/[...key]
-// family the render pipeline's own internal fetches use -- see
-// lib/remotion-render.ts's resolveInternalMediaUrls). An anonymous visitor's
-// browser has no session, so hitting that route directly 404s -- confirmed
-// live on production (both preview tiles here 404'd from a real anonymous
-// browser). Fixing this by presigning, NOT by loosening /api/media/[...key]'s
-// auth for everyone: this is a fixed, hand-picked allowlist of exactly the 3
-// keys the owner has chosen to show publicly, presigned server-side, same
-// mechanism (getPresignedDownloadUrl) the render pipeline already trusts.
-const SHOWCASE_CLIPS: { key: string; label: string }[] = [
-  { key: "jobs/cmt6jv25i000jkvvgh9hvyc41/attempts/9a73c847-4c61-49d3-8984-10409a58c271/output.mp4", label: "Script to video" },
+// Each entry's `key` is a permanent, account-independent storage object --
+// NOT a job/project-scoped key. That distinction is load-bearing: an earlier
+// version of this pointed straight at real render outputs
+// (media/<userId>/<projectId>/... and jobs/<jobId>/attempts/...), which
+// broke twice for two different reasons: (1) those keys are ownership-gated
+// by /api/media/[...key] and only stayed reachable by anonymous visitors as
+// long as presigning happened to succeed server-side -- once that fell back
+// (see ensureShowcaseAssets below), anonymous requests 404'd; (2) they're
+// one project deletion (or, briefly considered as a fix, one demo-account
+// 24h cleanup sweep -- see app/api/demo/cleanup/route.ts) away from vanishing
+// under a public marketing page with no warning. `showcase/<env>/*.mp4` has
+// no Project/Job row at all, so neither risk applies -- it's presigned
+// directly with zero ownership check, matching the demo-account carve-out's
+// intent (public by design) without the demo account's lifecycle risk.
+const SHOWCASE_ENV = process.env.RAILWAY_ENVIRONMENT_NAME ?? "production";
+
+const SHOWCASE_CLIPS: { key: string; sourceKey: string; label: string }[] = [
   {
-    key: "jobs/cmt7cquhm000g12izqxtzt1o5/attempts/3787a716-69e5-4014-99fb-092373bdcd01/clip-cmt7cqw670005bf77mteof8ax.mp4",
+    key: `showcase/${SHOWCASE_ENV}/script.mp4`,
+    sourceKey: "jobs/cmt6jv25i000jkvvgh9hvyc41/attempts/9a73c847-4c61-49d3-8984-10409a58c271/output.mp4",
+    label: "Script to video",
+  },
+  {
+    key: `showcase/${SHOWCASE_ENV}/repurpose.mp4`,
+    sourceKey:
+      "jobs/cmt7cquhm000g12izqxtzt1o5/attempts/3787a716-69e5-4014-99fb-092373bdcd01/clip-cmt7cqw670005bf77mteof8ax.mp4",
     label: "Repurpose — auto face tracking",
   },
   {
-    key: "jobs/cmt7ctbxp000q12iz01r8jdz4/attempts/a329f508-8492-4d27-9944-62bb5bf7b9b4/output.mp4",
+    key: `showcase/${SHOWCASE_ENV}/ugc.mp4`,
+    sourceKey: "jobs/cmt7ctbxp000q12iz01r8jdz4/attempts/a329f508-8492-4d27-9944-62bb5bf7b9b4/output.mp4",
     label: "UGC-style ad",
   },
 ];
+
+/** Self-healing: copies each source render into its permanent showcase key
+ * the first time it's missing (checked via a cheap HEAD, so every call after
+ * the first is a no-op). Deliberately not a one-off migration script --
+ * running this as part of the page's own request path means restoring a
+ * showcase asset never depends on remembering to re-run something by hand,
+ * and there's no new admin surface or secret to gate a dedicated endpoint
+ * with. The copy runs entirely inside this process using storage credentials
+ * it already holds; no bytes pass through the client. */
+async function ensureShowcaseAssets(): Promise<void> {
+  await Promise.all(
+    SHOWCASE_CLIPS.map(async ({ key, sourceKey }) => {
+      if (await objectExists(key)) return;
+      await copyObject(sourceKey, key);
+    })
+  );
+}
 
 // Presigned URLs are valid 1h; revalidating well inside that window means a
 // served URL still has plenty of life left, same pattern as
@@ -149,6 +180,7 @@ const SHOWCASE_CLIPS: { key: string; label: string }[] = [
 // otherwise statically prerender once at build time and freeze).
 const getShowcaseClips = unstable_cache(
   async (): Promise<{ src: string; label: string }[]> => {
+    await ensureShowcaseAssets();
     return Promise.all(
       SHOWCASE_CLIPS.map(async ({ key, label }) => {
         const signed = await getPresignedDownloadUrl(key, 3600);
