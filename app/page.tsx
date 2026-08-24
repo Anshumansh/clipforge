@@ -132,10 +132,22 @@ const tickerItems = [
 // (see ensureShowcaseAssets below), anonymous requests 404'd; (2) they're
 // one project deletion (or, briefly considered as a fix, one demo-account
 // 24h cleanup sweep -- see app/api/demo/cleanup/route.ts) away from vanishing
-// under a public marketing page with no warning. `showcase/<env>/*.mp4` has
-// no Project/Job row at all, so neither risk applies -- it's presigned
-// directly with zero ownership check, matching the demo-account carve-out's
-// intent (public by design) without the demo account's lifecycle risk.
+// under a public marketing page with no warning.
+//
+// The key lives under "media/" specifically -- NOT a new top-level
+// "showcase/" prefix, which was tried first and, confirmed live, got a real
+// AccessDenied (not a signature error) from the storage provider on every
+// presigned GET, even though the object itself copied correctly (verified
+// server-side via an authenticated HEAD showing the right content-length and
+// a matching ETag). That's consistent with a bucket policy restricting
+// GetObject to known prefixes -- matching this same codebase's own comment
+// in app/api/media/[...key]/route.ts about the bucket also holding
+// scripts/backup-db.sh's database dumps under backups/, which must never be
+// servable. "_showcase" as the second segment (3 segments total) can't
+// collide with either recognized shape (media/<userId>/<projectId>/file is
+// 4, jobs/<jobId>/attempts/<token>/file is 5), so it can never be
+// misread as belonging to a real project even if this key ever did fall
+// back through /api/media/[...key].
 // Resolved inside a function, NOT as a module-level constant -- confirmed
 // live that a module-scope `process.env.RAILWAY_ENVIRONMENT_NAME` read here
 // baked in "production" (the `??` fallback) on the staging deploy itself:
@@ -147,18 +159,18 @@ function getShowcaseClipDefs(): { key: string; sourceKey: string; label: string 
   const env = process.env.RAILWAY_ENVIRONMENT_NAME ?? "production";
   return [
     {
-      key: `showcase/${env}/script.mp4`,
+      key: `media/_showcase/${env}-script.mp4`,
       sourceKey: "jobs/cmt6jv25i000jkvvgh9hvyc41/attempts/9a73c847-4c61-49d3-8984-10409a58c271/output.mp4",
       label: "Script to video",
     },
     {
-      key: `showcase/${env}/repurpose.mp4`,
+      key: `media/_showcase/${env}-repurpose.mp4`,
       sourceKey:
         "jobs/cmt7cquhm000g12izqxtzt1o5/attempts/3787a716-69e5-4014-99fb-092373bdcd01/clip-cmt7cqw670005bf77mteof8ax.mp4",
       label: "Repurpose — auto face tracking",
     },
     {
-      key: `showcase/${env}/ugc.mp4`,
+      key: `media/_showcase/${env}-ugc.mp4`,
       sourceKey: "jobs/cmt7ctbxp000q12iz01r8jdz4/attempts/a329f508-8492-4d27-9944-62bb5bf7b9b4/output.mp4",
       label: "UGC-style ad",
     },
