@@ -1,20 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import {
-  S3Client,
-  PutObjectCommand,
-  GetObjectCommand,
-  HeadObjectCommand,
-  ListObjectsV2Command,
-  DeleteObjectsCommand,
-} from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-
-/** JSON.stringify that survives Dates and other non-plain values in AWS SDK
- * response objects -- used only for the copyObject diagnostic logging. */
-function safeStringify(value: unknown): string {
-  return JSON.stringify(value, (_key, v) => (v instanceof Date ? v.toISOString() : v));
-}
 
 interface S3Config {
   bucket: string;
@@ -50,19 +37,6 @@ function getS3Client(config: S3Config): S3Client {
       // across different S3-compatible providers.
       forcePathStyle: true,
       credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
-      // Deliberately left at the SDK's default ('WHEN_SUPPORTED') -- an
-      // earlier fix attempt set requestChecksumCalculation to 'WHEN_REQUIRED'
-      // here, which turned out to be exactly backwards. Confirmed live by
-      // comparing a full HeadObjectCommand dump of a working object against
-      // a freshly copied one: every real (working) object on this bucket
-      // carries a stored ChecksumCRC32/ChecksumType, and this provider
-      // (Tigris) denies presigned GETs for objects that don't have one --
-      // 'WHEN_REQUIRED' had stopped copyObject's own PutObjectCommand calls
-      // from computing a checksum at all (PutObject doesn't strictly
-      // "require" one), so every object this app copies came out
-      // permanently unreadable regardless of anything else about the copy.
-      // The default keeps every write checksummed, matching every other
-      // object already on this bucket.
     });
   }
   return cachedClient;
@@ -118,77 +92,6 @@ export async function getPresignedDownloadUrl(key: string, expiresInSeconds = 36
   const client = getS3Client(config);
   const command = new GetObjectCommand({ Bucket: config.bucket, Key: key });
   return getSignedUrl(client, command, { expiresIn: expiresInSeconds });
-}
-
-/** True if an object exists at this key. Used to make a copy idempotent —
- * checking first means a second call (a redeploy, a second concurrent
- * request) never re-copies or throws on an already-satisfied destination. */
-export async function objectExists(key: string): Promise<boolean> {
-  const config = getS3Config();
-  if (!config) return false;
-
-  const client = getS3Client(config);
-  try {
-    const head = await client.send(new HeadObjectCommand({ Bucket: config.bucket, Key: key }));
-    // A HEAD that "succeeds" against a zero-byte object still counts as
-    // missing -- a bad CopyObjectCommand call (a malformed CopySource, an
-    // interrupted copy) can leave an empty placeholder at the destination
-    // key that would otherwise permanently short-circuit every future
-    // self-heal attempt, since existence alone would look satisfied forever.
-    return (head.ContentLength ?? 0) > 0;
-  } catch {
-    return false;
-  }
-}
-
-/** Copies an object within the same bucket via a real GET + PUT, not
- * CopyObjectCommand -- server-side copy repeatedly produced a destination
- * object that existed (real content-length, no error at any step) but
- * returned 403 on every presigned GET, on this provider specifically, and
- * did so identically both before and after fixing a real CopySource-encoding
- * bug, ruling that fix out as the actual cause. Rather than keep chasing an
- * unobservable provider-side quirk in a command this codebase uses nowhere
- * else, this reuses PutObjectCommand -- the exact call every real upload in
- * this app already goes through and that's known to produce objects real
- * presigned GETs can serve. Used to promote a real generated output into a
- * permanent, account-independent key -- see app/page.tsx's showcase clips,
- * which must not depend on any Project/Job row that a project deletion or
- * the demo-account 24h cleanup could remove out from under a public
- * marketing page. */
-export async function copyObject(sourceKey: string, destKey: string): Promise<void> {
-  const config = getS3Config();
-  if (!config) return;
-
-  const client = getS3Client(config);
-  const got = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: sourceKey }));
-  if (!got.Body) throw new Error(`copyObject: source ${sourceKey} has no body`);
-  const bytes = await got.Body.transformToByteArray();
-  // Buffer, not the raw Uint8Array transformToByteArray returns -- matches
-  // exactly what uploadBuffer (every real upload in this app) passes as
-  // PutObjectCommand's Body. Diagnostic logging stays until this is
-  // confirmed fixed live: three straight copy implementations produced
-  // objects that PUT without error but 403'd on every presigned GET, with
-  // nothing distinguishing them from a normal upload visible from the
-  // client side alone.
-  const buffer = Buffer.from(bytes);
-
-  const sourceHead = await client.send(new HeadObjectCommand({ Bucket: config.bucket, Key: sourceKey }));
-  const { Body: _sourceGetBody, ...sourceGetMeta } = got;
-  console.log(`copyObject: SOURCE HEAD for ${sourceKey}: ${safeStringify(sourceHead)}`);
-  console.log(`copyObject: SOURCE GET metadata for ${sourceKey}: ${safeStringify(sourceGetMeta)}`);
-
-  const put = await client.send(
-    new PutObjectCommand({
-      Bucket: config.bucket,
-      Key: destKey,
-      Body: buffer,
-      ContentType: got.ContentType ?? "video/mp4",
-    })
-  );
-  console.log(`copyObject: PUT response for ${destKey}: ${safeStringify(put)}`);
-
-  const verify = await client.send(new HeadObjectCommand({ Bucket: config.bucket, Key: destKey }));
-  console.log(`copyObject: DEST HEAD for ${destKey}: ${safeStringify(verify)}`);
 }
 
 /** Cheap connectivity check for /api/health — lists at most 1 key so it

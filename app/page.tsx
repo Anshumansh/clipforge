@@ -8,7 +8,7 @@ import { StatCounter } from "@/components/stat-counter";
 import { Marquee } from "@/components/marquee";
 import { db } from "@/lib/db";
 import { SOCIAL_PLATFORMS, PLATFORM_LABELS, getLivePlatforms } from "@/lib/social/platforms";
-import { getPresignedDownloadUrl, getAppBaseUrl, deleteMediaByPrefix, copyObject } from "@/lib/storage";
+import { getPresignedDownloadUrl, getAppBaseUrl } from "@/lib/storage";
 import { unstable_cache } from "next/cache";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -122,99 +122,41 @@ const tickerItems = [
 // Real, unedited renders pulled straight from production — not stock footage or
 // staged mockups. Muted/looped in the phone frames below.
 //
-// Each entry's `key` is a permanent, account-independent storage object --
-// NOT a job/project-scoped key. That distinction is load-bearing: an earlier
-// version of this pointed straight at real render outputs
-// (media/<userId>/<projectId>/... and jobs/<jobId>/attempts/...), which
-// broke twice for two different reasons: (1) those keys are ownership-gated
-// by /api/media/[...key] and only stayed reachable by anonymous visitors as
-// long as presigning happened to succeed server-side -- once that fell back
-// (see ensureShowcaseAssets below), anonymous requests 404'd; (2) they're
-// one project deletion (or, briefly considered as a fix, one demo-account
-// 24h cleanup sweep -- see app/api/demo/cleanup/route.ts) away from vanishing
-// under a public marketing page with no warning.
-//
-// The key lives under "media/" specifically -- NOT a new top-level
-// "showcase/" prefix, which was tried first and, confirmed live, got a real
-// AccessDenied (not a signature error) from the storage provider on every
-// presigned GET, even though the object itself copied correctly (verified
-// server-side via an authenticated HEAD showing the right content-length and
-// a matching ETag). That's consistent with a bucket policy restricting
-// GetObject to known prefixes -- matching this same codebase's own comment
-// in app/api/media/[...key]/route.ts about the bucket also holding
-// scripts/backup-db.sh's database dumps under backups/, which must never be
-// servable. "_showcase" as the second segment (3 segments total) can't
-// collide with either recognized shape (media/<userId>/<projectId>/file is
-// 4, jobs/<jobId>/attempts/<token>/file is 5), so it can never be
-// misread as belonging to a real project even if this key ever did fall
-// back through /api/media/[...key].
-// Resolved inside a function, NOT as a module-level constant -- confirmed
-// live that a module-scope `process.env.RAILWAY_ENVIRONMENT_NAME` read here
-// baked in "production" (the `??` fallback) on the staging deploy itself:
-// Next.js can evaluate module scope during the build step, before Railway's
-// runtime env vars are injected, while code inside a request/handler body
-// (like /api/version's GET, which reads the same variable correctly) runs
-// at real request time and sees the actual runtime value.
-function getShowcaseClipDefs(): { key: string; sourceKey: string; label: string }[] {
-  const env = process.env.RAILWAY_ENVIRONMENT_NAME ?? "production";
-  return [
-    {
-      key: `media/_showcase/${env}-script.mp4`,
-      sourceKey: "jobs/cmt6jv25i000jkvvgh9hvyc41/attempts/9a73c847-4c61-49d3-8984-10409a58c271/output.mp4",
-      label: "Script to video",
-    },
-    {
-      key: `media/_showcase/${env}-repurpose.mp4`,
-      sourceKey:
-        "jobs/cmt7cquhm000g12izqxtzt1o5/attempts/3787a716-69e5-4014-99fb-092373bdcd01/clip-cmt7cqw670005bf77mteof8ax.mp4",
-      label: "Repurpose — auto face tracking",
-    },
-    {
-      key: `media/_showcase/${env}-ugc.mp4`,
-      sourceKey: "jobs/cmt7ctbxp000q12iz01r8jdz4/attempts/a329f508-8492-4d27-9944-62bb5bf7b9b4/output.mp4",
-      label: "UGC-style ad",
-    },
-  ];
-}
-
-/** Self-healing: (re)copies each source render into its permanent showcase
- * key every time this runs (unstable_cache below still bounds how often
- * that actually is -- this isn't invoked per-request). Deliberately not a
- * one-off migration script -- running this as part of the page's own
- * request path means restoring a showcase asset never depends on
- * remembering to re-run something by hand, and there's no new admin
- * surface or secret to gate a dedicated endpoint with. The copy runs
- * entirely inside this process using storage credentials it already
- * holds; no bytes pass through the client.
- *
- * Each copy is caught independently, not run inside one Promise.all -- a
- * single failing copy (e.g. a source render that's since been deleted)
- * must not take the other two showcase clips down with it, and must not
- * throw out of the homepage's render path entirely (an unstable_cache
- * rejection here previously meant every request kept re-hitting whichever
- * stale value the cache last had, with no visible signal that the retry
- * itself was silently failing every time). */
-async function ensureShowcaseAssets(clips: { key: string; sourceKey: string }[]): Promise<void> {
-  await Promise.all(
-    clips.map(async ({ key, sourceKey }) => {
-      try {
-        // Deliberately NOT gated on objectExists here -- an earlier
-        // CopyObjectCommand-based attempt left a real, non-zero-byte object
-        // at this exact key that every presigned GET still 403s on, and
-        // since it has real content it survives an existence check,
-        // permanently masking every later fix to the copy logic itself
-        // (confirmed live: three different copy implementations in a row
-        // produced the identical 403, because none of them ever actually
-        // ran again against an already-"existing" destination). Delete
-        // first and always recopy so no prior broken state can persist.
-        await deleteMediaByPrefix(key);
-        await copyObject(sourceKey, key);
-      } catch (err) {
-        console.error(`showcase asset copy failed for ${key} (source: ${sourceKey}):`, err);
-      }
-    })
-  );
-}
+// These are job-scoped keys (media/<userId>/<projectId>/... or
+// jobs/<jobId>/attempts/...), not a dedicated account-independent showcase
+// object -- that was attempted and reverted. A permanent showcase/<env>/ (and
+// later media/_showcase/<env>-) key copied server-side from these same
+// sources consistently got a genuine AccessDenied (not a signature error)
+// from the storage provider on every presigned GET, even after the copied
+// object was confirmed byte-for-byte and checksum-for-checksum identical to
+// a working one (verified via authenticated HeadObjectCommand: same
+// content-length, same ETag, same ChecksumCRC32/ChecksumType) and after
+// ruling out every application-level variable that could plausibly explain
+// it (CopySource encoding, a stale existence check, CopyObjectCommand vs a
+// real GET+PUT, the media/ vs showcase/ prefix, AWS SDK v3's default
+// checksum-mode request parameter, and eventual consistency after a 10+
+// minute wait). Whatever the storage provider is actually denying on, it
+// isn't visible from anything this application controls -- diagnosing it
+// further needs direct access to the bucket's policy/security configuration
+// (Tigris's own dashboard or support), which the owner would need to check.
+// Reverted to these job-scoped keys because they're proven to work reliably
+// for anonymous access (verified repeatedly this session via direct
+// presigning, real browser playback, and the CI regression test) --
+// matching exactly what was already fixed for Script-to-video earlier this
+// pass. The real, still-open risk this leaves (tied to a Job/Project row
+// that a project deletion or account cleanup could remove) is the same one
+// documented in RECOVERY_EVIDENCE.md as the one remaining known gap.
+const SHOWCASE_CLIPS: { key: string; label: string }[] = [
+  { key: "jobs/cmt6jv25i000jkvvgh9hvyc41/attempts/9a73c847-4c61-49d3-8984-10409a58c271/output.mp4", label: "Script to video" },
+  {
+    key: "jobs/cmt7cquhm000g12izqxtzt1o5/attempts/3787a716-69e5-4014-99fb-092373bdcd01/clip-cmt7cqw670005bf77mteof8ax.mp4",
+    label: "Repurpose — auto face tracking",
+  },
+  {
+    key: "jobs/cmt7ctbxp000q12iz01r8jdz4/attempts/a329f508-8492-4d27-9944-62bb5bf7b9b4/output.mp4",
+    label: "UGC-style ad",
+  },
+];
 
 // Presigned URLs are valid 1h; revalidating well inside that window means a
 // served URL still has plenty of life left, same pattern as
@@ -222,22 +164,14 @@ async function ensureShowcaseAssets(clips: { key: string; sourceKey: string }[])
 // otherwise statically prerender once at build time and freeze).
 const getShowcaseClips = unstable_cache(
   async (): Promise<{ src: string; label: string }[]> => {
-    const clips = getShowcaseClipDefs();
-    await ensureShowcaseAssets(clips);
     return Promise.all(
-      clips.map(async ({ key, label }) => {
+      SHOWCASE_CLIPS.map(async ({ key, label }) => {
         const signed = await getPresignedDownloadUrl(key, 3600);
         return { src: signed ?? `${getAppBaseUrl()}/api/media/${key}`, label };
       })
     );
   },
-  // Bump this key (not just the code) whenever SHOWCASE_CLIPS' keys change --
-  // self-hosted Next.js's unstable_cache data cache is not reliably reset by
-  // a new deploy (confirmed live: switching these from job-scoped keys to
-  // showcase/<env>/*.mp4 kept serving the pre-change result for multiple
-  // deploys in a row, still inside the 30-minute revalidate window). A
-  // literal key change is the only thing guaranteed to bypass a stale entry.
-  ["homepage-showcase-clips-v2"],
+  ["homepage-showcase-clips-v3"],
   { revalidate: 1800 }
 );
 
