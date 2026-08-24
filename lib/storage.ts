@@ -129,10 +129,17 @@ export async function copyObject(sourceKey: string, destKey: string): Promise<vo
   if (!config) return;
 
   const client = getS3Client(config);
+  // CopySource is a path, not an opaque value -- encodeURIComponent on the
+  // whole key turns every real "/" into "%2F", which points S3 at a key
+  // that doesn't exist (confirmed live: the copy silently no-op'd against a
+  // malformed source, leaving the destination missing and every presigned
+  // GET for it returning 403). Encode each path segment on its own so the
+  // real "/" separators survive.
+  const encodedSourceKey = sourceKey.split("/").map(encodeURIComponent).join("/");
   await client.send(
     new CopyObjectCommand({
       Bucket: config.bucket,
-      CopySource: `${config.bucket}/${encodeURIComponent(sourceKey)}`,
+      CopySource: `${config.bucket}/${encodedSourceKey}`,
       Key: destKey,
     })
   );

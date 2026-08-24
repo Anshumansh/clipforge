@@ -172,12 +172,24 @@ function getShowcaseClipDefs(): { key: string; sourceKey: string; label: string 
  * showcase asset never depends on remembering to re-run something by hand,
  * and there's no new admin surface or secret to gate a dedicated endpoint
  * with. The copy runs entirely inside this process using storage credentials
- * it already holds; no bytes pass through the client. */
+ * it already holds; no bytes pass through the client.
+ *
+ * Each copy is caught independently, not run inside one Promise.all -- a
+ * single failing copy (e.g. a source render that's since been deleted)
+ * must not take the other two showcase clips down with it, and must not
+ * throw out of the homepage's render path entirely (an unstable_cache
+ * rejection here previously meant every request kept re-hitting whichever
+ * stale value the cache last had, with no visible signal that the retry
+ * itself was silently failing every time). */
 async function ensureShowcaseAssets(clips: { key: string; sourceKey: string }[]): Promise<void> {
   await Promise.all(
     clips.map(async ({ key, sourceKey }) => {
-      if (await objectExists(key)) return;
-      await copyObject(sourceKey, key);
+      try {
+        if (await objectExists(key)) return;
+        await copyObject(sourceKey, key);
+      } catch (err) {
+        console.error(`showcase asset copy failed for ${key} (source: ${sourceKey}):`, err);
+      }
     })
   );
 }
