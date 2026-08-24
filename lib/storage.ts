@@ -144,15 +144,28 @@ export async function copyObject(sourceKey: string, destKey: string): Promise<vo
   const got = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: sourceKey }));
   if (!got.Body) throw new Error(`copyObject: source ${sourceKey} has no body`);
   const bytes = await got.Body.transformToByteArray();
+  // Buffer, not the raw Uint8Array transformToByteArray returns -- matches
+  // exactly what uploadBuffer (every real upload in this app) passes as
+  // PutObjectCommand's Body. Diagnostic logging stays until this is
+  // confirmed fixed live: three straight copy implementations produced
+  // objects that PUT without error but 403'd on every presigned GET, with
+  // nothing distinguishing them from a normal upload visible from the
+  // client side alone.
+  const buffer = Buffer.from(bytes);
+  console.log(`copyObject: ${sourceKey} -> ${destKey}, sourceContentLength=${got.ContentLength}, bytesRead=${bytes.length}, contentType=${got.ContentType}`);
 
-  await client.send(
+  const put = await client.send(
     new PutObjectCommand({
       Bucket: config.bucket,
       Key: destKey,
-      Body: bytes,
+      Body: buffer,
       ContentType: got.ContentType ?? "video/mp4",
     })
   );
+  console.log(`copyObject: PUT completed for ${destKey}, ETag=${put.ETag}, $metadata=${JSON.stringify(put.$metadata)}`);
+
+  const verify = await client.send(new HeadObjectCommand({ Bucket: config.bucket, Key: destKey }));
+  console.log(`copyObject: HEAD verify for ${destKey}: ContentLength=${verify.ContentLength}, ContentType=${verify.ContentType}, ETag=${verify.ETag}`);
 }
 
 /** Cheap connectivity check for /api/health — lists at most 1 key so it
