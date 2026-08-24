@@ -72,36 +72,37 @@ jobs:
           exit 1
 
       # A matching SHA proves the right code is deployed, but not that the
-      # homepage is actually serving working showcase clips yet -- the page
-      # is statically regenerated on a 5-minute ISR window (app/page.tsx's
+      # homepage has actually re-rendered with it yet -- the page is
+      # statically regenerated on a 5-minute ISR window (app/page.tsx's
       # `revalidate`), so a fresh deploy's very first render can still be
-      # serving a stale cached result for a few minutes. Waiting here, once,
-      # means the browser matrix never has to race that window itself.
-      - name: Verify all three homepage showcase clips are actually reachable
+      # serving a stale cached result for a few minutes.
+      #
+      # This deliberately only confirms the homepage embeds 3 real-looking
+      # clip URLs, NOT that each one resolves with a 200 -- curling the
+      # storage provider's own domain directly turned out to be unreliable
+      # from here: confirmed live that the exact same object that plays
+      # back perfectly in a real browser (Playwright, or an actual visitor)
+      # gets a flat 403 when curled directly, on a provider that appears to
+      # distinguish real browser traffic from generic HTTP clients. The e2e
+      # job's own "all three showcase preview clips play with real content"
+      # test is the real, reliable check for actual reachability -- it uses
+      # a real browser's <video> element, the same thing a visitor's browser
+      # relies on.
+      - name: Verify the homepage has re-rendered with 3 showcase clips
         run: |
-          echo "Extracting and verifying homepage showcase clip URLs..."
+          echo "Waiting for the homepage to embed 3 showcase clip URLs..."
           DEADLINE=$((SECONDS + 360))
           while [ $SECONDS -lt $DEADLINE ]; do
             HTML=$(curl -sS --max-time 15 "$E2E_BASE_URL/" || echo "")
-            URLS=$(echo "$HTML" | grep -oE 'https://[^"\\]*\.mp4' | sort -u)
-            COUNT=$(echo "$URLS" | grep -c . || true)
+            COUNT=$(echo "$HTML" | grep -oE 'https://[^"\\]*\.mp4' | sort -u | grep -c . || true)
             if [ "$COUNT" -ge 3 ]; then
-              ALL_OK=true
-              for u in $URLS; do
-                CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 15 -L "$u" || echo "000")
-                echo "  $u -> $CODE"
-                if [ "$CODE" != "200" ]; then ALL_OK=false; fi
-              done
-              if [ "$ALL_OK" = "true" ]; then
-                echo "All showcase assets verified reachable."
-                exit 0
-              fi
-            else
-              echo "Only found $COUNT showcase URL(s) in homepage HTML so far, expected 3 -- retrying."
+              echo "Homepage is serving $COUNT showcase clip URL(s)."
+              exit 0
             fi
+            echo "Only found $COUNT showcase URL(s) in homepage HTML so far, expected 3 -- retrying."
             sleep 15
           done
-          echo "::error::Homepage showcase clips still not all reachable after 6 minutes."
+          echo "::error::Homepage still not serving 3 showcase clip URLs after 6 minutes."
           exit 1
 
   e2e:
