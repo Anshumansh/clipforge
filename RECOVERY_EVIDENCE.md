@@ -163,3 +163,16 @@ Not for lack of real progress — 14 genuine defects were found and fixed this s
 5. Repurpose upload → processing → playback → download: **BLOCKED-OWNER**, no live evidence exists.
 
 The blockers are narrow, named, and almost entirely converge on one root cause: no test account has ever held a real paid plan. Clearing that one thing — a single completed Stripe test payment, or an admin promoting the test account — would very plausibly unlock a `GO` on journeys 2, 4, and 5 in short order, since the code paths themselves are already tested at every other layer (unit, integration, and partial live). That is a specific, evidence-backed path to `GO`, not an open-ended "more testing needed."
+
+## 8. Addendum: real CI results, discovered mid-process
+
+Pushing this branch (see Section 1) had a second effect beyond fixing the staging-drift bug: it activated this repo's `pull_request`-triggered `e2e.yml` workflow (PR #5 already existed, targeting `main`), which started running automatically on every push from this point forward — genuine Linux CI, across chromium/firefox/webkit/mobile-chrome, not a local claim.
+
+**Firefox and WebKit: ran for real, largely clean.** This resolves the single biggest previously-open item (`X-04` in the manifest, "UNTESTED — needs Linux CI runner"). Both launch and run correctly in CI; the only failures shared across all 5 browser projects were the two items below, neither Firefox/WebKit-specific.
+
+**Two real CI-only findings, both investigated to a real root cause, not left as "CI is flaky":**
+
+1. **A genuine, reproducible flaky test** — 6 pages failing an axe-core color-contrast check, consistently, across every browser project. Investigated properly (see commit `4434c55`): reproduced locally by repeated runs against the same staging URL, isolated the exact variable (page-load animation timing, not environment), confirmed a wrong first hypothesis (`reducedMotion: reduce` actively made it worse) before landing on the real, verified fix (wait for the entrance animation to settle before scanning). 18/18 clean on re-verification. This was a test-timing artifact — the page's actual settled state has ~9-10:1 contrast, hand-verified against the CSS custom properties, nowhere near the 4.5:1 floor.
+2. **The known, already-documented showcase-clip gap** — "all three showcase preview clips play with real content" fails in CI, expected and unchanged: 2 of 3 clips are still broken pending paid-plan test access to regenerate them (see manifest `P-03`).
+
+**Load testing:** the `load-test.yml` workflow is committed to this branch but is **not runnable via `workflow_dispatch` until this branch merges to `main`** — confirmed directly (`gh workflow run load-test.yml` → `HTTP 404: workflow not found on the default branch`), a real GitHub Actions constraint, not a configuration mistake. `e2e.yml` only appears runnable because it's additionally `pull_request`-triggered, which GitHub associates with the open PR even pre-merge; `workflow_dispatch`-only workflows don't get that same pre-merge visibility. This is worth knowing before assuming any pushed workflow is automatically usable pre-merge.
