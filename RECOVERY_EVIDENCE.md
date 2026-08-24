@@ -107,3 +107,59 @@ Both remain **BLOCKED-OWNER** for actual generation testing — same wall as Pri
 | Repurpose upload via `setInputFiles()` | **NOT-TESTED this pass** | Genuinely requires reaching the upload UI, which requires the paid-plan wall above to clear first |
 
 **Golden Journeys 4 (UGC) and 5 (Repurpose): BLOCKED-OWNER, not PASS.** Cannot be marked PASS without a real generation completing through the UI — code review is supporting evidence only, per this phase's own rule.
+
+## 6. Priorities F–G, security, CI, load testing (referencing prior evidence, not re-run in full this pass)
+
+Given the scope of this recovery process, these priorities were extensively covered earlier in this same session — recorded in `FULL_SITE_FEATURE_MANIFEST.md`, not duplicated here. Summary, with each claim traceable to that document's row IDs:
+
+- **Priority F (Dashboard controls):** Live-tested this session — Projects, Idea Radar (full generate + handoff), Trend Radar (onboarding + a real bug found and fixed), Script-to-video, Connected Accounts (all 3 platforms honestly disabled, not fake-working), Brand Kit (real save/reload persistence), Schedule (empty state + a real timezone bug found and fixed), Billing (a real label bug found and fixed), API Keys/Team (gates confirmed), individual project deletion (a missing feature, added and live-verified end to end). See manifest Section 4 (`DB-01` through `DB-15`).
+- **Priority G (Public website):** Homepage, pricing, all legal/marketing pages, the anonymous demo, and the 3 showcase clips (1 of 3 broken and fixed this session, other 2 share the same root cause but need paid-plan access to regenerate) — manifest Section 1 (`P-01` through `P-25`). Trust-page cookie claim was already corrected in an earlier phase.
+- **Security:** Media/wrong-owner authorization, CSRF, SSRF, rate limiting, webhook signature/idempotency, lease fencing, worker admission, credit atomicity all previously verified (manifest Section 9). The demo quota WAS still using a dead in-memory counter as of the start of this engagement's live work — confirmed wired to the persistent, atomic implementation this session, with 6 new concurrency tests against real Postgres (manifest D-02). Next.js 14.2.35's CVEs are fixed on a separate, fully-verified, deliberately unmerged branch (`security/nextjs-15-upgrade`) — kept apart from functional fixes per this phase's own commit-discipline rule, not an oversight.
+- **CI gates (Playwright Chromium/Firefox/WebKit, security tests, manifest validation):** Chromium/WebKit/Mobile-Chrome pass locally against staging. **Firefox cannot launch on this Windows dev machine** (`spawn UNKNOWN`, persists across reinstall) — a GitHub Actions workflow to run it on Linux CI exists (`.github/workflows/e2e.yml`) and is now pushed as part of this branch, but has not yet executed in CI as of this writing. Reporting Firefox as **NOT-TESTED**, not PASS, per this phase's explicit rule ("Do not translate 'Firefox could not launch locally' into a pass").
+- **Load testing:** `.github/workflows/load-test.yml` exists (10/25/50/100 users + 150-user burst, matching the k6 scripts already in `tests/load/`), pushed this session, not yet executed — the 4 account-requiring scenarios additionally need `TEST_USER_EMAIL`/`TEST_USER_PASSWORD` repo secrets from a real seeded account. Reporting as **NOT-TESTED**, not PASS. No load test has been run against production, and none will be without explicit approval.
+
+## 7. Final acceptance package
+
+**1. SHAs:** Production `ccdcd53fce3e627b0e954d8671bee4a73ff01c8c` (unchanged all session). Staging + recovery branch `7162af4` (pushed, deployed, durable — confirmed by re-checking a fix that had regressed under the earlier direct-upload approach, then verifying it stuck after switching to a real push). `origin/main` `7728925`.
+
+**2. Files/commits changed this session:** ~20 commits on `recovery/full-functional`, spanning: demo-quota atomicity rewrite, WCAG accessibility fixes, CI workflow files, Trust/comparison-page claim corrections, Next.js 15 upgrade (separate branch, unmerged), Stripe staging configuration + verification, storage-bucket fix, email-delivery fix, Trend Radar error-handling fix, roadmap-vote bug fix, stale-comment correction in the credit ledger, page-title fixes, billing-label fix, schedule-calendar timezone fix, admin-panel accessibility fix, individual project deletion (new feature), and this evidence-gathering pass itself. Full list: `git log origin/main..recovery/full-functional --oneline`.
+
+**3. Control-level manifest:** `FULL_SITE_FEATURE_MANIFEST.md` (control-level, not page-level — individually tested rows for every generation engine, dashboard destination, Stripe flow, and public page).
+
+**4–6. Failures reproduced, root causes, fixes+regression tests:** 14 real defects found and fixed this session alone (see manifest Findings register F-06 through F-14), each with a reproduction, a root cause, a minimal fix, and a new automated test where the defect was in testable logic (not applicable for a couple of pure-UI/cosmetic ones).
+
+**7. Unit/integration/E2E results:** 414 unit tests passing (40 files), full Postgres integration suite passing (8 files, including 3 new concurrency-heavy tests added this engagement), Chromium/WebKit/Mobile-Chrome Playwright green against staging. Firefox: NOT-TESTED (see above).
+
+**8–10. Real generation / playback / download evidence:** Script-to-video: 2 real successful generations + 1 real failure this session, real playable MP4 output (`readyState:4`, non-zero duration, zero errors) both times, credits moved exactly 50→40→30 and correctly stayed at 50 through the failure. UGC/Repurpose: BLOCKED-OWNER, no generation evidence exists because the paid-plan wall was never cleared.
+
+**11. Stripe results:** Checkout session creation (all 3 plans), webhook signature verification (real Stripe-sent event, 200), webhook forgery rejection (fake signature, 400), duplicate-delivery dedup (real concurrent test), customer portal — all PASS-LIVE-UI/PASS-AUTOMATED. Actual payment completion and the full upgrade/downgrade/renewal/cancellation lifecycle: BLOCKED-OWNER (Stripe's own card-entry iframe resists automation by design).
+
+**12. Auth/session results:** See Priority A above — session stability fully verified (20+ nav, reloads, second tab, back/forward, 30+ min elapsed, zero issues). Signup, MFA, logout/re-login: not completed live this pass (signup is a standing hard boundary for this agent; MFA doesn't exist for regular accounts; logout ends the session and needs the owner to re-authenticate).
+
+**13. Load-test results:** None — infrastructure exists, not yet executed (NOT-TESTED, not a claimed pass).
+
+**14. Security findings:** No new vulnerabilities found this pass. Next.js CVEs fixed on a separate branch, unmerged by design. Demo-quota atomicity gap (found and fixed earlier this engagement) reconfirmed still fixed. No secrets were retrieved or displayed this phase — all Stripe/config checks were done functionally (real API calls succeeding/failing correctly implies correct configuration) rather than via `list_variables`.
+
+**15. Database/credit consistency:** Credits verified exactly-once per generation via live before/after balance checks, not just code review. No negative or double-charged credits observed. No stuck reservations observed (both real generations this session resolved cleanly to either capture or release).
+
+**16. Remaining blockers and exact owner action:**
+- Complete one real Stripe test-mode payment, OR flip `isAdmin` on the test account so the app's own `comp-plan` admin feature can grant a paid plan for testing — unlocks UGC/Repurpose generation testing and the full Stripe entitlement lifecycle.
+- A fresh production backup was not triggered this pass — no tool available this session can execute `scripts/backup-db.sh` against production; the existing daily cron is the current evidence of backup health.
+- `YOUTUBE_DATA_API_KEY` (real Google Cloud credential) still missing on staging — blocks Trend Radar channel resolution (now fails cleanly instead of crashing, but still doesn't function).
+- TikTok/Instagram OAuth app approval — vendor-gated, not fixable in code; currently and correctly shown as disabled, not fake-working.
+- Firefox and load-test CI workflows need to actually run (pushed, not yet executed) — no additional code changes needed, just triggering them.
+- A logout→re-login cycle, an expired/reused-token test, and completing an actual password reset — all deliberately deferred pending a specific owner-assisted moment, not forgotten.
+
+**17. Deployment and rollback plan:** No deployment to production has occurred or is proposed without explicit approval. Staging deploys automatically from pushes to `recovery/full-functional` (confirmed working this session). Rollback, if ever needed after a production deploy: Railway retains prior successful deployments and supports redeploying any earlier one directly from its dashboard/API — the last known-good production deployment is the current one, `ccdcd53`, untouched throughout this entire session.
+
+## Verdict: **NO-GO**
+
+Not for lack of real progress — 14 genuine defects were found and fixed this session with evidence, not assumptions, and Golden Journey 3 (Script generation) is a full, real PASS-LIVE-UI. But per this phase's own acceptance rule, a `GO` verdict requires all five golden journeys to pass through the real UI, and only one does cleanly:
+
+1. Signup → verification → login → MFA → session: **PARTIAL.** Verification/login/session/reset all pass live. Signup itself was never completed live (standing rule — this agent does not create accounts). MFA has no enrollment path for a regular account at all (a real product gap, not a blocked test).
+2. Pricing → Stripe checkout → webhook → plan/credits: **PARTIAL.** Everything up to and including webhook processing is proven live. The actual payment step — the thing that makes a plan real — was never completed (Stripe's own security design, not a defect).
+3. Idea/script → video → playback → download: **PASS-LIVE-UI.**
+4. UGC → video → playback → download: **BLOCKED-OWNER**, no live evidence exists.
+5. Repurpose upload → processing → playback → download: **BLOCKED-OWNER**, no live evidence exists.
+
+The blockers are narrow, named, and almost entirely converge on one root cause: no test account has ever held a real paid plan. Clearing that one thing — a single completed Stripe test payment, or an admin promoting the test account — would very plausibly unlock a `GO` on journeys 2, 4, and 5 in short order, since the code paths themselves are already tested at every other layer (unit, integration, and partial live). That is a specific, evidence-backed path to `GO`, not an open-ended "more testing needed."
