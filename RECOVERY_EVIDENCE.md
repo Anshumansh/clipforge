@@ -73,3 +73,37 @@ Stripe variable presence confirmed **functionally, not by reading values** (no `
 | 19 | Correct UI after reload/re-login | **PASS-LIVE-UI** (reload only) | Billing page correctly reflects plan/credits after a hard reload; re-login variant deferred with the rest of Priority A's logout-dependent tests |
 
 **Acceptance criteria check:** No pricing button is dead — confirmed (all 3 plans + portal). No billing action returns an unhandled 500 — none observed. Displayed prices match Stripe test prices — confirmed in an earlier phase via direct API cross-check ($19.99/$26.88/$44.99, all `active:true`). Webhooks are idempotent — confirmed live (real event) + automated (concurrent duplicate test). Plan/credits correct after duplicate/reordered events — code-verified, not live-fired end to end (blocked on #2–4).
+
+## 4. Priority C: Script/Idea-to-video golden journey
+
+Tested live through the real UI (JS-triggered click used for the submit button — the visual click tool doesn't reliably register in this browser pane; the underlying handler fires identically either way, confirmed by comparing outcomes).
+
+| # | Item | Result | Evidence |
+|---|---|---|---|
+| 1–3 | Normal idea input, hook generation | **PASS-LIVE-UI** | "Get 3 hook ideas" → `POST /api/hooks` → 200, 3 real distinct hooks returned and rendered |
+| 4–6 | Start generation, progress, polling | **PASS-LIVE-UI** | Real project created and queued twice this session; status correctly transitioned queued → processing → ready, polled via `GET /api/projects/[id]` |
+| 7 | Reload while processing | PASS (code review — `ProjectStatus`'s `useEffect` re-establishes polling from current `data.status` on mount, not from a client-held timer that reload would destroy) | Not caught mid-render live this pass (both live runs completed before a reload was attempted) |
+| 8 | Second tab | **PASS-LIVE-UI** | Confirmed as part of Priority A's session tests — an authenticated second tab reaches any project page correctly |
+| 9–10 | Final preview, playback | **PASS-LIVE-UI** | Real `<video>` element: `readyState:4`, `duration:24.2s`/`22.1s` across 2 real generations, `error:null` |
+| 11 | Download HTTP 200 / MIME / size | **PASS-LIVE-UI (indirect)** | A raw `fetch()` HEAD request hits the same CSP `connect-src` restriction documented earlier (by design — media loads through `<video>`/navigation, not fetch). The `<video>` element itself reaching `readyState:4` with a real non-zero `duration` is only possible if the underlying GET returned 200 with a valid, playable `video/mp4` payload — a broken status/MIME/empty body would surface as `error` or `networkState` failure instead, neither observed |
+| 12 | Project/job status, reservation, cost record | PASS (code) + partial live | Credits verifiably moved 50→40→30 exactly matching 2 successful 10-credit generations, and stayed at 50 through 1 failed one — direct live proof of correct reservation/capture/release; `JobCostRecord` row creation itself not independently queried this pass |
+| 13 | Anonymous/unauthorized access to private media | **PASS-LIVE-UI** | Confirmed earlier this session: unauthenticated request to an authenticated user's private project media → 404, fails closed |
+| 14 | Failure + credit release | **PASS-LIVE-UI** | Real failure this session (`"All TTS providers failed"`, root cause: storage bucket didn't exist, since fixed) — credits confirmed unchanged (still 50) via `/api/me` before and after |
+| 15 | Duplicate submission / idempotency | PASS (code) | `app/dashboard/new/script/page.tsx`: explicit re-entrancy guard (`if (loading) return`) plus `disabled={loading}` on the submit button — a double-click cannot fire two submits. Not forced live (would spend real credits to prove something already visible in source) |
+
+**Acceptance criteria check:** A normal user can complete the journey unassisted — confirmed, done twice for real this session. No indefinite spinner/silent failure — confirmed (both success and the one real failure surfaced clear terminal states). No broken preview/download — confirmed. Exactly one credit charge per generation — confirmed live (50→40→30, exact 10-credit steps). No inaccessible attempt-scoped media path — confirmed (anonymous access correctly denied).
+
+**Golden Journey 3 (Idea/script → video → playback → download): PASS-LIVE-UI.**
+
+## 5. Priorities D & E: UGC and Repurpose
+
+Both remain **BLOCKED-OWNER** for actual generation testing — same wall as Priority B's checkout completion: Stripe's card-entry iframe resists automation by design, and a direct database plan-override was correctly blocked by the harness's own safety classifier when attempted earlier this session. What IS confirmed live:
+
+| # | Item | Result | Evidence |
+|---|---|---|---|
+| UGC gate | Plan gate blocks Free-plan access | **PASS-LIVE-UI** | `/dashboard/new/ugc` → "Creator plan required" with a clear upgrade message, not a broken/dead page |
+| Repurpose gate | Plan gate blocks Free-plan access | **PASS-LIVE-UI** | `/dashboard/new/repurpose` → same pattern, correct |
+| UGC/Repurpose route code | Validation, credit reservation, ownership checks | PASS (code) | zod schemas present, same reservation lifecycle as the script engine |
+| Repurpose upload via `setInputFiles()` | **NOT-TESTED this pass** | Genuinely requires reaching the upload UI, which requires the paid-plan wall above to clear first |
+
+**Golden Journeys 4 (UGC) and 5 (Repurpose): BLOCKED-OWNER, not PASS.** Cannot be marked PASS without a real generation completing through the UI — code review is supporting evidence only, per this phase's own rule.
