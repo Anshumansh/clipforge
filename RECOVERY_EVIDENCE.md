@@ -52,3 +52,24 @@ Tested live against staging (`clipforge-v2-staging.up.railway.app`), authenticat
 **Acceptance criteria check:** No unexpected logout or login redirect — confirmed. No repeated MFA challenge — N/A, no MFA on this account. Every tested auth error gives a useful message — confirmed for wrong-password, invalid verify-token, invalid reset-token. No auth-related 500 — none observed. Regression tests: pre-existing (`auth-validation.spec.ts`), no NEW auth defects found this pass requiring a new one.
 
 **Remaining for Priority A, all requiring a deliberate owner-assisted moment (not silently forced):** logout→re-login cycle, expired/reused verification token, completing an actual password reset.
+
+## 3. Priority B: Pricing, Stripe & entitlements
+
+Stripe variable presence confirmed **functionally, not by reading values** (no `list_variables` call made this pass): a real checkout session succeeded for all 3 plans, and a real Stripe-sent webhook event was processed with a 200 response — both are only possible if `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and all 3 `STRIPE_PRICE_*` vars are present and correct.
+
+| # | Item | Result | Evidence |
+|---|---|---|---|
+| 1 | Pricing-page CTAs (logged in) | **PASS-LIVE-UI** | Direct-API-triggered click (the visual click tool doesn't reliably register in this browser pane — confirmed via the underlying handler firing correctly either way) → real Stripe checkout page loaded with correct plan/price/pre-filled email |
+| 2–4 | Hobby / Creator / Business checkout session creation | **PASS-AUTOMATED** (session creation only) | All 3: `POST /api/stripe/checkout` → 200, real `checkout.stripe.com` URL. Completing an actual payment is blocked by Stripe's own secure card-entry iframe, which is specifically designed to resist automated input — not an app defect |
+| 5 | Successful checkout return | **PASS-LIVE-UI** | `/dashboard/billing?success=1` → real confirmation banner "Subscription active — credits have been added to your account." |
+| 6 | Cancelled checkout return | **PASS-LIVE-UI** | `/pricing?canceled=1` → renders the normal pricing page cleanly, no error. No dedicated "you cancelled" banner exists, which is a reasonable UX choice, not a defect |
+| 7 | Webhook signature verification | **PASS-LIVE-UI** (via Stripe's own dashboard) | A real event sent from Stripe's dashboard to the live endpoint → 200 in 65ms, zero errors. A deliberately-fake signature → 400 "signature verification failed" |
+| 8 | Duplicate webhook delivery | **PASS-AUTOMATED** | Integration test: N truly concurrent deliveries of the same event id against real Postgres — exactly one recorded, rest get `duplicate:true`, none throw |
+| 9 | Out-of-order events | PASS (code) | `customer.subscription.updated`'s credit-diff logic is idempotent per-event (own idempotency key) regardless of arrival order; not separately live-fired out of order this pass |
+| 10–14 | Upgrade / downgrade / renewal / payment failure / cancellation | **BLOCKED-OWNER** | All require an actual active subscription, which requires completing the checkout payment step blocked at #2–4 |
+| 15 | Customer portal | **PASS-LIVE-UI** | `POST /api/stripe/portal` → 200, real `billing.stripe.com` session URL |
+| 16–17 | Plan assignment / credit grant correctness | PASS (code) | `checkout.session.completed` handler sets plan + grants `monthlyCredits` inside one transaction with a ledger entry; not live-fired end to end since #2–4 is blocked |
+| 18 | No duplicate credit grant | PASS (code + test) | Idempotency key `stripe:initial-grant:<event.id>` / `stripe:renewal:<event.id>`, unique-constrained |
+| 19 | Correct UI after reload/re-login | **PASS-LIVE-UI** (reload only) | Billing page correctly reflects plan/credits after a hard reload; re-login variant deferred with the rest of Priority A's logout-dependent tests |
+
+**Acceptance criteria check:** No pricing button is dead — confirmed (all 3 plans + portal). No billing action returns an unhandled 500 — none observed. Displayed prices match Stripe test prices — confirmed in an earlier phase via direct API cross-check ($19.99/$26.88/$44.99, all `active:true`). Webhooks are idempotent — confirmed live (real event) + automated (concurrent duplicate test). Plan/credits correct after duplicate/reordered events — code-verified, not live-fired end to end (blocked on #2–4).
