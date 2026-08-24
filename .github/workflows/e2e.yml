@@ -33,7 +33,7 @@ jobs:
   # returns full plaintext for every env var on the service.
   preflight:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 16
     outputs:
       sha: ${{ steps.wait.outputs.sha }}
     steps:
@@ -69,6 +69,43 @@ jobs:
             sleep 10
           done
           echo "::error::STAGING_SHA_MISMATCH -- expected $EXPECTED_SHA, staging last reported '$LAST_SEEN' after 8 minutes of polling."
+          exit 1
+
+      # A matching SHA proves the right code is deployed, but not that the
+      # homepage is actually serving working showcase clips yet. The
+      # showcase URLs come from a page that's statically regenerated on a
+      # 5-minute ISR window (app/page.tsx's `revalidate`); the very first
+      # render after a fresh deploy can be built with environment values
+      # that were only available at Railway's build step, not its runtime
+      # step (confirmed live: RAILWAY_ENVIRONMENT_NAME resolved to the
+      # "production" fallback for several minutes after a deploy before
+      # self-correcting). Waiting here, once, means the browser matrix never
+      # has to race that window itself.
+      - name: Verify all three homepage showcase clips are actually reachable
+        run: |
+          echo "Extracting and verifying homepage showcase clip URLs..."
+          DEADLINE=$((SECONDS + 360))
+          while [ $SECONDS -lt $DEADLINE ]; do
+            HTML=$(curl -sS --max-time 15 "$E2E_BASE_URL/" || echo "")
+            URLS=$(echo "$HTML" | grep -oE 'https://[^"\\]*showcase/[^"\\]*\.mp4' | sort -u)
+            COUNT=$(echo "$URLS" | grep -c . || true)
+            if [ "$COUNT" -ge 3 ]; then
+              ALL_OK=true
+              for u in $URLS; do
+                CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 15 -L "$u" || echo "000")
+                echo "  $u -> $CODE"
+                if [ "$CODE" != "200" ]; then ALL_OK=false; fi
+              done
+              if [ "$ALL_OK" = "true" ]; then
+                echo "All showcase assets verified reachable."
+                exit 0
+              fi
+            else
+              echo "Only found $COUNT showcase URL(s) in homepage HTML so far, expected 3 -- retrying."
+            fi
+            sleep 15
+          done
+          echo "::error::Homepage showcase clips still not all reachable after 6 minutes."
           exit 1
 
   e2e:
