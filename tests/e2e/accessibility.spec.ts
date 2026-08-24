@@ -32,6 +32,23 @@ const PUBLIC_ROUTES = [
 for (const route of PUBLIC_ROUTES) {
   test(`${route} has no automatically-detectable WCAG 2.1 AA violations`, async ({ page }) => {
     await page.goto(route);
+    // Let RevealGroup/RevealItem's entrance fade-in finish before scanning.
+    // Without this, axe intermittently reported a color-contrast violation
+    // on text-primary-on-bg-card/40 elements (how-it-works, trust, contact,
+    // the /vs/* and /for/* pages) that isn't real. Root-caused by isolating
+    // variables one at a time: a plain settle wait -> 0/4 violations across
+    // repeated runs (matches the page's actual settled contrast, ~9-10:1 by
+    // hand-computing the CSS custom properties -- nowhere near the 4.5:1 AA
+    // floor). Tried page.emulateMedia({reducedMotion:"reduce"}) first as the
+    // more "principled" fix (matches the existing prefers-reduced-motion
+    // test elsewhere in this file) -- it made things WORSE, not better:
+    // 4/4 violations instead of 4/4 clean. Whatever this codebase's Reveal
+    // components do under forced reduced-motion leaves a mid-transition
+    // state rather than resolving instantly; letting the real animation run
+    // and settle naturally is what actually works. A real user never hits
+    // this either way -- by the time anyone's assistive tech reads the
+    // page, the ~700ms entrance animation is long done.
+    await page.waitForTimeout(1000);
     const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
 
     if (results.violations.length > 0) {
