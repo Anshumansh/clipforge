@@ -38,7 +38,13 @@ jobs:
         # runs in the chromium leg alone, see the second step below.
         run: npx playwright test --project=${{ matrix.project }} --grep-invert "submits, renders, and plays back"
       - name: Run the real-render demo test (chromium only)
-        if: matrix.project == 'chromium'
+        # !cancelled() (not the default implicit success()): a plain `if:`
+        # skips the step the moment any earlier step in the job fails, which
+        # meant an unrelated accessibility/keyboard failure in the main
+        # suite silently hid whether real generation still works at all --
+        # the two are independent signals and neither should mask the
+        # other. Only a genuinely cancelled run should skip this.
+        if: ${{ !cancelled() && matrix.project == 'chromium' }}
         run: npx playwright test --project=chromium --grep "submits, renders, and plays back"
       - name: Upload trace/report on failure
         if: failure()
