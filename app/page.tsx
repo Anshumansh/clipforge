@@ -8,7 +8,7 @@ import { StatCounter } from "@/components/stat-counter";
 import { Marquee } from "@/components/marquee";
 import { db } from "@/lib/db";
 import { SOCIAL_PLATFORMS, PLATFORM_LABELS, getLivePlatforms } from "@/lib/social/platforms";
-import { getPresignedDownloadUrl, getAppBaseUrl, objectExists, copyObject } from "@/lib/storage";
+import { getPresignedDownloadUrl, getAppBaseUrl, deleteMediaByPrefix, copyObject } from "@/lib/storage";
 import { unstable_cache } from "next/cache";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -165,14 +165,15 @@ function getShowcaseClipDefs(): { key: string; sourceKey: string; label: string 
   ];
 }
 
-/** Self-healing: copies each source render into its permanent showcase key
- * the first time it's missing (checked via a cheap HEAD, so every call after
- * the first is a no-op). Deliberately not a one-off migration script --
- * running this as part of the page's own request path means restoring a
- * showcase asset never depends on remembering to re-run something by hand,
- * and there's no new admin surface or secret to gate a dedicated endpoint
- * with. The copy runs entirely inside this process using storage credentials
- * it already holds; no bytes pass through the client.
+/** Self-healing: (re)copies each source render into its permanent showcase
+ * key every time this runs (unstable_cache below still bounds how often
+ * that actually is -- this isn't invoked per-request). Deliberately not a
+ * one-off migration script -- running this as part of the page's own
+ * request path means restoring a showcase asset never depends on
+ * remembering to re-run something by hand, and there's no new admin
+ * surface or secret to gate a dedicated endpoint with. The copy runs
+ * entirely inside this process using storage credentials it already
+ * holds; no bytes pass through the client.
  *
  * Each copy is caught independently, not run inside one Promise.all -- a
  * single failing copy (e.g. a source render that's since been deleted)
@@ -185,7 +186,16 @@ async function ensureShowcaseAssets(clips: { key: string; sourceKey: string }[])
   await Promise.all(
     clips.map(async ({ key, sourceKey }) => {
       try {
-        if (await objectExists(key)) return;
+        // Deliberately NOT gated on objectExists here -- an earlier
+        // CopyObjectCommand-based attempt left a real, non-zero-byte object
+        // at this exact key that every presigned GET still 403s on, and
+        // since it has real content it survives an existence check,
+        // permanently masking every later fix to the copy logic itself
+        // (confirmed live: three different copy implementations in a row
+        // produced the identical 403, because none of them ever actually
+        // ran again against an already-"existing" destination). Delete
+        // first and always recopy so no prior broken state can persist.
+        await deleteMediaByPrefix(key);
         await copyObject(sourceKey, key);
       } catch (err) {
         console.error(`showcase asset copy failed for ${key} (source: ${sourceKey}):`, err);
