@@ -136,26 +136,34 @@ const tickerItems = [
 // no Project/Job row at all, so neither risk applies -- it's presigned
 // directly with zero ownership check, matching the demo-account carve-out's
 // intent (public by design) without the demo account's lifecycle risk.
-const SHOWCASE_ENV = process.env.RAILWAY_ENVIRONMENT_NAME ?? "production";
-
-const SHOWCASE_CLIPS: { key: string; sourceKey: string; label: string }[] = [
-  {
-    key: `showcase/${SHOWCASE_ENV}/script.mp4`,
-    sourceKey: "jobs/cmt6jv25i000jkvvgh9hvyc41/attempts/9a73c847-4c61-49d3-8984-10409a58c271/output.mp4",
-    label: "Script to video",
-  },
-  {
-    key: `showcase/${SHOWCASE_ENV}/repurpose.mp4`,
-    sourceKey:
-      "jobs/cmt7cquhm000g12izqxtzt1o5/attempts/3787a716-69e5-4014-99fb-092373bdcd01/clip-cmt7cqw670005bf77mteof8ax.mp4",
-    label: "Repurpose — auto face tracking",
-  },
-  {
-    key: `showcase/${SHOWCASE_ENV}/ugc.mp4`,
-    sourceKey: "jobs/cmt7ctbxp000q12iz01r8jdz4/attempts/a329f508-8492-4d27-9944-62bb5bf7b9b4/output.mp4",
-    label: "UGC-style ad",
-  },
-];
+// Resolved inside a function, NOT as a module-level constant -- confirmed
+// live that a module-scope `process.env.RAILWAY_ENVIRONMENT_NAME` read here
+// baked in "production" (the `??` fallback) on the staging deploy itself:
+// Next.js can evaluate module scope during the build step, before Railway's
+// runtime env vars are injected, while code inside a request/handler body
+// (like /api/version's GET, which reads the same variable correctly) runs
+// at real request time and sees the actual runtime value.
+function getShowcaseClipDefs(): { key: string; sourceKey: string; label: string }[] {
+  const env = process.env.RAILWAY_ENVIRONMENT_NAME ?? "production";
+  return [
+    {
+      key: `showcase/${env}/script.mp4`,
+      sourceKey: "jobs/cmt6jv25i000jkvvgh9hvyc41/attempts/9a73c847-4c61-49d3-8984-10409a58c271/output.mp4",
+      label: "Script to video",
+    },
+    {
+      key: `showcase/${env}/repurpose.mp4`,
+      sourceKey:
+        "jobs/cmt7cquhm000g12izqxtzt1o5/attempts/3787a716-69e5-4014-99fb-092373bdcd01/clip-cmt7cqw670005bf77mteof8ax.mp4",
+      label: "Repurpose — auto face tracking",
+    },
+    {
+      key: `showcase/${env}/ugc.mp4`,
+      sourceKey: "jobs/cmt7ctbxp000q12iz01r8jdz4/attempts/a329f508-8492-4d27-9944-62bb5bf7b9b4/output.mp4",
+      label: "UGC-style ad",
+    },
+  ];
+}
 
 /** Self-healing: copies each source render into its permanent showcase key
  * the first time it's missing (checked via a cheap HEAD, so every call after
@@ -165,9 +173,9 @@ const SHOWCASE_CLIPS: { key: string; sourceKey: string; label: string }[] = [
  * and there's no new admin surface or secret to gate a dedicated endpoint
  * with. The copy runs entirely inside this process using storage credentials
  * it already holds; no bytes pass through the client. */
-async function ensureShowcaseAssets(): Promise<void> {
+async function ensureShowcaseAssets(clips: { key: string; sourceKey: string }[]): Promise<void> {
   await Promise.all(
-    SHOWCASE_CLIPS.map(async ({ key, sourceKey }) => {
+    clips.map(async ({ key, sourceKey }) => {
       if (await objectExists(key)) return;
       await copyObject(sourceKey, key);
     })
@@ -180,15 +188,22 @@ async function ensureShowcaseAssets(): Promise<void> {
 // otherwise statically prerender once at build time and freeze).
 const getShowcaseClips = unstable_cache(
   async (): Promise<{ src: string; label: string }[]> => {
-    await ensureShowcaseAssets();
+    const clips = getShowcaseClipDefs();
+    await ensureShowcaseAssets(clips);
     return Promise.all(
-      SHOWCASE_CLIPS.map(async ({ key, label }) => {
+      clips.map(async ({ key, label }) => {
         const signed = await getPresignedDownloadUrl(key, 3600);
         return { src: signed ?? `${getAppBaseUrl()}/api/media/${key}`, label };
       })
     );
   },
-  ["homepage-showcase-clips"],
+  // Bump this key (not just the code) whenever SHOWCASE_CLIPS' keys change --
+  // self-hosted Next.js's unstable_cache data cache is not reliably reset by
+  // a new deploy (confirmed live: switching these from job-scoped keys to
+  // showcase/<env>/*.mp4 kept serving the pre-change result for multiple
+  // deploys in a row, still inside the 30-minute revalidate window). A
+  // literal key change is the only thing guaranteed to bypass a stale entry.
+  ["homepage-showcase-clips-v2"],
   { revalidate: 1800 }
 );
 
