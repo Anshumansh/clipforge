@@ -111,8 +111,13 @@ export async function objectExists(key: string): Promise<boolean> {
 
   const client = getS3Client(config);
   try {
-    await client.send(new HeadObjectCommand({ Bucket: config.bucket, Key: key }));
-    return true;
+    const head = await client.send(new HeadObjectCommand({ Bucket: config.bucket, Key: key }));
+    // A HEAD that "succeeds" against a zero-byte object still counts as
+    // missing -- a bad CopyObjectCommand call (a malformed CopySource, an
+    // interrupted copy) can leave an empty placeholder at the destination
+    // key that would otherwise permanently short-circuit every future
+    // self-heal attempt, since existence alone would look satisfied forever.
+    return (head.ContentLength ?? 0) > 0;
   } catch {
     return false;
   }
