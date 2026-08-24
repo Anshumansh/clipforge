@@ -5,7 +5,6 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
-  CopyObjectCommand,
   ListObjectsV2Command,
   DeleteObjectsCommand,
 } from "@aws-sdk/client-s3";
@@ -123,29 +122,35 @@ export async function objectExists(key: string): Promise<boolean> {
   }
 }
 
-/** Copies an object within the same bucket, entirely server-side (S3 streams
- * it bucket-to-bucket, no bytes pass through this process). Used to promote
- * a real generated output into a permanent, account-independent key — see
- * app/page.tsx's showcase clips, which must not depend on any Project/Job
- * row that a project deletion or the demo-account 24h cleanup could remove
- * out from under a public marketing page. */
+/** Copies an object within the same bucket via a real GET + PUT, not
+ * CopyObjectCommand -- server-side copy repeatedly produced a destination
+ * object that existed (real content-length, no error at any step) but
+ * returned 403 on every presigned GET, on this provider specifically, and
+ * did so identically both before and after fixing a real CopySource-encoding
+ * bug, ruling that fix out as the actual cause. Rather than keep chasing an
+ * unobservable provider-side quirk in a command this codebase uses nowhere
+ * else, this reuses PutObjectCommand -- the exact call every real upload in
+ * this app already goes through and that's known to produce objects real
+ * presigned GETs can serve. Used to promote a real generated output into a
+ * permanent, account-independent key -- see app/page.tsx's showcase clips,
+ * which must not depend on any Project/Job row that a project deletion or
+ * the demo-account 24h cleanup could remove out from under a public
+ * marketing page. */
 export async function copyObject(sourceKey: string, destKey: string): Promise<void> {
   const config = getS3Config();
   if (!config) return;
 
   const client = getS3Client(config);
-  // CopySource is a path, not an opaque value -- encodeURIComponent on the
-  // whole key turns every real "/" into "%2F", which points S3 at a key
-  // that doesn't exist (confirmed live: the copy silently no-op'd against a
-  // malformed source, leaving the destination missing and every presigned
-  // GET for it returning 403). Encode each path segment on its own so the
-  // real "/" separators survive.
-  const encodedSourceKey = sourceKey.split("/").map(encodeURIComponent).join("/");
+  const got = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: sourceKey }));
+  if (!got.Body) throw new Error(`copyObject: source ${sourceKey} has no body`);
+  const bytes = await got.Body.transformToByteArray();
+
   await client.send(
-    new CopyObjectCommand({
+    new PutObjectCommand({
       Bucket: config.bucket,
-      CopySource: `${config.bucket}/${encodedSourceKey}`,
       Key: destKey,
+      Body: bytes,
+      ContentType: got.ContentType ?? "video/mp4",
     })
   );
 }
