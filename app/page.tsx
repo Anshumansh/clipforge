@@ -132,7 +132,7 @@ const tickerItems = [
 // keys the owner has chosen to show publicly, presigned server-side, same
 // mechanism (getPresignedDownloadUrl) the render pipeline already trusts.
 const SHOWCASE_CLIPS: { key: string; label: string }[] = [
-  { key: "media/cmsfwpkun00005ln9ty9j1vqs/cmsfwtaxc00025ln9310wv1dx/final.mp4", label: "Script to video" },
+  { key: "jobs/cmt6jv25i000jkvvgh9hvyc41/attempts/9a73c847-4c61-49d3-8984-10409a58c271/output.mp4", label: "Script to video" },
   {
     key: "media/cmsfwpkun00005ln9ty9j1vqs/cmsjh8bs800017l6bezmf7umb/clip-cmsjh8rxw00057l6bn2le0p6g.mp4",
     label: "Repurpose — auto face tracking",
