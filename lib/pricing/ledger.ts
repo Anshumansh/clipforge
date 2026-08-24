@@ -1,10 +1,14 @@
 /**
  * Canonical credit ledger (pricing overhaul brief, section 8): atomic
  * reservations, capture-on-completion, exact-once refunds, idempotency
- * keys, an immutable audit trail. This is the v2 charging path, additive
- * alongside the legacy lib/credits.ts (still used by every live job runner
- * today) -- see lib/pricing/flags.ts for the cutover switch. Nothing calls
- * this yet.
+ * keys, an immutable audit trail. This IS the live charging path -- every
+ * generation route (app/api/projects/{script,ugc,repurpose}) reserves
+ * through here, and every job runner (lib/jobs/*-runner.ts) captures or
+ * releases through here on completion/failure. lib/pricing/flags.ts's
+ * isPricingV2Enabled() has no real call site anywhere in the app (confirmed
+ * via grep, referenced only from its own test) -- it is not a working
+ * kill-switch for this file, despite what an earlier version of this
+ * comment claimed. Don't treat this as dead/optional scaffolding.
  *
  * Design: charging a job is a two-step "reserve, then capture or release"
  * rather than a single decrement, matching what the brief actually asks
