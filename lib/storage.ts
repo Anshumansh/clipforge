@@ -50,21 +50,19 @@ function getS3Client(config: S3Config): S3Client {
       // across different S3-compatible providers.
       forcePathStyle: true,
       credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
-      // AWS SDK v3's newer default ('WHEN_SUPPORTED') attaches a flexible
-      // checksum to requests/responses whenever the operation supports one --
-      // including adding x-amz-checksum-mode=ENABLED to every presigned
-      // GetObject URL, signed or not. Confirmed live: a real, verified-intact
-      // object (right content-length, matching ETag) copied via this same
-      // client 403'd on every presigned GET with a genuine AccessDenied (not
-      // a signature error) from this provider, while pre-existing objects on
-      // the same bucket -- presumably written before this file started
-      // computing/requesting checksums, or under different metadata --
-      // continued to work. 'WHEN_REQUIRED' is the older, conservative
-      // behavior (only when an operation mandates a checksum) and is the
-      // standard fix for exactly this class of incompatibility with
-      // non-AWS S3-compatible providers.
-      requestChecksumCalculation: "WHEN_REQUIRED",
-      responseChecksumValidation: "WHEN_REQUIRED",
+      // Deliberately left at the SDK's default ('WHEN_SUPPORTED') -- an
+      // earlier fix attempt set requestChecksumCalculation to 'WHEN_REQUIRED'
+      // here, which turned out to be exactly backwards. Confirmed live by
+      // comparing a full HeadObjectCommand dump of a working object against
+      // a freshly copied one: every real (working) object on this bucket
+      // carries a stored ChecksumCRC32/ChecksumType, and this provider
+      // (Tigris) denies presigned GETs for objects that don't have one --
+      // 'WHEN_REQUIRED' had stopped copyObject's own PutObjectCommand calls
+      // from computing a checksum at all (PutObject doesn't strictly
+      // "require" one), so every object this app copies came out
+      // permanently unreadable regardless of anything else about the copy.
+      // The default keeps every write checksummed, matching every other
+      // object already on this bucket.
     });
   }
   return cachedClient;
