@@ -44,6 +44,21 @@ function getS3Client(config: S3Config): S3Client {
       // across different S3-compatible providers.
       forcePathStyle: true,
       credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
+      // AWS SDK v3's newer default ('WHEN_SUPPORTED') attaches a flexible
+      // checksum to requests/responses whenever the operation supports one --
+      // including adding x-amz-checksum-mode=ENABLED to every presigned
+      // GetObject URL, signed or not. Confirmed live: a real, verified-intact
+      // object (right content-length, matching ETag) copied via this same
+      // client 403'd on every presigned GET with a genuine AccessDenied (not
+      // a signature error) from this provider, while pre-existing objects on
+      // the same bucket -- presumably written before this file started
+      // computing/requesting checksums, or under different metadata --
+      // continued to work. 'WHEN_REQUIRED' is the older, conservative
+      // behavior (only when an operation mandates a checksum) and is the
+      // standard fix for exactly this class of incompatibility with
+      // non-AWS S3-compatible providers.
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
     });
   }
   return cachedClient;
