@@ -13,8 +13,66 @@ on:
 env:
   E2E_BASE_URL: https://clipforge-v2-staging.up.railway.app
 
+# Staging is one shared environment, and every push to this branch redeploys
+# it (Railway's git-sync). Two overlapping E2E runs would mean the second
+# run's Playwright suite could execute mid-deploy or against a build that a
+# third, newer push has already started replacing -- neither failure nor
+# success would mean anything. Keyed on the ref (not run id) so a new push
+# to the same PR branch cancels an in-flight run for the old commit rather
+# than letting both race against the one staging deployment.
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Confirms staging is actually running *this* commit before any Playwright
+  # test executes against it -- closes the gap where the suite tested a
+  # fixed URL without ever proving which build was behind it. Uses
+  # /api/version, which exposes only RAILWAY_GIT_COMMIT_SHA (safe deploy
+  # metadata, not a secret) -- never Railway's variable-listing API, which
+  # returns full plaintext for every env var on the service.
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      sha: ${{ steps.wait.outputs.sha }}
+    steps:
+      - name: Determine expected commit SHA
+        id: expected
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "sha=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Wait for staging health, then for this exact commit to be deployed
+        id: wait
+        env:
+          EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
+        run: |
+          echo "Waiting for $E2E_BASE_URL to be healthy and report gitSha=$EXPECTED_SHA"
+          DEADLINE=$((SECONDS + 480))
+          LAST_SEEN="(no response yet)"
+          while [ $SECONDS -lt $DEADLINE ]; do
+            RESPONSE=$(curl -sS --max-time 10 "$E2E_BASE_URL/api/version" || echo "")
+            if [ -n "$RESPONSE" ]; then
+              ACTUAL_SHA=$(echo "$RESPONSE" | jq -r '.gitSha // empty' 2>/dev/null || echo "")
+              if [ -n "$ACTUAL_SHA" ]; then
+                LAST_SEEN="$ACTUAL_SHA"
+                if [ "$ACTUAL_SHA" = "$EXPECTED_SHA" ]; then
+                  echo "sha=$ACTUAL_SHA" >> "$GITHUB_OUTPUT"
+                  echo "Staging is healthy and running the expected commit ($ACTUAL_SHA)."
+                  exit 0
+                fi
+              fi
+            fi
+            sleep 10
+          done
+          echo "::error::STAGING_SHA_MISMATCH -- expected $EXPECTED_SHA, staging last reported '$LAST_SEEN' after 8 minutes of polling."
+          exit 1
+
   e2e:
+    needs: preflight
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
