@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Sparkles } from "lucide-react";
-import { safeInternalPath } from "@/lib/safe-redirect";
 
 export default function LoginPage() {
   return (
@@ -22,7 +21,7 @@ export default function LoginPage() {
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = safeInternalPath(searchParams.get("next"));
+  const next = searchParams.get("next") || "/dashboard";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [totpCode, setTotpCode] = useState("");
@@ -49,7 +48,7 @@ function LoginForm() {
       setError("Invalid email or password");
       return;
     }
-    router.replace(next);
+    router.push(next);
     router.refresh();
   }
 
@@ -73,7 +72,6 @@ function LoginForm() {
               <Input
                 id="email"
                 type="email"
-                autoComplete="email"
                 required
                 disabled={needsMfa}
                 value={email}
@@ -83,14 +81,13 @@ function LoginForm() {
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <Label htmlFor="password">Password</Label>
-                <Link href="/forgot-password" className="text-xs text-primary underline underline-offset-2 hover:no-underline">
+                <Link href="/forgot-password" className="text-xs text-primary hover:underline">
                   Forgot password?
                 </Link>
               </div>
               <Input
                 id="password"
                 type="password"
-                autoComplete="current-password"
                 required
                 disabled={needsMfa}
                 value={password}
@@ -104,7 +101,6 @@ function LoginForm() {
                   id="totpCode"
                   type="text"
                   inputMode="numeric"
-                  autoComplete="one-time-code"
                   autoFocus
                   placeholder="123456 or a backup code"
                   required
@@ -121,24 +117,10 @@ function LoginForm() {
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Logging in…" : needsMfa ? "Verify" : "Log in"}
             </Button>
-            {needsMfa && (
-              <Button
-                type="button"
-                variant="ghost"
-                className="w-full"
-                onClick={() => {
-                  setNeedsMfa(false);
-                  setTotpCode("");
-                  setError(null);
-                }}
-              >
-                Use a different account
-              </Button>
-            )}
           </form>
           <p className="mt-6 text-center text-sm text-muted-foreground">
             No account?{" "}
-            <Link href={`/register${next !== "/dashboard" ? `?next=${encodeURIComponent(next)}` : ""}`} className="text-primary underline underline-offset-2 hover:no-underline">
+            <Link href={`/register${next !== "/dashboard" ? `?next=${encodeURIComponent(next)}` : ""}`} className="text-primary hover:underline">
               Sign up free
             </Link>
           </p>

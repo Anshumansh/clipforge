@@ -24,25 +24,12 @@ interface Clip {
 function ClipTile({ clip }: { clip: Clip }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [interacted, setInteracted] = useState(false);
-  const [playing, setPlaying] = useState(false);
 
   function loadThenPlay() {
     setInteracted(true);
-    const video = videoRef.current;
-    if (!video) return;
-
-    // Keep the element mounted without a src so the first real interaction
-    // can attach the URL and call play() in the same user-activation event.
-    // The previous conditional mount deferred play() to requestAnimationFrame;
-    // Firefox/WebKit can treat that as outside the click activation window.
-    if (!video.currentSrc) {
-      video.src = clip.src;
-      video.load();
-    }
-    void video.play().catch(() => {
-      // A browser policy may still reject hover/focus autoplay. The element
-      // stays loaded so a subsequent explicit click can start it.
-    });
+    // The video element isn't in the DOM with its `src` set until this same
+    // render commits -- defer .play() a tick so the ref is attached first.
+    requestAnimationFrame(() => videoRef.current?.play());
   }
 
   return (
@@ -58,30 +45,30 @@ function ClipTile({ clip }: { clip: Clip }) {
         v.currentTime = 0;
       }}
       onClick={(e) => {
-        const video = videoRef.current;
-        // Focus fires before click. Do not let that same click immediately
-        // pause the playback focus just started; only treat a later click as
-        // a pause after the clip has genuinely advanced.
-        if (!video || video.paused || video.currentTime < 0.05) {
+        if (!interacted) {
           loadThenPlay();
         } else {
-          video.pause();
+          const v = videoRef.current;
+          if (v) {
+            if (v.paused) void v.play();
+            else v.pause();
+          }
         }
         e.currentTarget.blur();
       }}
       aria-label={`Preview: ${clip.label}`}
-      aria-pressed={playing}
     >
-      <video
-        ref={videoRef}
-        muted
-        loop
-        playsInline
-        preload="none"
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        className={cn("h-full w-full object-cover transition-opacity", interacted ? "opacity-100" : "opacity-0")}
-      />
+      {interacted && (
+        <video
+          ref={videoRef}
+          src={clip.src}
+          muted
+          loop
+          playsInline
+          preload="metadata"
+          className="h-full w-full object-cover"
+        />
+      )}
       <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 transition-opacity group-hover:opacity-100">
         <Play className="h-5 w-5 fill-white text-white" />
       </div>

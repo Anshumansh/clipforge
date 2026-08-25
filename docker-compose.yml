@@ -38,20 +38,12 @@ services:
     command: ["node", "dist-worker/index.cjs"]
     env_file: .env
     environment:
-      # 4g (the previous limit) was measured too tight: kernel log confirms
-      # a real cgroup OOM kill on 2026-08-18T14:43:38Z during a live Script
-      # render -- "memory: usage 4194304kB, limit 4194304kB" killed both
-      # `remotion` (anon-rss 3315600kB) and `chrome-headless` at the same
-      # instant. So the true combined peak for at least one real render
-      # exceeds 4GiB, not just the previously-measured ~3.3GB single-process
-      # figure -- that number didn't account for chrome-headless's own
-      # concurrent usage. 5g gives ~1GiB headroom above the confirmed
-      # failure point. The VPS has 7.6GB total RAM and no swap, and non-worker
-      # usage (app+caddy+OS) measured ~1.9GB with the worker idle, so this
-      # still leaves real headroom -- but it is not unlimited slack. If an
-      # OOM recurs at 5g, the next step is real per-render memory profiling
-      # or a VPS RAM upgrade, not another blind bump toward the physical
-      # ceiling.
+      # Deliberately conservative: the audit measured ~3.3GB peak RAM for a
+      # single render on a 7.6GB VPS, and an OOM incident already happened
+      # there. Isolating the worker into its own container must actually
+      # protect the web process, not just relocate the same memory
+      # pressure -- raise this only after measuring real headroom in this
+      # container specifically, never by default.
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
       WORKER_POLL_INTERVAL_MS: ${WORKER_POLL_INTERVAL_MS:-3000}
     restart: unless-stopped
@@ -61,7 +53,7 @@ services:
     # the next startup's reconciliation fails/refunds it -- see
     # lib/jobs/claim.ts's crash-recovery documentation.
     stop_grace_period: 120s
-    mem_limit: 5g
+    mem_limit: 4g
 
   caddy:
     image: caddy:2-alpine

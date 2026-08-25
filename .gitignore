@@ -17,5 +17,3 @@ public/media
 .vercel
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
-test-results/
-playwright-report/

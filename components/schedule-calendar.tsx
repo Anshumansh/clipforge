@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { cn, localDateKey } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 interface ScheduleItem {
   id: string;
@@ -29,7 +29,9 @@ const STATUS_VARIANT: Record<string, "outline" | "warning" | "success" | "destru
   failed: "destructive",
 };
 
-const dateKey = localDateKey;
+function dateKey(iso: string): string {
+  return iso.slice(0, 10);
+}
 
 export function ScheduleCalendar({ items }: { items: ScheduleItem[] }) {
   const [viewDate, setViewDate] = useState(() => new Date());
@@ -134,7 +136,7 @@ export function ScheduleCalendar({ items }: { items: ScheduleItem[] }) {
               : "Upcoming"}
           </h2>
           {selectedDay && (
-            <button type="button" onClick={() => setSelectedDay(null)} className="text-xs text-primary underline underline-offset-2 hover:no-underline">
+            <button type="button" onClick={() => setSelectedDay(null)} className="text-xs text-primary hover:underline">
               Show all upcoming
             </button>
           )}

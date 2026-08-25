@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -24,16 +23,8 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
     return NextResponse.json({ voted: false });
   }
 
-  try {
-    await db.featureVote.create({ data: { userId, featureRequestId: params.id } });
-  } catch (err) {
-    // P2003: the feature request's FK no longer resolves -- it was deleted
-    // between page load and the click. Anything else (DB timeout, connection
-    // drop, etc.) is a real failure and must not be reported as a vote.
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") {
-      return NextResponse.json({ error: "This feature request no longer exists" }, { status: 404 });
-    }
-    throw err;
-  }
+  await db.featureVote.create({ data: { userId, featureRequestId: params.id } }).catch(() => {
+    // Request was deleted between page load and the click -- nothing to vote on.
+  });
   return NextResponse.json({ voted: true });
 }

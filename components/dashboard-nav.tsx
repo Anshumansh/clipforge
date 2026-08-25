@@ -11,7 +11,6 @@ import {
   Calendar,
   Coins,
   CreditCard,
-  Film,
   Flame,
   KeyRound,
   LayoutGrid,
@@ -21,39 +20,29 @@ import {
   MessageSquarePlus,
   Palette,
   Radar,
+  Scissors,
   Share2,
   Sparkles,
   Users,
+  UserRound,
+  Wand2,
   X,
 } from "lucide-react";
 
-const groups = [
-  {
-    label: "Create",
-    links: [
-      { href: "/dashboard", label: "Projects", icon: LayoutGrid, exact: true },
-      { href: "/dashboard/create", label: "Create video", icon: Film, activePrefixes: ["/dashboard/create", "/dashboard/new/"] },
-      { href: "/dashboard/ideas", label: "Ideas", icon: Lightbulb },
-      { href: "/dashboard/trends", label: "Trends", icon: Radar },
-      { href: "/dashboard/schedule", label: "Schedule", icon: Calendar },
-    ],
-  },
-  {
-    label: "Workspace",
-    links: [
-      { href: "/dashboard/settings", label: "Connected accounts", icon: Share2, exact: true },
-      { href: "/dashboard/settings/brand", label: "Brand kit", icon: Palette },
-      { href: "/dashboard/settings/team", label: "Team", icon: Users },
-    ],
-  },
-  {
-    label: "Account",
-    links: [
-      { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
-      { href: "/dashboard/settings/api-keys", label: "API keys", icon: KeyRound },
-      { href: "/roadmap", label: "Roadmap", icon: MessageSquarePlus },
-    ],
-  },
+const links = [
+  { href: "/dashboard", label: "Projects", icon: LayoutGrid, exact: true },
+  { href: "/dashboard/ideas", label: "Idea Radar", icon: Lightbulb },
+  { href: "/dashboard/trends", label: "Trend Radar", icon: Radar },
+  { href: "/dashboard/new/script", label: "Script to video", icon: Wand2 },
+  { href: "/dashboard/new/repurpose", label: "Repurpose", icon: Scissors },
+  { href: "/dashboard/new/ugc", label: "UGC ad", icon: UserRound },
+  { href: "/dashboard/settings", label: "Connected accounts", icon: Share2, exact: true },
+  { href: "/dashboard/settings/brand", label: "Brand kit", icon: Palette },
+  { href: "/dashboard/settings/api-keys", label: "API keys", icon: KeyRound },
+  { href: "/dashboard/settings/team", label: "Team", icon: Users },
+  { href: "/dashboard/schedule", label: "Schedule", icon: Calendar },
+  { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
+  { href: "/roadmap", label: "Roadmap", icon: MessageSquarePlus },
 ];
 
 export function DashboardNav({ credits, streak }: { credits: number; streak: number }) {
@@ -104,37 +93,26 @@ export function DashboardNav({ credits, streak }: { credits: number; streak: num
             <X className="h-4 w-4" />
           </button>
         </div>
-        <nav className="flex flex-1 flex-col gap-5 overflow-y-auto pr-1">
-          {groups.map((group) => (
-            <div key={group.label} className="space-y-1">
-              <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
-                {group.label}
-              </p>
-              {group.links.map((link) => {
-                const active = link.exact
-                  ? pathname === link.href
-                  : link.activePrefixes
-                    ? link.activePrefixes.some((prefix) => pathname.startsWith(prefix))
-                    : pathname.startsWith(link.href);
-                return (
-                  <Link
-                    key={link.href}
-                    href={link.href}
-                    className={cn(
-                      "relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-                      active && "bg-primary/10 text-foreground"
-                    )}
-                  >
-                    {active && (
-                      <span className="absolute -left-1 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full bg-gradient-to-b from-[hsl(262_83%_66%)] to-[hsl(316_80%_62%)]" />
-                    )}
-                    <link.icon className={cn("h-4 w-4", active && "text-primary")} />
-                    {link.label}
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
+        <nav className="flex flex-1 flex-col gap-1">
+          {links.map((link) => {
+            const active = link.exact ? pathname === link.href : pathname.startsWith(link.href);
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={cn(
+                  "relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                  active && "bg-primary/10 text-foreground"
+                )}
+              >
+                {active && (
+                  <span className="absolute -left-1 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full bg-gradient-to-b from-[hsl(262_83%_66%)] to-[hsl(316_80%_62%)]" />
+                )}
+                <link.icon className={cn("h-4 w-4", active && "text-primary")} />
+                {link.label}
+              </Link>
+            );
+          })}
         </nav>
         <div className="space-y-3 border-t border-border pt-4">
           {streak > 0 && (

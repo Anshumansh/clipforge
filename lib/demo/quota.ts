@@ -1,51 +1,19 @@
 /**
- * Persistent demo job quota enforcement. Tracks demo submissions per IP
- * address and enforces both per-IP and global daily limits, backed by the
- * database so counts survive an app restart and are shared correctly across
- * multiple app replicas (an in-memory counter is neither).
+ * Persistent demo job quota enforcement. Tracks demo submissions per IP address
+ * and enforces both per-IP and global daily limits. Quotas are stored in the
+ * database so they survive application restarts (unlike the previous in-memory approach).
  *
- * Both limits are checked and recorded atomically in a single transaction,
- * serialized per calendar day via a Postgres advisory lock -- this is the
- * same pattern app/api/demo/generate/route.ts already uses for its own
- * concurrent-job-count admission check, just a distinct lock key (must never
- * share a key with an unrelated critical section, or the two would
- * needlessly serialize against each other for no correctness reason).
- *
- * Wiring history: this module existed as a correct, individually-tested
- * primitive (see quota.integration.test.ts) that no route ever called --
- * app/api/demo/generate/route.ts enforced limits via an in-memory counter
- * instead (lib/rate-limit.ts), which doesn't persist across restarts or
- * aggregate across replicas. This is now the one, single source of truth;
- * the in-memory path has been removed from the demo route entirely.
+ * Estimated cost is calculated based on CREDITS_PER_VIDEO and a conversion rate.
+ * Global daily limit is enforced based on total estimated cost.
  */
 import { db } from "@/lib/db";
-import type { Prisma, PrismaClient } from "@prisma/client";
 import { CREDITS_PER_VIDEO } from "@/lib/credits";
 
-// Configuration from environment, read fresh on every call (functions, not
-// frozen top-level consts) -- matches the re-readable-env-var convention
-// already established in this codebase (worker/index.ts's
-// readWorkerConfigFromEnv()), and is what makes each of these independently
-// testable per-call rather than fixed at module-import time. Defaults match
-// the values already live in production before this migration (route.ts's
-// own hardcoded DEMO_LIMIT_PER_IP_PER_DAY=3 and getDemoGlobalLimitPerDay()'s
-// default of 200) -- changing the defaults here would have silently
-// loosened the real limit rather than just fixing where it's enforced.
-export function getDemoPerIpLimit(): number {
-  const raw = Number(process.env.DEMO_PER_IP_LIMIT ?? "3");
-  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 3;
-}
-export function getDemoGlobalLimitPerDay(): number {
-  const raw = Number(process.env.DEMO_GLOBAL_LIMIT_PER_DAY ?? "200");
-  return Number.isFinite(raw) && raw > 0 ? raw : 200;
-}
+// Configuration from environment
+export const DEMO_PER_IP_LIMIT = Number(process.env.DEMO_PER_IP_LIMIT ?? "30");
+export const DEMO_GLOBAL_LIMIT_PER_DAY = Number(process.env.DEMO_GLOBAL_LIMIT_PER_DAY ?? "100");
 export const DEMO_CREDITS_TO_DOLLARS = Number(process.env.DEMO_CREDITS_TO_DOLLARS ?? "0.1"); // $0.10 per credit
-
-// Distinct from DEMO_ADMISSION_LOCK_KEY (app/api/demo/generate/route.ts,
-// unrelated critical section: concurrent-job-count, not quota) and from
-// ADMISSION_LOCK_KEY (lib/workers/admission.ts, worker admission). Arbitrary
-// but must stay constant.
-const DEMO_QUOTA_LOCK_KEY = 719_004_221n;
+export const DEMO_KILL_SWITCH = process.env.DEMO_KILL_SWITCH === "true";
 
 /** Get the UTC date (00:00:00 UTC) for quota tracking. */
 function getUtcDate(now = new Date()): Date {
@@ -55,95 +23,122 @@ function getUtcDate(now = new Date()): Date {
   return new Date(Date.UTC(year, month, date, 0, 0, 0, 0));
 }
 
-/** Anonymize IP for privacy (keep only the network prefix, not the full
- * address) -- the raw IP is never written to the database. */
+/** Anonymize IP for privacy (keep only the network prefix, not full address). */
 function anonymizeIp(ip: string): string {
+  // For IPv4: keep first 3 octets + mask last octet
   if (ip.includes(".") && !ip.includes(":")) {
     const octets = ip.split(".");
     return `${octets[0]}.${octets[1]}.${octets[2]}.0/24`;
   }
+  // For IPv6: keep first 64 bits (simplified)
   if (ip.includes(":")) {
     const parts = ip.split(":");
     return `${parts.slice(0, 4).join(":")}.../64`;
   }
-  return ip; // fallback -- unrecognized format, kept as-is rather than dropped
+  return ip; // fallback
 }
 
-export type DemoQuotaResult = { allowed: true } | { allowed: false; reason: string };
-
 /**
- * Atomically checks and, if allowed, records one demo submission against
- * both the per-IP and global daily limits. Fully race-free: both checks and
- * the increment happen inside one transaction serialized by an advisory
- * lock, so N concurrent requests from the same IP (or racing against the
- * global cap) can never together exceed either limit -- unlike a naive
- * check-then-increment, a rejected request never touches the stored count.
- *
- * Callers must not call this and then separately decide whether to proceed;
- * a true return IS the reservation.
+ * Check if a demo submission is allowed under the quota. Returns {allowed, reason}.
+ * Also enforces the demo kill switch (if enabled, always reject).
  */
-export async function checkAndReserveDemoQuota(ipAddress: string): Promise<DemoQuotaResult> {
+export async function checkDemoQuota(
+  ipAddress: string
+): Promise<{ allowed: boolean; reason?: string }> {
+  // Kill switch: block all demos if enabled
+  if (DEMO_KILL_SWITCH) {
+    return { allowed: false, reason: "Demo submissions are currently disabled" };
+  }
+
   try {
-    return await db.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${DEMO_QUOTA_LOCK_KEY})`;
+    const anonymizedIp = anonymizeIp(ipAddress);
+    const utcDate = getUtcDate();
+    const estimatedCostPerDemo = CREDITS_PER_VIDEO * DEMO_CREDITS_TO_DOLLARS;
 
-      const anonymizedIp = anonymizeIp(ipAddress);
-      const utcDate = getUtcDate();
-      const estimatedCostPerDemo = CREDITS_PER_VIDEO * DEMO_CREDITS_TO_DOLLARS;
-
-      const perIpLimit = getDemoPerIpLimit();
-      const globalLimit = getDemoGlobalLimitPerDay();
-
-      const ipQuota = await tx.demoQuota.findUnique({
-        where: { ipAddress_utcDate: { ipAddress: anonymizedIp, utcDate } },
-      });
-      if (ipQuota && ipQuota.submissionCount >= perIpLimit) {
-        return { allowed: false, reason: `Demo limit for your IP (${perIpLimit} per day) exceeded` };
-      }
-
-      const globalStats = await tx.demoQuota.aggregate({
-        where: { utcDate },
-        _sum: { estimatedCost: true },
-      });
-      const totalCostToday = (globalStats._sum.estimatedCost ?? 0) + estimatedCostPerDemo;
-      if (totalCostToday > globalLimit) {
-        return { allowed: false, reason: `Daily demo budget limit ($${globalLimit}/day) would be exceeded` };
-      }
-
-      // Both checks passed inside the same locked transaction -- record the
-      // submission now. A rejected request above never reaches this write,
-      // so the stored count can never overshoot either limit.
-      await tx.demoQuota.upsert({
-        where: { ipAddress_utcDate: { ipAddress: anonymizedIp, utcDate } },
-        update: {
-          submissionCount: { increment: 1 },
-          estimatedCost: { increment: estimatedCostPerDemo },
-          lastUpdated: new Date(),
-        },
-        create: {
-          ipAddress: anonymizedIp,
-          utcDate,
-          submissionCount: 1,
-          estimatedCost: estimatedCostPerDemo,
-        },
-      });
-
-      return { allowed: true };
+    // Check per-IP limit
+    const ipQuota = await db.demoQuota.findUnique({
+      where: { ipAddress_utcDate: { ipAddress: anonymizedIp, utcDate } },
     });
+
+    if (ipQuota && ipQuota.submissionCount >= DEMO_PER_IP_LIMIT) {
+      return {
+        allowed: false,
+        reason: `Demo limit for your IP (${DEMO_PER_IP_LIMIT} per day) exceeded`,
+      };
+    }
+
+    // Check global daily limit
+    const globalStats = await db.demoQuota.aggregate({
+      where: { utcDate },
+      _sum: { estimatedCost: true },
+      _count: true,
+    });
+
+    const totalCostToday = (globalStats._sum.estimatedCost ?? 0) + estimatedCostPerDemo;
+    if (totalCostToday > DEMO_GLOBAL_LIMIT_PER_DAY) {
+      return {
+        allowed: false,
+        reason: `Daily demo budget limit ($${DEMO_GLOBAL_LIMIT_PER_DAY}/day) would be exceeded`,
+      };
+    }
+
+    return { allowed: true };
   } catch (err) {
-    console.error("[demo-quota] check-and-reserve failed:", err instanceof Error ? err.message : err);
-    // Fail open: if the database is unreachable, allow the demo rather than
-    // hard-down the whole feature over a transient DB blip. Matches the
-    // existing fail-open convention for this specific check elsewhere in
-    // the codebase (isDemoEnabled()'s kill switch is the hard stop for
-    // deliberate shutoffs; this is only for unexpected infra failure).
+    console.error("[demo-quota] check failed:", err instanceof Error ? err.message : err);
+    // Fail open: if the DB is down, allow the demo to proceed (graceful degradation)
+    // The quota check will succeed next time the DB recovers
     return { allowed: true };
   }
 }
 
 /**
- * Get current quota stats for a given IP address (today only). Used for
- * user-facing feedback ("X/N demos used today").
+ * Atomically increment the demo quota for an IP address.
+ * Called after a demo submission is successfully validated/accepted.
+ * Returns true if incremented successfully, false if quota was exceeded
+ * (concurrent submission race).
+ */
+export async function incrementDemoQuota(ipAddress: string): Promise<boolean> {
+  try {
+    const anonymizedIp = anonymizeIp(ipAddress);
+    const utcDate = getUtcDate();
+    const estimatedCostPerDemo = CREDITS_PER_VIDEO * DEMO_CREDITS_TO_DOLLARS;
+
+    // Upsert: if the quota doesn't exist, create it with count=1
+    // if it exists and count < limit, increment; otherwise update last_updated
+    const result = await db.demoQuota.upsert({
+      where: { ipAddress_utcDate: { ipAddress: anonymizedIp, utcDate } },
+      update: {
+        submissionCount: { increment: 1 },
+        estimatedCost: { increment: estimatedCostPerDemo },
+        lastUpdated: new Date(),
+      },
+      create: {
+        ipAddress: anonymizedIp,
+        utcDate,
+        submissionCount: 1,
+        estimatedCost: estimatedCostPerDemo,
+      },
+    });
+
+    // Double-check we didn't exceed the limit (defensive)
+    if (result.submissionCount > DEMO_PER_IP_LIMIT) {
+      console.warn(
+        `[demo-quota] concurrent submission exceeded per-IP limit for ${anonymizedIp}: ${result.submissionCount} > ${DEMO_PER_IP_LIMIT}`
+      );
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error("[demo-quota] increment failed:", err instanceof Error ? err.message : err);
+    // Fail closed: if we can't update the quota, reject the submission
+    return false;
+  }
+}
+
+/**
+ * Get current quota stats for a given IP address (today only).
+ * Used for user-facing feedback ("X/30 demos used today").
  */
 export async function getDemoQuotaStats(ipAddress: string) {
   try {
@@ -152,24 +147,29 @@ export async function getDemoQuotaStats(ipAddress: string) {
 
     const quota = await db.demoQuota.findUnique({
       where: { ipAddress_utcDate: { ipAddress: anonymizedIp, utcDate } },
-      select: { submissionCount: true, estimatedCost: true, lastUpdated: true },
+      select: {
+        submissionCount: true,
+        estimatedCost: true,
+        lastUpdated: true,
+      },
     });
 
     return {
       submissionCount: quota?.submissionCount ?? 0,
       estimatedCost: quota?.estimatedCost ?? 0,
-      limit: getDemoPerIpLimit(),
+      limit: DEMO_PER_IP_LIMIT,
       lastUpdated: quota?.lastUpdated,
     };
   } catch (err) {
     console.error("[demo-quota] stats lookup failed:", err instanceof Error ? err.message : err);
-    return { submissionCount: 0, estimatedCost: 0, limit: getDemoPerIpLimit() };
+    return { submissionCount: 0, estimatedCost: 0, limit: DEMO_PER_IP_LIMIT };
   }
 }
 
 /**
- * Clean up old quota records (older than 7 days). Run periodically to keep
- * the table size reasonable. Called by cron.
+ * Clean up old quota records (older than 7 days).
+ * Run this periodically to keep the table size reasonable.
+ * Called by cron job or during maintenance.
  */
 export async function cleanupStaleQuotas(daysOld = 7): Promise<number> {
   try {
@@ -178,7 +178,9 @@ export async function cleanupStaleQuotas(daysOld = 7): Promise<number> {
     const cutoffDate = getUtcDate(cutoff);
 
     const result = await db.demoQuota.deleteMany({
-      where: { utcDate: { lt: cutoffDate } },
+      where: {
+        utcDate: { lt: cutoffDate },
+      },
     });
 
     console.log(`[demo-quota] cleaned up ${result.count} old records`);
@@ -188,8 +190,3 @@ export async function cleanupStaleQuotas(daysOld = 7): Promise<number> {
     return 0;
   }
 }
-
-// Re-exported so tests/tooling that used the transaction-client type
-// elsewhere can reference it without importing @prisma/client directly.
-export type DemoQuotaTx = Prisma.TransactionClient;
-export type { PrismaClient };

@@ -15,13 +15,7 @@ import { getToken } from "next-auth/jwt";
 // requires knowing an unguessable object key and redirects to a
 // short-lived presigned URL, which is the same protection level
 // production relies on with no basic-auth layer at all.
-const STAGING_AUTH_EXEMPT_PREFIXES = [
-  "/api/health",
-  "/api/stripe/webhook",
-  "/api/internal/metrics",
-  "/api/media",
-  "/api/showcase",
-];
+const STAGING_AUTH_EXEMPT_PREFIXES = ["/api/health", "/api/stripe/webhook", "/api/internal/metrics", "/api/media"];
 
 function isStagingAuthExempt(pathname: string): boolean {
   return STAGING_AUTH_EXEMPT_PREFIXES.some((p) => pathname.startsWith(p));

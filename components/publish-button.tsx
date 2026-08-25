@@ -77,7 +77,7 @@ export function PublishButton({ videoUrl, projectId, clipId }: { videoUrl: strin
   if (accounts.length === 0) {
     return (
       <p className="text-xs text-muted-foreground">
-        No connected accounts. <Link href="/dashboard/settings" className="text-primary underline underline-offset-2 hover:no-underline">Connect one</Link>.
+        No connected accounts. <Link href="/dashboard/settings" className="text-primary hover:underline">Connect one</Link>.
       </p>
     );
   }

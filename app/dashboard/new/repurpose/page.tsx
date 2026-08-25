@@ -7,8 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AspectRatioPicker } from "@/components/aspect-ratio-picker";
-import { ArrowLeft, Scissors, Settings2, UploadCloud } from "lucide-react";
-import Link from "next/link";
+import { Scissors, UploadCloud } from "lucide-react";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 import { GenerationOperation } from "@/lib/generation-client";
 
@@ -111,15 +110,11 @@ export default function NewRepurposePage() {
 
   return (
     <div className="mx-auto max-w-2xl">
-      <Link href="/dashboard/create" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" /> Back to video types
-      </Link>
       <div className="mb-6 flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/15">
           <Scissors className="h-5 w-5 text-primary" />
         </div>
         <div>
-          <p className="text-xs font-medium text-primary">Step 2 of 2</p>
           <h1 className="text-xl font-bold">Repurpose long-form video</h1>
           <p className="text-sm text-muted-foreground">
             Upload a podcast or long video. We'll cut it into vertical highlight clips.
@@ -162,17 +157,11 @@ export default function NewRepurposePage() {
                 onChange={(e) => setTopic(e.target.value)}
               />
             </div>
-            <details className="group rounded-xl border border-border/70 bg-secondary/20 p-4">
-              <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium">
-                <Settings2 className="h-4 w-4 text-primary" /> Customize clip format (optional)
-                <span className="ml-auto text-xs font-normal text-muted-foreground group-open:hidden">Vertical 9:16</span>
-              </summary>
-              <div className="mt-4 space-y-1.5 border-t border-border/70 pt-4">
-                <Label>Format</Label>
-                <AspectRatioPicker value={aspectRatio} onChange={setAspectRatio} />
-                <p className="text-xs text-muted-foreground">1:1 and 16:9 are a Business-plan feature.</p>
-              </div>
-            </details>
+            <div className="space-y-1.5">
+              <Label>Format</Label>
+              <AspectRatioPicker value={aspectRatio} onChange={setAspectRatio} />
+              <p className="text-xs text-muted-foreground">1:1 and 16:9 are a Business-plan feature.</p>
+            </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" disabled={loading} className="w-full">
               {loading ? "Uploading & starting render…" : "Generate clips"}

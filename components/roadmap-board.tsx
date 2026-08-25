@@ -127,7 +127,7 @@ export function RoadmapBoard({
         </form>
       ) : (
         <div className="rounded-xl border border-border bg-card/40 p-4 text-sm text-muted-foreground">
-          <Link href="/login" className="text-primary underline underline-offset-2 hover:no-underline">
+          <Link href="/login" className="text-primary hover:underline">
             Log in
           </Link>{" "}
           to suggest a feature or vote.

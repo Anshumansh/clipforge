@@ -20,28 +20,19 @@ export function SubscribeButton({
   const [error, setError] = useState<string | null>(null);
 
   async function onClick() {
-    if (status === "loading") return;
     if (status !== "authenticated") {
-      const next = `/pricing?plan=${plan}#plan-${plan}`;
-      router.push(`/register?next=${encodeURIComponent(next)}`);
+      router.push("/register");
       return;
     }
 
     setLoading(true);
     setError(null);
 
-    let res: Response;
-    try {
-      res = await fetch("/api/stripe/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }),
-      });
-    } catch {
-      setError("Could not reach checkout. Check your connection and try again.");
-      setLoading(false);
-      return;
-    }
+    const res = await fetch("/api/stripe/checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ plan }),
+    });
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok || !data.url) {
@@ -55,8 +46,8 @@ export function SubscribeButton({
 
   return (
     <div className="w-full">
-      <Button onClick={onClick} disabled={loading || status === "loading"} className="w-full" variant={variant}>
-        {loading ? "Redirecting to checkout…" : status === "loading" ? "Checking account…" : children}
+      <Button onClick={onClick} disabled={loading} className="w-full" variant={variant}>
+        {loading ? "Redirecting to checkout…" : children}
       </Button>
       {error && <p className="mt-2 text-center text-xs text-destructive">{error}</p>}
     </div>

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const checkAndReserveDemoQuotaFn = vi.fn();
+const rateLimitFn = vi.fn();
 const getClientIpFn = vi.fn();
 const getDemoUserIdFn = vi.fn();
 const jobCount = vi.fn();
@@ -8,10 +8,8 @@ const projectCreate = vi.fn();
 const jobCreate = vi.fn();
 const executeRaw = vi.fn();
 
-vi.mock("@/lib/demo/quota", () => ({
-  checkAndReserveDemoQuota: (...a: unknown[]) => checkAndReserveDemoQuotaFn(...a),
-}));
 vi.mock("@/lib/rate-limit", () => ({
+  rateLimit: (...a: unknown[]) => rateLimitFn(...a),
   getClientIp: (...a: unknown[]) => getClientIpFn(...a),
 }));
 vi.mock("@/lib/demo-user", () => ({ getDemoUserId: (...a: unknown[]) => getDemoUserIdFn(...a) }));
@@ -23,10 +21,9 @@ const mockDb = {
 vi.mock("@/lib/db", () => ({
   db: {
     ...mockDb,
-    // The route wraps its own check-then-act sequence (concurrent-job-count
-    // admission, separate from quota) in a transaction (advisory lock +
-    // count + create) -- pass the same mocked client through as `tx` so
-    // existing per-call assertions still see job.count/project.create
+    // The route wraps its check-then-act sequence in a transaction (advisory
+    // lock + count + create) -- pass the same mocked client through as `tx`
+    // so existing per-call assertions still see job.count/project.create
     // invoked, same as lib/jobs/repurpose-runner.test.ts's $transaction mock.
     $transaction: (fn: (tx: typeof mockDb) => Promise<unknown>) => fn(mockDb),
   },
@@ -41,15 +38,16 @@ function makeRequest(topic = "A perfectly reasonable demo topic about mornings")
   });
 }
 
-describe("POST /api/demo/generate (kill switch + persistent quota + concurrency cap)", () => {
+describe("POST /api/demo/generate (TEST-001 + global cap + kill switch)", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
     vi.clearAllMocks();
     delete process.env.DEMO_GENERATION_ENABLED;
+    delete process.env.DEMO_GLOBAL_LIMIT_PER_DAY;
     getClientIpFn.mockReturnValue("1.2.3.4");
     getDemoUserIdFn.mockResolvedValue("demo-user-1");
-    checkAndReserveDemoQuotaFn.mockResolvedValue({ allowed: true });
+    rateLimitFn.mockReturnValue({ ok: true, remaining: 2, resetAt: Date.now() + 1000 });
     jobCount.mockResolvedValue(0);
     projectCreate.mockResolvedValue({ id: "proj-1" });
     jobCreate.mockResolvedValue({ id: "job-1" });
@@ -66,13 +64,13 @@ describe("POST /api/demo/generate (kill switch + persistent quota + concurrency 
     expect(body).toEqual({ projectId: "proj-1" });
   });
 
-  it("returns 503 immediately when DEMO_GENERATION_ENABLED=false, without touching the quota check or the DB", async () => {
+  it("returns 503 immediately when DEMO_GENERATION_ENABLED=false, without touching rate limiters or the DB", async () => {
     process.env.DEMO_GENERATION_ENABLED = "false";
 
     const res = await POST(makeRequest());
 
     expect(res.status).toBe(503);
-    expect(checkAndReserveDemoQuotaFn).not.toHaveBeenCalled();
+    expect(rateLimitFn).not.toHaveBeenCalled();
     expect(projectCreate).not.toHaveBeenCalled();
   });
 
@@ -81,44 +79,40 @@ describe("POST /api/demo/generate (kill switch + persistent quota + concurrency 
     expect(res.status).toBe(200);
   });
 
-  it("passes the client IP through to the atomic quota check", async () => {
-    await POST(makeRequest());
-    expect(checkAndReserveDemoQuotaFn).toHaveBeenCalledWith("1.2.3.4");
-  });
-
-  it("returns 429 when the per-IP limit is exhausted", async () => {
-    checkAndReserveDemoQuotaFn.mockResolvedValue({
-      allowed: false,
-      reason: "Demo limit for your IP (3 per day) exceeded",
-    });
+  it("returns 429 when the per-IP limit is exhausted, checked before the global limit", async () => {
+    rateLimitFn.mockImplementation((key: string) =>
+      key.startsWith("demo-generate:1.2.3.4")
+        ? { ok: false, remaining: 0, resetAt: Date.now() }
+        : { ok: true, remaining: 100, resetAt: Date.now() }
+    );
 
     const res = await POST(makeRequest());
 
     expect(res.status).toBe(429);
     expect(projectCreate).not.toHaveBeenCalled();
-    const body = await res.json();
-    expect(body.error).toMatch(/you've used your free demos/i);
   });
 
-  it("returns 503 when the company-wide global daily limit is exhausted", async () => {
-    checkAndReserveDemoQuotaFn.mockResolvedValue({
-      allowed: false,
-      reason: "Daily demo budget limit ($200/day) would be exceeded",
-    });
+  it("returns 503 when the company-wide global daily limit is exhausted, even though this IP has quota left", async () => {
+    rateLimitFn.mockImplementation((key: string) =>
+      key === "demo-generate:global"
+        ? { ok: false, remaining: 0, resetAt: Date.now() }
+        : { ok: true, remaining: 2, resetAt: Date.now() }
+    );
 
     const res = await POST(makeRequest());
 
     expect(res.status).toBe(503);
     expect(projectCreate).not.toHaveBeenCalled();
-    const body = await res.json();
-    expect(body.error).toMatch(/company-wide limit/i);
   });
 
-  it("never reaches quota admission's own DB write path when quota already rejected the request", async () => {
-    checkAndReserveDemoQuotaFn.mockResolvedValue({ allowed: false, reason: "Demo limit for your IP (3 per day) exceeded" });
+  it("checks the global limit using a fixed shared key, independent of client IP", async () => {
     await POST(makeRequest());
-    // The concurrent-job-count admission transaction is a separate, later
-    // check -- confirm it's never reached once quota alone has rejected.
-    expect(jobCount).not.toHaveBeenCalled();
+    expect(rateLimitFn).toHaveBeenCalledWith("demo-generate:global", 200, 24 * 60 * 60 * 1000);
+  });
+
+  it("respects DEMO_GLOBAL_LIMIT_PER_DAY when configured", async () => {
+    process.env.DEMO_GLOBAL_LIMIT_PER_DAY = "50";
+    await POST(makeRequest());
+    expect(rateLimitFn).toHaveBeenCalledWith("demo-generate:global", 50, 24 * 60 * 60 * 1000);
   });
 });

@@ -106,9 +106,8 @@ const plans = [
   },
 ];
 
-export default async function PricingPage({ searchParams }: { searchParams: { plan?: string; canceled?: string } }) {
+export default async function PricingPage() {
   const v2Enabled = isPricingV2Enabled();
-  const selectedPlan = ["hobby", "creator", "business"].includes(searchParams.plan ?? "") ? searchParams.plan : null;
   const competitors = v2Enabled
     ? (await getCachedCompetitorBenchmarks())
         .filter((c): c is typeof c & { priceUsd: number } => c.priceUsd !== null)
@@ -147,20 +146,10 @@ export default async function PricingPage({ searchParams }: { searchParams: { pl
             </p>
           </div>
         </Reveal>
-        {selectedPlan && (
-          <div className="mx-auto mt-8 max-w-2xl rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-center text-sm">
-            Your account is ready. Continue with the <span className="font-semibold capitalize">{selectedPlan}</span> plan below.
-          </div>
-        )}
-        {searchParams.canceled && (
-          <div className="mx-auto mt-8 max-w-2xl rounded-xl border border-border bg-card/70 px-4 py-3 text-center text-sm text-muted-foreground">
-            Checkout was canceled. Nothing was charged; choose a plan whenever you&apos;re ready.
-          </div>
-        )}
         <RevealGroup className="mx-auto mt-14 grid max-w-6xl gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {plans.map((plan) => (
             <RevealItem key={plan.name} className="h-full">
-              <div id={plan.planId ? `plan-${plan.planId}` : undefined} className={plan.highlighted || selectedPlan === plan.planId ? "glow-ring h-full scroll-mt-24" : "h-full scroll-mt-24"}>
+              <div className={plan.highlighted ? "glow-ring h-full" : "h-full"}>
                 <Card
                   className={
                     "flex h-full flex-col border-transparent bg-card/90 transition-transform duration-200 hover:-translate-y-1" +
@@ -171,10 +160,7 @@ export default async function PricingPage({ searchParams }: { searchParams: { pl
                     <CardTitle className="flex items-center justify-between font-display">
                       {plan.name}
                       {plan.highlighted && (
-                        <span
-                          aria-label=", Popular"
-                          className="rounded-full bg-gradient-to-r from-[hsl(262_83%_66%)] to-[hsl(316_80%_62%)] px-2 py-0.5 text-xs font-medium text-white"
-                        >
+                        <span className="rounded-full bg-gradient-to-r from-[hsl(262_83%_66%)] to-[hsl(316_80%_62%)] px-2 py-0.5 text-xs font-medium text-white">
                           Popular
                         </span>
                       )}
