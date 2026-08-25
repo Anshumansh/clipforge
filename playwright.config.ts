@@ -5,6 +5,7 @@ import { defineConfig, devices } from "@playwright/test";
 // must not have production as its silent default target. Pass
 // E2E_BASE_URL explicitly (and consciously) to point it anywhere else.
 const baseURL = process.env.E2E_BASE_URL || "https://clipforge-v2-staging.up.railway.app";
+const authenticatedRun = process.env.E2E_AUTHENTICATED_RUN === "true";
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -18,9 +19,12 @@ export default defineConfig({
   timeout: 3 * 60 * 1000,
   use: {
     baseURL,
-    trace: "retain-on-failure",
-    screenshot: "only-on-failure",
-    video: "retain-on-failure",
+    // Authenticated CI uses a dedicated account whose credentials come from
+    // GitHub Actions secrets. Never persist its cookies, form contents, or
+    // logged-in pages in a trace, screenshot, or video artifact.
+    trace: authenticatedRun ? "off" : "retain-on-failure",
+    screenshot: authenticatedRun ? "off" : "only-on-failure",
+    video: authenticatedRun ? "off" : "retain-on-failure",
   },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
