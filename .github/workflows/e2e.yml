@@ -71,39 +71,32 @@ jobs:
           echo "::error::STAGING_SHA_MISMATCH -- expected $EXPECTED_SHA, staging last reported '$LAST_SEEN' after 8 minutes of polling."
           exit 1
 
-      # A matching SHA proves the right code is deployed, but not that the
-      # homepage has actually re-rendered with it yet -- the page is
-      # statically regenerated on a 5-minute ISR window (app/page.tsx's
-      # `revalidate`), so a fresh deploy's very first render can still be
-      # serving a stale cached result for a few minutes.
-      #
-      # This deliberately only confirms the homepage embeds 3 real-looking
-      # clip URLs, NOT that each one resolves with a 200 -- curling the
-      # storage provider's own domain directly turned out to be unreliable
-      # from here: confirmed live that the exact same object that plays
-      # back perfectly in a real browser (Playwright, or an actual visitor)
-      # gets a flat 403 when curled directly, on a provider that appears to
-      # distinguish real browser traffic from generic HTTP clients. The e2e
-      # job's own "all three showcase preview clips play with real content"
-      # test is the real, reliable check for actual reachability -- it uses
-      # a real browser's <video> element, the same thing a visitor's browser
-      # relies on.
-      - name: Verify the homepage has re-rendered with 3 showcase clips
+      # Fail before installing four browser engines if any first-party
+      # showcase endpoint cannot read its configured object. These URLs stay
+      # on the app origin and stream through authenticated storage access;
+      # CI never curls a provider-specific presigned URL.
+      - name: Verify all showcase endpoints support metadata and byte ranges
         run: |
-          echo "Waiting for the homepage to embed 3 showcase clip URLs..."
-          DEADLINE=$((SECONDS + 360))
-          while [ $SECONDS -lt $DEADLINE ]; do
-            HTML=$(curl -sS --max-time 15 "$E2E_BASE_URL/" || echo "")
-            COUNT=$(echo "$HTML" | grep -oE 'https://[^"\\]*\.mp4' | sort -u | grep -c . || true)
-            if [ "$COUNT" -ge 3 ]; then
-              echo "Homepage is serving $COUNT showcase clip URL(s)."
-              exit 0
+          for NAME in script repurpose ugc; do
+            URL="$E2E_BASE_URL/api/showcase/$NAME"
+            HEADERS=$(curl -fsSI --max-time 20 "$URL")
+            echo "$HEADERS" | grep -qi '^content-type: video/mp4' || {
+              echo "::error::$NAME showcase HEAD did not return video/mp4"
+              exit 1
+            }
+            LENGTH=$(echo "$HEADERS" | awk -F': ' 'tolower($1)=="content-length" {gsub("\r", "", $2); print $2}')
+            if ! [[ "$LENGTH" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::$NAME showcase has missing or zero content-length"
+              exit 1
             fi
-            echo "Only found $COUNT showcase URL(s) in homepage HTML so far, expected 3 -- retrying."
-            sleep 15
+
+            STATUS=$(curl -sS -o /tmp/showcase-range.bin -w '%{http_code}' --max-time 20 -H 'Range: bytes=0-1' "$URL")
+            if [ "$STATUS" != "206" ] || [ "$(wc -c < /tmp/showcase-range.bin)" -ne 2 ]; then
+              echo "::error::$NAME showcase Range GET failed (status=$STATUS)"
+              exit 1
+            fi
+            echo "$NAME showcase is readable ($LENGTH bytes, Range GET 206)."
           done
-          echo "::error::Homepage still not serving 3 showcase clip URLs after 6 minutes."
-          exit 1
 
   e2e:
     needs: preflight

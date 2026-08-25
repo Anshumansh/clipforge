@@ -12,6 +12,8 @@ import { Sparkles, Wand2 } from "lucide-react";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 import { LANGUAGES } from "@/lib/languages";
 import { GenerationOperation } from "@/lib/generation-client";
+import Link from "next/link";
+import { ArrowLeft, Settings2 } from "lucide-react";
 
 export default function NewScriptVideoPage() {
   const router = useRouter();
@@ -99,11 +101,15 @@ export default function NewScriptVideoPage() {
 
   return (
     <div className="mx-auto max-w-2xl">
+      <Link href="/dashboard/create" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+        <ArrowLeft className="h-4 w-4" /> Back to video types
+      </Link>
       <div className="mb-6 flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/15">
           <Wand2 className="h-5 w-5 text-primary" />
         </div>
         <div>
+          <p className="text-xs font-medium text-primary">Step 2 of 2</p>
           <h1 className="text-xl font-bold">Script to video</h1>
           <p className="text-sm text-muted-foreground">Paste a topic, script, or blog post — we'll do the rest.</p>
         </div>
@@ -153,62 +159,49 @@ export default function NewScriptVideoPage() {
                 </div>
               )}
             </div>
-            <div className="space-y-1.5">
-              <Label>Format</Label>
-              <AspectRatioPicker value={aspectRatio} onChange={setAspectRatio} />
-              <p className="text-xs text-muted-foreground">1:1 and 16:9 are a Business-plan feature.</p>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="language">Script + voiceover language</Label>
-              <select
-                id="language"
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
-                className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                {LANGUAGES.map((l) => (
-                  <option key={l.code} value={l.code}>
-                    {l.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="voiceSample">Clone your voice (optional)</Label>
-              <Input
-                id="voiceSample"
-                type="file"
-                accept="audio/*"
-                onChange={(e) => {
-                  setVoiceSample(e.target.files?.[0] ?? null);
-                  setVoiceConsent(false);
-                }}
-              />
-              <p className="text-xs text-muted-foreground">
-                Upload a clean 10-30s voice sample and we'll narrate in that voice instead of a stock one. A
-                Business-plan feature.
-              </p>
-              {voiceSample && (
-                <label className="flex items-start gap-2 rounded-lg border border-border bg-secondary/30 p-3 text-xs text-muted-foreground">
-                  <input
-                    type="checkbox"
-                    required
-                    checked={voiceConsent}
-                    onChange={(e) => setVoiceConsent(e.target.checked)}
-                    className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-primary"
+            <details className="group rounded-xl border border-border/70 bg-secondary/20 p-4">
+              <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium">
+                <Settings2 className="h-4 w-4 text-primary" /> Customize video (optional)
+                <span className="ml-auto text-xs font-normal text-muted-foreground group-open:hidden">9:16 · English</span>
+              </summary>
+              <div className="mt-4 space-y-4 border-t border-border/70 pt-4">
+                <div className="space-y-1.5">
+                  <Label>Format</Label>
+                  <AspectRatioPicker value={aspectRatio} onChange={setAspectRatio} />
+                  <p className="text-xs text-muted-foreground">1:1 and 16:9 are a Business-plan feature.</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="language">Script + voiceover language</Label>
+                  <select
+                    id="language"
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value)}
+                    className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    {LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="voiceSample">Clone your voice (optional)</Label>
+                  <Input
+                    id="voiceSample"
+                    type="file"
+                    accept="audio/*"
+                    onChange={(e) => {
+                      setVoiceSample(e.target.files?.[0] ?? null);
+                      setVoiceConsent(false);
+                    }}
                   />
-                  <span>
-                    I confirm this is my own voice, or I have the explicit, informed consent of the person whose
-                    voice this is, to clone it through Clipforge. Cloning someone's voice without their consent
-                    violates our{" "}
-                    <a href="/terms#4-1-voice-cloning" target="_blank" className="text-primary underline underline-offset-2 hover:no-underline">
-                      Terms of Service
-                    </a>
-                    .
-                  </span>
-                </label>
-              )}
-            </div>
+                  <p className="text-xs text-muted-foreground">Upload a clean 10-30s voice sample. A Business-plan feature.</p>
+                  {voiceSample && (
+                    <label className="flex items-start gap-2 rounded-lg border border-border bg-secondary/30 p-3 text-xs text-muted-foreground">
+                      <input type="checkbox" required checked={voiceConsent} onChange={(e) => setVoiceConsent(e.target.checked)} className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-primary" />
+                      <span>I confirm this is my own voice, or I have explicit consent to clone it through Clipforge. See the <a href="/terms#4-1-voice-cloning" target="_blank" className="text-primary underline underline-offset-2 hover:no-underline">Terms of Service</a>.</span>
+                    </label>
+                  )}
+                </div>
+              </div>
+            </details>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" disabled={loading || (!!voiceSample && !voiceConsent)} className="w-full">
               {loading ? "Starting render…" : "Generate video"}

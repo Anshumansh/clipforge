@@ -8,7 +8,7 @@ import { StatCounter } from "@/components/stat-counter";
 import { Marquee } from "@/components/marquee";
 import { db } from "@/lib/db";
 import { SOCIAL_PLATFORMS, PLATFORM_LABELS, getLivePlatforms } from "@/lib/social/platforms";
-import { getPresignedDownloadUrl, getAppBaseUrl } from "@/lib/storage";
+import { getShowcaseAssets } from "@/lib/showcase-assets";
 import { unstable_cache } from "next/cache";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -29,24 +29,10 @@ import {
   Zap,
 } from "lucide-react";
 
-// This page has no dynamic APIs, so Next would otherwise treat it as fully
-// static: rendered exactly once at Docker build time (with no real .env
-// available then -- see Dockerfile/.dockerignore) and served as that same
-// fixed HTML forever after. `revalidate` (ISR) was tried here first and
-// confirmed live, twice, to be the actual cause of two separate real bugs:
-// a `RAILWAY_ENVIRONMENT_NAME` read that resolved to its build-time
-// fallback, and -- root-caused via a downloaded CI trace showing the
-// showcase clip 404 coming from this app's own /api/media/[...key] route
-// (not the storage provider) -- `getPresignedDownloadUrl` itself returning
-// null because STORAGE_* wasn't available at build time either. ISR only
-// regenerates in the background *after* a real request lands past the
-// revalidate window, so the very first hit after any deploy (including
-// every CI run, which starts testing within seconds of the deploy
-// completing) reliably got served the stale, secrets-less build-time
-// render. `force-dynamic` makes every request execute fresh with full
-// runtime env access, eliminating that whole class of bug outright --
-// unstable_cache below still keeps the actual S3 calls cheap, so this
-// isn't a full-page performance cliff.
+// Platform capability labels and the generated-video count depend on runtime
+// configuration/data that is intentionally absent from the Docker build.
+// Render the page at runtime, while unstable_cache below keeps the database
+// query cheap. Showcase URLs themselves are stable same-origin paths.
 export const dynamic = "force-dynamic";
 
 const features = [
@@ -129,61 +115,13 @@ const tickerItems = [
   "Trend Radar",
 ];
 
-// Real, unedited renders pulled straight from production — not stock footage or
-// staged mockups. Muted/looped in the phone frames below.
-//
-// These are job-scoped keys (media/<userId>/<projectId>/... or
-// jobs/<jobId>/attempts/...), not a dedicated account-independent showcase
-// object -- that was attempted and reverted. A permanent showcase/<env>/ (and
-// later media/_showcase/<env>-) key copied server-side from these same
-// sources consistently got a genuine AccessDenied (not a signature error)
-// from the storage provider on every presigned GET, even after the copied
-// object was confirmed byte-for-byte and checksum-for-checksum identical to
-// a working one (verified via authenticated HeadObjectCommand: same
-// content-length, same ETag, same ChecksumCRC32/ChecksumType) and after
-// ruling out every application-level variable that could plausibly explain
-// it (CopySource encoding, a stale existence check, CopyObjectCommand vs a
-// real GET+PUT, the media/ vs showcase/ prefix, AWS SDK v3's default
-// checksum-mode request parameter, and eventual consistency after a 10+
-// minute wait). Whatever the storage provider is actually denying on, it
-// isn't visible from anything this application controls -- diagnosing it
-// further needs direct access to the bucket's policy/security configuration
-// (Tigris's own dashboard or support), which the owner would need to check.
-// Reverted to these job-scoped keys because they're proven to work reliably
-// for anonymous access (verified repeatedly this session via direct
-// presigning, real browser playback, and the CI regression test) --
-// matching exactly what was already fixed for Script-to-video earlier this
-// pass. The real, still-open risk this leaves (tied to a Job/Project row
-// that a project deletion or account cleanup could remove) is the same one
-// documented in RECOVERY_EVIDENCE.md as the one remaining known gap.
-const SHOWCASE_CLIPS: { key: string; label: string }[] = [
-  { key: "jobs/cmt6jv25i000jkvvgh9hvyc41/attempts/9a73c847-4c61-49d3-8984-10409a58c271/output.mp4", label: "Script to video" },
-  {
-    key: "jobs/cmt7cquhm000g12izqxtzt1o5/attempts/3787a716-69e5-4014-99fb-092373bdcd01/clip-cmt7cqw670005bf77mteof8ax.mp4",
-    label: "Repurpose — auto face tracking",
-  },
-  {
-    key: "jobs/cmt7ctbxp000q12iz01r8jdz4/attempts/a329f508-8492-4d27-9944-62bb5bf7b9b4/output.mp4",
-    label: "UGC-style ad",
-  },
-];
-
-// Presigned URLs are valid 1h; revalidating well inside that window means a
-// served URL still has plenty of life left, same pattern as
-// getVideosGeneratedCount below (this page has no dynamic APIs, so it would
-// otherwise statically prerender once at build time and freeze).
-const getShowcaseClips = unstable_cache(
-  async (): Promise<{ src: string; label: string }[]> => {
-    return Promise.all(
-      SHOWCASE_CLIPS.map(async ({ key, label }) => {
-        const signed = await getPresignedDownloadUrl(key, 3600);
-        return { src: signed ?? `${getAppBaseUrl()}/api/media/${key}`, label };
-      })
-    );
-  },
-  ["homepage-showcase-clips-v3"],
-  { revalidate: 1800 }
-);
+// Stable same-origin paths are deliberate: cached homepage HTML never embeds
+// an expiring storage signature, and browsers never depend on a storage
+// provider accepting their direct request. The route streams only these
+// three allowlisted objects with authenticated server-side storage access.
+function getShowcaseClips(): { src: string; label: string }[] {
+  return getShowcaseAssets().map(({ publicPath, label }) => ({ src: publicPath, label }));
+}
 
 const differentiators = [
   {
@@ -275,13 +213,8 @@ const structuredData = [
   },
 ];
 
-// This page has no dynamic APIs (no cookies/headers/searchParams), so Next
-// statically prerenders it at build time by default — which would otherwise
-// bake this count in permanently from whatever the CI build environment saw
-// (a dummy, unreachable DATABASE_URL there — see deploy.yml). unstable_cache
-// makes this one value revalidate on a timer against the real production DB
-// once the page is actually running, instead of freezing at a build-time
-// snapshot that never updates.
+// Cache the database-backed counter independently so runtime rendering does
+// not create a database read on every homepage request.
 const getVideosGeneratedCount = unstable_cache(
   async (): Promise<number> => {
     try {
@@ -303,7 +236,7 @@ const PLATFORM_DOT: Record<(typeof SOCIAL_PLATFORMS)[number], string> = {
 export default async function LandingPage() {
   const videosGenerated = await getVideosGeneratedCount();
   const livePlatforms = getLivePlatforms();
-  const showcaseClips = await getShowcaseClips();
+  const showcaseClips = getShowcaseClips();
 
   return (
     <div className="flex min-h-screen flex-col">

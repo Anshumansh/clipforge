@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Sparkles } from "lucide-react";
+import { safeInternalPath } from "@/lib/safe-redirect";
 
 export default function RegisterPage() {
   return (
@@ -21,7 +22,7 @@ export default function RegisterPage() {
 function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") || "/dashboard";
+  const next = safeInternalPath(searchParams.get("next"));
   const prefillEmail = searchParams.get("email") || "";
   const [name, setName] = useState("");
   const [email, setEmail] = useState(prefillEmail);
@@ -51,10 +52,10 @@ function RegisterForm() {
     setLoading(false);
     if (signInRes?.error) {
       setError("Account created — please log in.");
-      router.push(next !== "/dashboard" ? `/login?next=${encodeURIComponent(next)}` : "/login");
+      router.replace(next !== "/dashboard" ? `/login?next=${encodeURIComponent(next)}` : "/login");
       return;
     }
-    router.push(next);
+    router.replace(next);
     router.refresh();
   }
 
@@ -75,17 +76,18 @@ function RegisterForm() {
           <form className="space-y-4" onSubmit={onSubmit}>
             <div className="space-y-1.5">
               <Label htmlFor="name">Name</Label>
-              <Input id="name" required value={name} onChange={(e) => setName(e.target.value)} />
+              <Input id="name" autoComplete="name" required value={name} onChange={(e) => setName(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+              <Input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="password">Password</Label>
               <Input
                 id="password"
                 type="password"
+                autoComplete="new-password"
                 required
                 minLength={6}
                 value={password}

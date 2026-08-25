@@ -40,15 +40,15 @@ test.describe("homepage", () => {
     for (const label of tiles) {
       const tile = grid.getByRole("button", { name: label });
       const [response] = await Promise.all([
-        page.waitForResponse((r) => /\.mp4/.test(r.url()), { timeout: 15000 }).catch(() => null),
+        page.waitForResponse((r) => /\/api\/showcase\/(script|repurpose|ugc)$/.test(new URL(r.url()).pathname), { timeout: 15000 }).catch(() => null),
         tile.click(),
       ]);
-      // The regression this guards: these used to 404 because they pointed
-      // directly at the ownership-gated /api/media/[...key] route with no
-      // anonymous access path. They must now resolve to a presigned URL
-      // that actually serves the file.
+      // The browser deliberately stays on a stable first-party endpoint.
+      // Cached HTML never contains an expiring storage signature and direct
+      // provider behaviour cannot vary by browser or CI runner.
       expect(response, `${label} produced no video request`).not.toBeNull();
       expect(response!.status(), `${label} video request`).toBeLessThan(400);
+      expect(response!.headers()["content-type"]).toContain("video/mp4");
 
       // A successful network response isn't proof the clip actually plays --
       // the browser cache can serve a stale/empty response as a 200, and a
