@@ -69,7 +69,7 @@ export default async function PricingPage({
                 >
                   <CardHeader>
                     <CardTitle className="flex items-center justify-between font-display">
-                      {plan.displayName}
+                      <span>{plan.displayName}</span>
                       {plan.highlighted && (
                         <span
                           aria-label=", Most popular"
