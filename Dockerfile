@@ -148,6 +148,12 @@ COPY --from=builder /app/dist-worker ./dist-worker
 # same packages (native bindings / WASM / Remotion's own runtime bundler
 # -- none of these can be pre-bundled by esbuild).
 COPY --from=builder /app/node_modules/@remotion ./node_modules/@remotion
+# The composition source imports the public `remotion` package directly
+# (`import { Composition } from "remotion"`). Next 16's standalone tracer no
+# longer happens to include that package, and copying only the @remotion scope
+# leaves the runtime bundler unable to resolve it from /app/remotion. Keep the
+# public package explicit so web and worker containers can bundle compositions.
+COPY --from=builder /app/node_modules/remotion ./node_modules/remotion
 COPY --from=builder /app/node_modules/@tensorflow ./node_modules/@tensorflow
 COPY --from=builder /app/node_modules/@tensorflow-models ./node_modules/@tensorflow-models
 COPY --from=builder /app/node_modules/jpeg-js ./node_modules/jpeg-js
