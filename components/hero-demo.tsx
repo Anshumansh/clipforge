@@ -14,22 +14,32 @@ interface Clip {
 
 /** A small real-output preview tile -- same production render URLs as the
  * "Real output, not mockups" section further down the page, just shown
- * immediately in the hero. The <video>'s `src` isn't set until the first
- * hover/tap/focus (not merely `preload="metadata"` on mount) -- three tiles
- * eagerly fetching metadata for a 10-30MB file each, on every homepage load,
+ * immediately in the hero. The <video> element is always mounted (needed so
+ * .play() can be called synchronously from the triggering event -- see
+ * loadThenPlay), but its `src` isn't set until the first hover/tap/focus --
+ * three tiles eagerly fetching a 10-30MB file each on every homepage load,
  * regardless of whether a visitor ever interacts with them, is exactly the
- * "load real video before the user acts" pattern the perf brief calls out.
- * Once loaded, `preload="metadata"` still applies so the first hover/tap
- * only needs to start playback, not begin a fresh negotiation. */
+ * "load real video before the user acts" pattern the perf brief calls out. */
 function ClipTile({ clip }: { clip: Clip }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [interacted, setInteracted] = useState(false);
 
+  // Sets `src` and calls .play() in the same synchronous tick as the
+  // triggering event, not deferred a frame -- WebKit and Firefox (confirmed
+  // live in real cross-browser CI) can fail to start playback when .play()
+  // is called from a requestAnimationFrame callback instead of directly
+  // inside the event handler, even for a muted video. The <video> element
+  // itself stays permanently mounted with no `src` (see below) specifically
+  // so this ref is always valid here -- that's what makes the synchronous
+  // call possible without needing the element to exist yet.
   function loadThenPlay() {
-    setInteracted(true);
-    // The video element isn't in the DOM with its `src` set until this same
-    // render commits -- defer .play() a tick so the ref is attached first.
-    requestAnimationFrame(() => videoRef.current?.play());
+    const v = videoRef.current;
+    if (!v) return;
+    if (!interacted) {
+      setInteracted(true);
+      v.src = clip.src;
+    }
+    void v.play();
   }
 
   return (
@@ -58,17 +68,21 @@ function ClipTile({ clip }: { clip: Clip }) {
       }}
       aria-label={`Preview: ${clip.label}`}
     >
-      {interacted && (
-        <video
-          ref={videoRef}
-          src={clip.src}
-          muted
-          loop
-          playsInline
-          preload="metadata"
-          className="h-full w-full object-cover"
-        />
-      )}
+      <video
+        ref={videoRef}
+        muted
+        loop
+        playsInline
+        // Empty until interaction -- see the file header comment: three
+        // tiles eagerly fetching metadata for a 10-30MB file each on every
+        // homepage load regardless of whether a visitor ever interacts with
+        // them is exactly the "load real video before the user acts"
+        // pattern the perf brief calls out. `preload="none"` means the
+        // always-mounted element (needed for the synchronous ref above)
+        // doesn't fetch anything until `src` is actually set.
+        preload="none"
+        className="h-full w-full object-cover"
+      />
       <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 transition-opacity group-hover:opacity-100">
         <Play className="h-5 w-5 fill-white text-white" />
       </div>
