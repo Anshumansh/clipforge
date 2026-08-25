@@ -56,7 +56,9 @@ test.describe("@authenticated staging Business journey", () => {
     for (const [path, heading] of authenticatedPages) {
       await page.goto(path, { waitUntil: "domcontentloaded" });
       await expect(page).toHaveURL(new RegExp(`${path.replaceAll("/", "\\/")}(?:$|[?#])`));
-      await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+      // Some pages repeat the page name in a card heading. Target the single
+      // document h1 so a valid duplicate h3 does not create a false failure.
+      await expect(page.getByRole("heading", { level: 1, name: heading, exact: true })).toBeVisible();
     }
 
     // The simplified creation hub must lead to all three real generators.
@@ -92,7 +94,7 @@ test.describe("@authenticated staging Business journey", () => {
 
     const secondTab = await context.newPage();
     await secondTab.goto("/dashboard/settings/api-keys");
-    await expect(secondTab.getByRole("heading", { name: "API keys" })).toBeVisible();
+    await expect(secondTab.getByRole("heading", { level: 1, name: "API keys" })).toBeVisible();
     await secondTab.close();
 
     // Finally prove the complete session lifecycle, including an explicit
