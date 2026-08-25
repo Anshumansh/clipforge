@@ -112,7 +112,15 @@ test.describe("anonymous demo generation", () => {
     await page.getByPlaceholder(/morning habits/i).fill(
       "Three simple stretches you can do at your desk to ease back pain"
     );
+    const generationResponse = page.waitForResponse(
+      (response) => response.url().endsWith("/api/demo/generate") && response.request().method() === "POST",
+      { timeout: 30000 }
+    );
     await page.getByRole("button", { name: /generate my clip/i }).click();
+    const submitted = await generationResponse;
+    expect(submitted.ok(), `Demo submission failed with HTTP ${submitted.status()}`).toBe(true);
+    const submission = (await submitted.json()) as { projectId?: string };
+    expect(submission.projectId, "Demo submission did not return a projectId").toBeTruthy();
 
     // The submit route holds a transaction-scoped advisory lock across the
     // active-job count-then-insert (app/api/demo/generate/route.ts) to
@@ -123,10 +131,36 @@ test.describe("anonymous demo generation", () => {
     // submission succeeding server-side; 30s gives real headroom.
     await expect(page.getByText(/queued|generating your video/i)).toBeVisible({ timeout: 30000 });
 
-    // Real render, not mocked -- give it the full couple of minutes the UI
-    // itself says to expect, matching the observed ~90s render time.
+    // Poll the same public, demo-account-scoped status endpoint the UI uses.
+    // This fails immediately with the server's terminal error instead of
+    // hiding a provider/render/storage failure behind a 3-minute "video not
+    // found" timeout. It also gives a stuck queue the same real deadline.
+    await expect
+      .poll(
+        async () => {
+          const response = await page.request.get(`/api/demo/status/${submission.projectId}`);
+          expect(response.ok(), `Demo status failed with HTTP ${response.status()}`).toBe(true);
+          const status = (await response.json()) as {
+            status?: string;
+            progress?: number;
+            log?: string | null;
+            errorMessage?: string | null;
+          };
+          if (status.status === "failed") {
+            throw new Error(
+              `Demo generation failed: ${status.errorMessage ?? status.log ?? "unknown worker error"}`
+            );
+          }
+          return status.status;
+        },
+        { timeout: 3 * 60 * 1000 }
+      )
+      .toBe("ready");
+
+    // Real render, not mocked -- after the backend is ready, verify the UI
+    // exposes the actual video and the browser can read its metadata.
     const video = page.locator("video[autoplay]");
-    await expect(video).toBeVisible({ timeout: 3 * 60 * 1000 });
+    await expect(video).toBeVisible({ timeout: 15000 });
 
     // `src` being set (autoplay attribute present) doesn't mean metadata has
     // loaded yet -- checking .duration immediately after visibility is a
