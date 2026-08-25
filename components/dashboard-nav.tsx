@@ -10,48 +10,26 @@ import { Badge } from "@/components/ui/badge";
 import {
   Calendar,
   Coins,
-  CreditCard,
   Film,
   Flame,
-  KeyRound,
-  LayoutGrid,
-  Lightbulb,
+  Home,
   LogOut,
   Menu,
-  MessageSquarePlus,
-  Palette,
-  Radar,
-  Share2,
+  Settings,
+  Telescope,
   Sparkles,
-  Users,
   X,
 } from "lucide-react";
 
 const groups = [
   {
-    label: "Create",
-    links: [
-      { href: "/dashboard", label: "Projects", icon: LayoutGrid, exact: true },
-      { href: "/dashboard/create", label: "Create video", icon: Film, activePrefixes: ["/dashboard/create", "/dashboard/new/"] },
-      { href: "/dashboard/ideas", label: "Ideas", icon: Lightbulb },
-      { href: "/dashboard/trends", label: "Trends", icon: Radar },
-      { href: "/dashboard/schedule", label: "Schedule", icon: Calendar },
-    ],
-  },
-  {
     label: "Workspace",
     links: [
-      { href: "/dashboard/settings", label: "Connected accounts", icon: Share2, exact: true },
-      { href: "/dashboard/settings/brand", label: "Brand kit", icon: Palette },
-      { href: "/dashboard/settings/team", label: "Team", icon: Users },
-    ],
-  },
-  {
-    label: "Account",
-    links: [
-      { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
-      { href: "/dashboard/settings/api-keys", label: "API keys", icon: KeyRound },
-      { href: "/roadmap", label: "Roadmap", icon: MessageSquarePlus },
+      { href: "/dashboard", label: "Home", icon: Home, exact: true },
+      { href: "/dashboard/create", label: "Create video", icon: Film, activePrefixes: ["/dashboard/create", "/dashboard/new/"] },
+      { href: "/dashboard/ideas", label: "Discover", icon: Telescope, activePrefixes: ["/dashboard/ideas", "/dashboard/trends"] },
+      { href: "/dashboard/schedule", label: "Publish", icon: Calendar },
+      { href: "/dashboard/settings", label: "Settings", icon: Settings, activePrefixes: ["/dashboard/settings", "/dashboard/billing"] },
     ],
   },
 ];

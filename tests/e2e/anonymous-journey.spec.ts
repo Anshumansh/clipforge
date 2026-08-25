@@ -112,7 +112,15 @@ test.describe("anonymous demo generation", () => {
     await page.getByPlaceholder(/morning habits/i).fill(
       "Three simple stretches you can do at your desk to ease back pain"
     );
+    const generationResponse = page.waitForResponse(
+      (response) => response.url().endsWith("/api/demo/generate") && response.request().method() === "POST",
+      { timeout: 30000 }
+    );
     await page.getByRole("button", { name: /generate my clip/i }).click();
+    const submitted = await generationResponse;
+    expect(submitted.ok(), `Demo submission failed with HTTP ${submitted.status()}`).toBe(true);
+    const submission = (await submitted.json()) as { projectId?: string };
+    expect(submission.projectId, "Demo submission did not return a projectId").toBeTruthy();
 
     // The submit route holds a transaction-scoped advisory lock across the
     // active-job count-then-insert (app/api/demo/generate/route.ts) to
@@ -123,10 +131,36 @@ test.describe("anonymous demo generation", () => {
     // submission succeeding server-side; 30s gives real headroom.
     await expect(page.getByText(/queued|generating your video/i)).toBeVisible({ timeout: 30000 });
 
-    // Real render, not mocked -- give it the full couple of minutes the UI
-    // itself says to expect, matching the observed ~90s render time.
+    // Poll the same public, demo-account-scoped status endpoint the UI uses.
+    // This fails immediately with the server's terminal error instead of
+    // hiding a provider/render/storage failure behind a 3-minute "video not
+    // found" timeout. It also gives a stuck queue the same real deadline.
+    await expect
+      .poll(
+        async () => {
+          const response = await page.request.get(`/api/demo/status/${submission.projectId}`);
+          expect(response.ok(), `Demo status failed with HTTP ${response.status()}`).toBe(true);
+          const status = (await response.json()) as {
+            status?: string;
+            progress?: number;
+            log?: string | null;
+            errorMessage?: string | null;
+          };
+          if (status.status === "failed") {
+            throw new Error(
+              `Demo generation failed: ${status.errorMessage ?? status.log ?? "unknown worker error"}`
+            );
+          }
+          return status.status;
+        },
+        { timeout: 3 * 60 * 1000 }
+      )
+      .toBe("ready");
+
+    // Real render, not mocked -- after the backend is ready, verify the UI
+    // exposes the actual video and the browser can read its metadata.
     const video = page.locator("video[autoplay]");
-    await expect(video).toBeVisible({ timeout: 3 * 60 * 1000 });
+    await expect(video).toBeVisible({ timeout: 15000 });
 
     // `src` being set (autoplay attribute present) doesn't mean metadata has
     // loaded yet -- checking .duration immediately after visibility is a
@@ -159,19 +193,13 @@ test.describe("anonymous demo generation", () => {
 test.describe("pricing page", () => {
   test("displays all three plans with working signup CTAs", async ({ page }) => {
     await page.goto("/pricing");
-    for (const plan of ["Free", "Hobby", "Creator", "Business"]) {
+    for (const plan of ["Free", "Creator", "Business"]) {
       // Plan cards use Framer Motion scroll-reveal (components/reveal.tsx) --
       // genuinely opacity:0 until scrolled into view (grid layout varies by
       // viewport width, so scroll each into view individually rather than
       // assuming one scroll reveals the whole row).
       //
-      // Not `exact: true`: the Creator card's "Popular" badge sits inside
-      // the same heading with no whitespace between them in the markup, so
-      // its accessible name computes to the single run-on word
-      // "CreatorPopular" rather than "Creator" -- a real (if minor) a11y
-      // polish gap worth its own fix separately, but this test's job is
-      // checking the plan renders, not re-litigating that markup choice.
-      const el = page.getByText(plan).first();
+      const el = page.getByText(plan, { exact: true }).first();
       await el.scrollIntoViewIfNeeded();
       await expect(el).toBeVisible();
     }
@@ -180,9 +208,9 @@ test.describe("pricing page", () => {
     // during this recovery pass). A hardcoded expectation here is
     // deliberate -- a drift between this and Stripe should fail loudly,
     // not be silently accepted by re-reading whatever's on the page.
-    await expect(page.getByText("$19.99/mo")).toBeVisible();
-    await expect(page.getByText("$26.88/mo")).toBeVisible();
-    await expect(page.getByText("$44.99/mo")).toBeVisible();
+    await expect(page.getByText("$26.88", { exact: true })).toBeVisible();
+    await expect(page.getByText("$44.99", { exact: true })).toBeVisible();
+    await expect(page.getByText("Hobby (legacy)", { exact: true })).toHaveCount(0);
   });
 });
 

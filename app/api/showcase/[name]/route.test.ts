@@ -14,6 +14,10 @@ function request(name: string, headers: Record<string, string> = {}) {
   return new Request(`https://forgecut.app/api/showcase/${name}`, { headers });
 }
 
+function routeContext(name: string) {
+  return { params: Promise.resolve({ name }) };
+}
+
 describe("/api/showcase/[name]", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -38,7 +42,7 @@ describe("/api/showcase/[name]", () => {
   });
 
   it.each(["script", "repurpose", "ugc"])("serves the allowlisted %s clip from authenticated storage", async (name) => {
-    const response = await GET(request(name), { params: { name } });
+    const response = await GET(request(name), routeContext(name));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("video/mp4");
@@ -59,7 +63,7 @@ describe("/api/showcase/[name]", () => {
       status: 206,
     });
 
-    const response = await GET(request("script", { Range: "bytes=0-1" }), { params: { name: "script" } });
+    const response = await GET(request("script", { Range: "bytes=0-1" }), routeContext("script"));
 
     expect(response.status).toBe(206);
     expect(response.headers.get("Content-Range")).toBe("bytes 0-1/12345");
@@ -68,7 +72,7 @@ describe("/api/showcase/[name]", () => {
   });
 
   it("returns metadata without downloading the object for HEAD", async () => {
-    const response = await HEAD(request("ugc"), { params: { name: "ugc" } });
+    const response = await HEAD(request("ugc"), routeContext("ugc"));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Length")).toBe("12345");
@@ -78,39 +82,39 @@ describe("/api/showcase/[name]", () => {
   });
 
   it.each(["unknown", "..", "script/../../backups", ""])("fails closed for unrecognized name %j", async (name) => {
-    const response = await GET(request("unknown"), { params: { name } });
+    const response = await GET(request("unknown"), routeContext(name));
     expect(response.status).toBe(404);
     expect(getStoredObjectFn).not.toHaveBeenCalled();
   });
 
   it("rejects malformed multi-range requests", async () => {
-    const response = await GET(request("script", { Range: "bytes=0-1,4-5" }), { params: { name: "script" } });
+    const response = await GET(request("script", { Range: "bytes=0-1,4-5" }), routeContext("script"));
     expect(response.status).toBe(416);
     expect(getStoredObjectFn).not.toHaveBeenCalled();
   });
 
   it("returns 404 when the configured object is missing", async () => {
     getStoredObjectFn.mockResolvedValueOnce(null);
-    const response = await GET(request("script"), { params: { name: "script" } });
+    const response = await GET(request("script"), routeContext("script"));
     expect(response.status).toBe(404);
   });
 
   it("returns 503 rather than leaking a storage error", async () => {
     getStoredObjectFn.mockRejectedValueOnce(new Error("provider credential details must not escape"));
-    const response = await GET(request("script"), { params: { name: "script" } });
+    const response = await GET(request("script"), routeContext("script"));
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "Showcase temporarily unavailable" });
   });
 
   it("returns 416 when storage rejects a valid but unsatisfiable range", async () => {
     getStoredObjectFn.mockRejectedValueOnce(new RangeError("outside object"));
-    const response = await GET(request("script", { Range: "bytes=999999-" }), { params: { name: "script" } });
+    const response = await GET(request("script", { Range: "bytes=999999-" }), routeContext("script"));
     expect(response.status).toBe(416);
   });
 
   it("reads an environment-specific permanent key at request time", async () => {
     process.env.SHOWCASE_SCRIPT_STORAGE_KEY = "showcase/staging/v1/script.mp4";
-    await GET(request("script"), { params: { name: "script" } });
+    await GET(request("script"), routeContext("script"));
     expect(getStoredObjectFn).toHaveBeenCalledWith("showcase/staging/v1/script.mp4", undefined);
   });
 });

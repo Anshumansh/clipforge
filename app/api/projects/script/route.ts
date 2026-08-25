@@ -18,6 +18,7 @@ import { LANGUAGES } from "@/lib/languages";
 import { resolveApiUser } from "@/lib/api-auth";
 import { resolveGenerationContext } from "@/lib/workspace";
 import { requireVerifiedEmail, EmailNotVerifiedError } from "@/lib/email-verification";
+import { getGenerationPriority } from "@/lib/jobs/priorities";
 
 export const runtime = "nodejs";
 
@@ -150,7 +151,7 @@ export async function POST(req: Request) {
     // happen in one transaction, so a crash anywhere in this block leaves
     // the reservation exactly as "reserved, no job" -- safely recoverable
     // by a retry with the same content, never a duplicate project or job.
-    const { project, job } = await db.$transaction(async (tx) => {
+    const project = await db.$transaction(async (tx) => {
       const project = await tx.project.create({
         data: {
           userId,
@@ -162,10 +163,16 @@ export async function POST(req: Request) {
         },
       });
       const job = await tx.job.create({
-        data: { userId, projectId: project.id, type: "render", status: "queued" },
+        data: {
+          userId,
+          projectId: project.id,
+          type: "render",
+          status: "queued",
+          priority: getGenerationPriority(genCtx.effectivePlan),
+        },
       });
       await tx.creditReservation.update({ where: { id: reservationId }, data: { jobId: job.id } });
-      return { project, job };
+      return project;
     });
 
     let voiceSampleUrl: string | undefined;

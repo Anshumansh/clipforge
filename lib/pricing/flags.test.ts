@@ -12,24 +12,10 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
-const { isPricingV2Enabled, isFeatureAllowed, setKillSwitch } = await import("./flags");
+const { isFeatureAllowed, setKillSwitch } = await import("./flags");
 
 beforeEach(() => {
   vi.clearAllMocks();
-  delete process.env.PRICING_V2_ENABLED;
-});
-
-describe("isPricingV2Enabled", () => {
-  it("defaults to off", () => {
-    expect(isPricingV2Enabled()).toBe(false);
-  });
-
-  it("is on only when explicitly set to the string 'true'", () => {
-    process.env.PRICING_V2_ENABLED = "true";
-    expect(isPricingV2Enabled()).toBe(true);
-    process.env.PRICING_V2_ENABLED = "1";
-    expect(isPricingV2Enabled()).toBe(false);
-  });
 });
 
 describe("isFeatureAllowed", () => {

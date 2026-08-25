@@ -13,22 +13,24 @@ import { ProjectStatus } from "@/components/project-status";
 // topic) would leak into the page's <title> and meta description for
 // anyone who requested this URL, logged in or not, even though the page
 // content itself correctly 404s for them.
-export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) return { title: "Project" };
 
   const project = await db.project.findFirst({
-    where: { id: params.id, ...(await projectAccessFilter(userId)) },
+    where: { id, ...(await projectAccessFilter(userId)) },
     select: { title: true },
   });
   return { title: project?.title ?? "Project" };
 }
 
-export default async function ProjectPage({ params }: { params: { id: string } }) {
+export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const user = await requireUser();
   const project = await db.project.findFirst({
-    where: { id: params.id, ...(await projectAccessFilter(user.id)) },
+    where: { id, ...(await projectAccessFilter(user.id)) },
     include: { clips: { orderBy: { score: "desc" } }, jobs: { orderBy: { createdAt: "desc" }, take: 1 } },
   });
 

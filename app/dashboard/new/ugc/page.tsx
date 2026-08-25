@@ -12,6 +12,7 @@ import { ArrowLeft, Settings2, UserRound } from "lucide-react";
 import Link from "next/link";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 import { GenerationOperation } from "@/lib/generation-client";
+import { GenerationSummary } from "@/components/generation-summary";
 
 export default function NewUgcAdPage() {
   const router = useRouter();
@@ -126,6 +127,7 @@ export default function NewUgcAdPage() {
                 <p className="text-xs text-muted-foreground">1:1 and 16:9 are a Business-plan feature.</p>
               </div>
             </details>
+            <GenerationSummary />
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" disabled={loading} className="w-full">
               {loading ? "Starting render…" : "Generate ad video"}

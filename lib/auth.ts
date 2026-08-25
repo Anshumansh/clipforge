@@ -15,7 +15,11 @@ import { verifyTotpCode, consumeBackupCode } from "@/lib/mfa";
 const DUMMY_HASH = "$2a$10$D9dE01KqVmMAizvUyCltz.yB5G210EGvxW79ZAgg1PCvYkHh.t8N.";
 
 export const authOptions: AuthOptions = {
-  session: { strategy: "jwt" },
+  // Keep a successful browser login stable for 30 days. MFA protects a new
+  // login; ordinary dashboard navigation must not repeatedly challenge an
+  // already-authenticated user.
+  session: { strategy: "jwt", maxAge: 30 * 24 * 60 * 60 },
+  jwt: { maxAge: 30 * 24 * 60 * 60 },
   pages: {
     signIn: "/login",
   },

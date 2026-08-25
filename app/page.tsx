@@ -11,7 +11,7 @@ import { SOCIAL_PLATFORMS, PLATFORM_LABELS, getLivePlatforms } from "@/lib/socia
 import { getShowcaseAssets } from "@/lib/showcase-assets";
 import { unstable_cache } from "next/cache";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
@@ -38,9 +38,9 @@ export const dynamic = "force-dynamic";
 const features = [
   {
     icon: Wand2,
-    title: "Script or URL → video",
+    title: "Idea or script → video",
     description:
-      "Paste a script, a blog post, or a link. Clipforge writes the hook, picks the pacing, and assembles a ready-to-post short.",
+      "Paste an idea, script, or article text. Clipforge writes the hook, picks the pacing, and assembles a ready-to-post short.",
     big: true,
   },
   {
@@ -149,7 +149,7 @@ const differentiators = [
 const faqs = [
   {
     q: "Is Clipforge actually free to try?",
-    a: "Yes — every new account gets 50 free credits with no credit card required. That's enough to generate several full videos across any of the three engines before you'd need to upgrade.",
+    a: "Yes — every new account gets 50 included credits with no credit card required. That's enough for roughly five full Script-to-Video generations. Repurpose and UGC are included when you upgrade to Creator.",
   },
   {
     q: "Do I own the videos Clipforge generates?",
@@ -185,11 +185,11 @@ const structuredData = [
     applicationCategory: "MultimediaApplication",
     operatingSystem: "Web",
     description:
-      "AI short-form video generator — turns a script, URL, or long-form upload into a captioned, voiced, edited vertical video for TikTok, Reels, and Shorts.",
+      "AI short-form video generator — turns an idea, script, product brief, or long-form upload into a captioned, voiced video for TikTok, Reels, and Shorts.",
     offers: {
       "@type": "AggregateOffer",
       lowPrice: "0",
-      highPrice: "99",
+      highPrice: "44.99",
       priceCurrency: "USD",
       offerCount: "3",
     },
@@ -242,7 +242,6 @@ export default async function LandingPage() {
     <div className="flex min-h-screen flex-col">
       <script
         type="application/ld+json"
-        // eslint-disable-next-line react/no-danger
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
       />
       <SiteHeader />
@@ -294,7 +293,7 @@ export default async function LandingPage() {
                 <div className="mx-auto mt-10 grid max-w-md grid-cols-2 gap-3 sm:grid-cols-4 lg:mx-0">
                   {[
                     { icon: Wand2, label: "3 generation engines" },
-                    { icon: Mic2, label: "Free voice cloning" },
+                    { icon: Mic2, label: "Voice cloning on Business" },
                     {
                       icon: Share2,
                       label:
@@ -502,7 +501,7 @@ export default async function LandingPage() {
                   Stop paying an editor for content you can generate
                 </h2>
                 <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
-                  Join creators and brands using Clipforge to keep a daily short-form pipeline running on autopilot.
+                  Build a repeatable short-form pipeline with one simple creation flow and one shared credit balance.
                 </p>
                 <Button asChild size="lg" className="mt-8">
                   <Link href="/register">Create your first video</Link>

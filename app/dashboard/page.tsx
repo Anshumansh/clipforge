@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { StreakCard } from "@/components/streak-card";
 import { formatDate } from "@/lib/utils";
-import { ArrowRight, Clapperboard, Lightbulb, Plus, Scissors, UserRound, Wand2 } from "lucide-react";
+import { ArrowRight, CheckCircle2, Clapperboard, Clock3, Coins, Lightbulb, Plus, Scissors, UserRound, Wand2 } from "lucide-react";
 
 export const metadata: Metadata = { title: "Your video workspace" };
 
@@ -31,6 +31,8 @@ export default async function DashboardPage() {
     orderBy: { createdAt: "desc" },
     include: { user: { select: { email: true } } },
   });
+  const activeProjects = projects.filter((project) => project.status === "queued" || project.status === "processing").length;
+  const readyProjects = projects.filter((project) => project.status === "ready").length;
 
   return (
     <div>
@@ -76,6 +78,26 @@ export default async function DashboardPage() {
         </Card>
       ) : (
         <>
+          <div className="mb-8 grid gap-3 sm:grid-cols-3">
+            <Card>
+              <CardContent className="flex items-center gap-3 p-4">
+                <Coins className="h-5 w-5 text-primary" />
+                <div><p className="text-lg font-semibold">{user.credits}</p><p className="text-xs text-muted-foreground">Credits available</p></div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="flex items-center gap-3 p-4">
+                <Clock3 className="h-5 w-5 text-amber-500" />
+                <div><p className="text-lg font-semibold">{activeProjects}</p><p className="text-xs text-muted-foreground">Generating now</p></div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="flex items-center gap-3 p-4">
+                <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                <div><p className="text-lg font-semibold">{readyProjects}</p><p className="text-xs text-muted-foreground">Ready to publish</p></div>
+              </CardContent>
+            </Card>
+          </div>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-semibold">Recent projects</h2>
             <span className="text-sm text-muted-foreground">{projects.length} total</span>

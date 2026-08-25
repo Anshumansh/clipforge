@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { VerticalLandingPage, type VerticalConfig } from "@/components/vertical-landing";
 import { Layers, Grid3x3, Mic2, ImageIcon, Zap, Calendar, Users } from "lucide-react";
 
@@ -24,8 +23,8 @@ const config: VerticalConfig = {
     },
     {
       icon: Grid3x3,
-      title: "Every export size from one render",
-      body: "9:16, 1:1, and 16:9 from the same generation on the Business plan — match whatever placement each client's campaign actually needs.",
+      title: "Choose the right export size",
+      body: "Generate in 9:16, 1:1, or 16:9 on the Business plan — select the placement each client's campaign actually needs before rendering.",
     },
     {
       icon: Mic2,
@@ -34,8 +33,8 @@ const config: VerticalConfig = {
     },
     {
       icon: ImageIcon,
-      title: "4K export + thumbnails",
-      body: "Full 4K output plus a one-click matching thumbnail for every finished render, generated from the video's own title.",
+      title: "HD exports + thumbnails",
+      body: "Full-HD output plus a one-click matching thumbnail for every finished render, generated from the video's own title.",
     },
     {
       icon: Calendar,

@@ -1,18 +1,15 @@
 /**
- * Canonical, server-side credit-cost calculator (pricing overhaul brief,
- * section 3). This is the ONLY place credit costs are computed -- the
- * website, dashboard, API/MCP surface, and the rendering worker must all
- * call these functions rather than hardcoding a number, so a future price
- * change never drifts out of sync between surfaces.
+ * Future credit-cost modelling helpers. These are intentionally NOT the
+ * live charging path; current generation products have a transparent flat
+ * price defined by CREDITS_PER_VIDEO and reserve through pricing/ledger.
  *
  * Every constant below is copied verbatim from the owner's brief
  * (PRICING_OVERHAUL_BRIEF.md section 3) -- nothing here is invented.
  * Anywhere the brief didn't specify a number, the function throws instead
  * of guessing (see creditsForStandardVideo's >90s case).
  *
- * This module is not yet wired into any charging path -- see
- * lib/pricing/ledger.ts and lib/pricing/flags.ts for the feature-flagged
- * cutover, per the brief's staged-rollout requirement (section 13).
+ * Do not surface these draft bands in UI or Stripe until an owner-approved
+ * pricing version wires them into every charging path and acceptance test.
  */
 
 export class UnpricedDurationError extends Error {

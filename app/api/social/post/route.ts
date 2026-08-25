@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import { publishToSocial } from "@/lib/social/publish";
+import { canUseSocialPublishing } from "@/lib/plans";
 
 // publishToYoutube (lib/social/publish.ts) fetches this URL server-side to
 // stream it into YouTube's resumable upload — an arbitrary user-supplied URL
@@ -13,8 +14,16 @@ import { publishToSocial } from "@/lib/social/publish";
 // it to actually be one of Clipforge's own hosted media URLs; nothing about
 // "publish my rendered video" needs it to be anything else.
 function isOwnMediaUrl(url: string): boolean {
-  const base = (process.env.NEXTAUTH_URL ?? "http://localhost:3000").replace(/\/$/, "");
-  return url.startsWith(`${base}/api/media/media/`);
+  try {
+    const configuredOrigin = new URL(process.env.NEXTAUTH_URL ?? "http://localhost:3000").origin;
+    const candidate = new URL(url);
+    return (
+      candidate.origin === configuredOrigin &&
+      (candidate.pathname.startsWith("/api/media/media/") || candidate.pathname.startsWith("/api/media/jobs/"))
+    );
+  } catch {
+    return false;
+  }
 }
 
 const schema = z.object({
@@ -33,6 +42,11 @@ export async function POST(req: Request) {
 
   const { ok } = rateLimit(`social-post:${userId}:${getClientIp(req)}`, 10, 60 * 1000);
   if (!ok) return NextResponse.json({ error: "Too many requests. Slow down and try again shortly." }, { status: 429 });
+
+  const user = await db.user.findUnique({ where: { id: userId }, select: { plan: true } });
+  if (!user || !canUseSocialPublishing(user.plan)) {
+    return NextResponse.json({ error: "Social publishing is available on Creator and Business" }, { status: 403 });
+  }
 
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid input" }, { status: 400 });

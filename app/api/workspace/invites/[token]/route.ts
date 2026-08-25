@@ -19,8 +19,9 @@ async function loadInvite(token: string) {
 // Unauthenticated on purpose -- the invite page needs to show "you've been
 // invited to X's workspace" before the visitor has necessarily registered
 // or logged in yet.
-export async function GET(_req: Request, { params }: { params: { token: string } }) {
-  const invite = await loadInvite(params.token);
+export async function GET(_req: Request, { params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params;
+  const invite = await loadInvite(token);
   if (!invite) return NextResponse.json({ error: "Invite not found" }, { status: 404 });
   if (invite.acceptedAt) return NextResponse.json({ error: "This invite has already been used" }, { status: 410 });
   if (invite.expiresAt < new Date()) return NextResponse.json({ error: "This invite has expired" }, { status: 410 });
@@ -32,12 +33,13 @@ export async function GET(_req: Request, { params }: { params: { token: string }
   });
 }
 
-export async function POST(_req: Request, { params }: { params: { token: string } }) {
+export async function POST(_req: Request, { params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params;
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) return NextResponse.json({ error: "Log in first" }, { status: 401 });
 
-  const invite = await loadInvite(params.token);
+  const invite = await loadInvite(token);
   if (!invite) return NextResponse.json({ error: "Invite not found" }, { status: 404 });
   if (invite.acceptedAt) return NextResponse.json({ error: "This invite has already been used" }, { status: 410 });
   if (invite.expiresAt < new Date()) return NextResponse.json({ error: "This invite has expired" }, { status: 410 });

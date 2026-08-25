@@ -12,6 +12,7 @@
  *   future reporting layer, once per-provider pricing is verified.
  */
 import { db } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 
 export interface JobCostData {
   jobId: string;
@@ -41,6 +42,12 @@ export interface JobCostData {
   creditsCharged?: number;
   creditsRefunded?: number;
 }
+
+type CostRecordTransaction = {
+  jobCostRecord: {
+    upsert(args: Prisma.JobCostRecordUpsertArgs): Promise<unknown>;
+  };
+};
 
 /** Creates or updates the JobCostRecord for a given job. Each field is only
  * written when explicitly provided, so callers can upsert partial data at
@@ -86,7 +93,7 @@ export async function upsertCostRecord(data: JobCostData): Promise<void> {
  * block to ensure cost recording is atomic with job completion/failure. Returns
  * true if upsert succeeded, false on error (error is still logged by caller). */
 export async function upsertCostRecordInTx(
-  tx: any, // Prisma transaction client (PrismaClient or TransactionClient)
+  tx: CostRecordTransaction,
   data: JobCostData
 ): Promise<boolean> {
   const updatePayload: Record<string, unknown> = {};

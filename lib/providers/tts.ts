@@ -41,17 +41,6 @@ export function estimateWordTimings(script: string, totalDurationSec: number): W
   });
 }
 
-function mockVoiceover(script: string): VoiceoverResult {
-  const wordCount = script.split(/\s+/).filter(Boolean).length;
-  const durationSec = Math.max(wordCount / WORDS_PER_SECOND, 3);
-  return {
-    audioUrl: null,
-    durationSec,
-    words: estimateWordTimings(script, durationSec),
-    mocked: true,
-  };
-}
-
 async function synthesizeWithOpenAI(script: string, mediaKeyPrefix: string, voice: string): Promise<VoiceoverResult> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY not set");

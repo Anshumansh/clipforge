@@ -45,7 +45,7 @@ function login() {
   return res.cookies;
 }
 
-export default function () {
+export default function authenticatedDashboardScenario() {
   // k6 VUs keep their own cookie jar automatically across requests in the
   // same iteration/session when using http.* with the default jar, so a
   // login once per VU (not per iteration) would be more realistic --

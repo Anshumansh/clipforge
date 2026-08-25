@@ -7,7 +7,8 @@ import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
-export async function POST(_req: Request, { params }: { params: { id: string } }) {
+export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -16,7 +17,7 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
   if (!ok) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
 
   const existing = await db.featureVote.findUnique({
-    where: { userId_featureRequestId: { userId, featureRequestId: params.id } },
+    where: { userId_featureRequestId: { userId, featureRequestId: id } },
   });
 
   if (existing) {
@@ -25,7 +26,7 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
   }
 
   try {
-    await db.featureVote.create({ data: { userId, featureRequestId: params.id } });
+    await db.featureVote.create({ data: { userId, featureRequestId: id } });
   } catch (err) {
     // P2003: the feature request's FK no longer resolves -- it was deleted
     // between page load and the click. Anything else (DB timeout, connection

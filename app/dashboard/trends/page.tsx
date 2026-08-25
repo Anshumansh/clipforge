@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Flame, Loader2, Radar, Sparkles, TrendingUp, X } from "lucide-react";
+import { DiscoverTabs } from "@/components/discover-tabs";
 
 interface ResolvedChannel {
   id: string;
@@ -152,12 +153,13 @@ export default function TrendRadarPage() {
 
   return (
     <div className="mx-auto max-w-4xl">
+      <DiscoverTabs />
       <div className="mb-6 flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-accent/20">
           <Radar className="h-5 w-5 text-primary" />
         </div>
         <div>
-          <h1 className="text-xl font-bold">Trend Radar</h1>
+          <h1 className="text-xl font-bold">Discover trends</h1>
           <p className="text-sm text-muted-foreground">
             Videos breaking out relative to their own channel's normal pace — turn the pattern into an original
             video, one tap.

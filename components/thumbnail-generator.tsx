@@ -34,6 +34,8 @@ export function ThumbnailGenerator({ projectId, initialUrl }: { projectId: strin
       {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
       {url && (
         <div className="mt-3">
+          {/* This authenticated, short-lived storage URL is not a suitable next/image optimization source. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={url} alt="Generated thumbnail" className="w-full rounded-md" />
           <a href={url} download className="mt-2 inline-flex items-center gap-1.5 text-xs text-primary underline underline-offset-2 hover:no-underline">
             <Download className="h-3.5 w-3.5" /> Download

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,22 +14,26 @@ interface ApiKeySummary {
   createdAt: string;
 }
 
-const MCP_ENDPOINT = "https://forgecut.app/api/mcp";
-
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
+  const [failed, setFailed] = useState(false);
   return (
     <button
       type="button"
-      onClick={() => {
-        void navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setFailed(false);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          setFailed(true);
+        }
       }}
       className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium transition-colors hover:bg-secondary"
     >
       {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
-      {copied ? "Copied" : "Copy"}
+      {failed ? "Copy failed" : copied ? "Copied" : "Copy"}
     </button>
   );
 }
@@ -40,19 +44,31 @@ export function ApiKeysManager({ canCreate, initialKeys }: { canCreate: boolean;
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [freshKey, setFreshKey] = useState<{ id: string; raw: string } | null>(null);
+  const [mcpEndpoint, setMcpEndpoint] = useState("/api/mcp");
+
+  useEffect(() => {
+    setMcpEndpoint(`${window.location.origin}/api/mcp`);
+  }, []);
 
   async function createKey() {
     setCreating(true);
     setError(null);
-    const res = await fetch("/api/api-keys", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label: label.trim() || "MCP key" }),
-    });
+    let res: Response;
+    try {
+      res = await fetch("/api/api-keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: label.trim() || "MCP key" }),
+      });
+    } catch {
+      setCreating(false);
+      setError("Could not reach the server. Check your connection and try again.");
+      return;
+    }
     const data = await res.json().catch(() => ({}));
     setCreating(false);
     if (!res.ok) {
-      setError(data.error ?? "Something went wrong");
+      setError(data.error ?? "Could not generate a key. Please try again.");
       return;
     }
     setKeys((prev) => [
@@ -64,7 +80,20 @@ export function ApiKeysManager({ canCreate, initialKeys }: { canCreate: boolean;
   }
 
   async function revokeKey(id: string) {
-    await fetch(`/api/api-keys/${id}`, { method: "DELETE" });
+    if (!window.confirm("Revoke this API key? Any integration using it will stop immediately.")) return;
+    setError(null);
+    let res: Response;
+    try {
+      res = await fetch(`/api/api-keys/${id}`, { method: "DELETE" });
+    } catch {
+      setError("Could not reach the server. The key was not revoked.");
+      return;
+    }
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "Could not revoke the key. Please try again.");
+      return;
+    }
     setKeys((prev) => prev.filter((k) => k.id !== id));
     if (freshKey?.id === id) setFreshKey(null);
   }
@@ -74,7 +103,7 @@ export function ApiKeysManager({ canCreate, initialKeys }: { canCreate: boolean;
       mcpServers: {
         clipforge: {
           type: "http",
-          url: MCP_ENDPOINT,
+          url: mcpEndpoint,
           headers: { Authorization: `Bearer ${freshKey?.raw ?? "cf_live_..."}` },
         },
       },
@@ -159,16 +188,16 @@ export function ApiKeysManager({ canCreate, initialKeys }: { canCreate: boolean;
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Connect to Claude</CardTitle>
-          <CardDescription>Add Clipforge as an MCP server so Claude can generate and check on videos directly.</CardDescription>
+          <CardTitle className="text-base">Connect an AI assistant</CardTitle>
+          <CardDescription>Add Clipforge as an MCP server so a compatible assistant can generate and check videos for you.</CardDescription>
         </CardHeader>
         <CardContent>
           <p className="mb-2 text-xs text-muted-foreground">MCP endpoint</p>
           <div className="mb-4 flex items-center justify-between gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2">
-            <code className="text-xs">{MCP_ENDPOINT}</code>
-            <CopyButton text={MCP_ENDPOINT} />
+            <code className="text-xs">{mcpEndpoint}</code>
+            <CopyButton text={mcpEndpoint} />
           </div>
-          <p className="mb-2 text-xs text-muted-foreground">Example config (Claude Desktop / Claude Code)</p>
+          <p className="mb-2 text-xs text-muted-foreground">Example config (Claude Desktop, Claude Code or another MCP client)</p>
           <div className="relative rounded-lg border border-border bg-secondary/40 p-3">
             <pre className="overflow-x-auto text-xs"><code>{configSnippet}</code></pre>
             <div className="absolute right-2 top-2">

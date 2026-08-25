@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertTriangle, Download, FileCode } from "lucide-react";
+import { AlertTriangle, Download, FileCode, Plus, RotateCcw } from "lucide-react";
 import { PublishButton } from "@/components/publish-button";
 import { ThumbnailGenerator } from "@/components/thumbnail-generator";
 import { DeleteProjectButton } from "@/components/delete-project-button";
@@ -46,6 +48,15 @@ function scoreTone(score: number) {
   return "border-muted-foreground/30 bg-muted text-muted-foreground";
 }
 
+function friendlyFailureMessage(message: string | null): string {
+  if (!message) return "We couldn't complete this video. Please try again.";
+  if (/timeout|timed out/i.test(message)) return "Generation took too long and was stopped safely. Please try again.";
+  if (/storage|upload|s3|bucket/i.test(message)) return "The video was created but could not be saved. Please try again.";
+  if (/render|remotion|ffmpeg|compositor/i.test(message)) return "The video renderer stopped unexpectedly. Please try again.";
+  if (/groq|openai|provider|voice|tts/i.test(message)) return "An AI provider was temporarily unavailable. Please try again shortly.";
+  return "We couldn't complete this video. Please try again.";
+}
+
 function VideoCard({
   title,
   url,
@@ -59,11 +70,19 @@ function VideoCard({
   projectId?: string;
   clipId?: string;
 }) {
+  const [videoError, setVideoError] = useState(false);
+
   return (
     <Card>
       <CardContent className="p-4">
         <div className="relative">
-          <video src={url} controls className="mx-auto h-auto max-h-[480px] w-auto max-w-full rounded-lg bg-black" />
+          <video
+            src={url}
+            controls
+            preload="metadata"
+            onError={() => setVideoError(true)}
+            className="mx-auto h-auto max-h-[480px] w-auto max-w-full rounded-lg bg-black"
+          />
           {typeof score === "number" && (
             <span
               className={`absolute right-2 top-2 rounded-full border px-2 py-0.5 text-xs font-semibold ${scoreTone(score)}`}
@@ -73,11 +92,18 @@ function VideoCard({
             </span>
           )}
         </div>
+        {videoError && (
+          <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-500">
+            The preview could not load. Refresh this page or use Download MP4. If both fail, contact support with the project title.
+          </p>
+        )}
         <div className="mt-3 flex items-center justify-between gap-2">
           <p className="line-clamp-1 text-sm font-medium">{title}</p>
-          <a href={url} download className="shrink-0 text-primary hover:opacity-80" title="Download">
-            <Download className="h-4 w-4" />
-          </a>
+          <Button asChild size="sm" variant="outline">
+            <a href={url} download>
+              <Download className="mr-1.5 h-4 w-4" /> Download MP4
+            </a>
+          </Button>
         </div>
         <div className="mt-3">
           <PublishButton videoUrl={url} projectId={projectId} clipId={clipId} />
@@ -163,6 +189,7 @@ export function ProjectStatus({ initial }: { initial: ProjectData }) {
           <CardContent>
             <Progress value={data.job?.progress ?? 0} />
             <p className="mt-2 text-xs text-muted-foreground">{data.job?.progress ?? 0}%</p>
+            <p className="mt-1 text-xs text-muted-foreground">You can leave this page. Progress is saved in Home.</p>
           </CardContent>
         </Card>
       )}
@@ -173,7 +200,11 @@ export function ProjectStatus({ initial }: { initial: ProjectData }) {
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
             <div>
               <p className="font-medium text-destructive">Render failed</p>
-              <p className="text-sm text-muted-foreground">{data.errorMessage ?? "Unknown error"}</p>
+              <p className="text-sm text-muted-foreground">{friendlyFailureMessage(data.errorMessage)}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Any reserved generation credits were returned automatically.</p>
+              <Button asChild size="sm" className="mt-3">
+                <Link href="/dashboard/create"><RotateCcw className="mr-1.5 h-4 w-4" /> Try again</Link>
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -224,6 +255,14 @@ export function ProjectStatus({ initial }: { initial: ProjectData }) {
               clipId={clip.id}
             />
           ))}
+        </div>
+      )}
+
+      {data.status === "ready" && (
+        <div className="flex justify-center">
+          <Button asChild variant="outline">
+            <Link href="/dashboard/create"><Plus className="mr-1.5 h-4 w-4" /> Create another video</Link>
+          </Button>
         </div>
       )}
     </div>

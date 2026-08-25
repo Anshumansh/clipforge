@@ -37,6 +37,8 @@ function makeRequest(): Request {
   return new Request("https://forgecut.app/api/roadmap/feat_1/vote", { method: "POST" });
 }
 
+const routeContext = { params: Promise.resolve({ id: "feat_1" }) };
+
 // Regression coverage for a real bug: the create call's catch block used to
 // swallow every error unconditionally and always report { voted: true },
 // so a genuinely failed vote (DB timeout, connection drop, anything other
@@ -51,7 +53,7 @@ describe("POST /api/roadmap/[id]/vote", () => {
 
   it("unvotes (deletes) when a vote already exists", async () => {
     featureVoteFindUnique.mockResolvedValue({ id: "vote_1" });
-    const res = await POST(makeRequest(), { params: { id: "feat_1" } });
+    const res = await POST(makeRequest(), routeContext);
     expect(featureVoteDelete).toHaveBeenCalledWith({ where: { id: "vote_1" } });
     expect(await res.json()).toEqual({ voted: false });
   });
@@ -59,7 +61,7 @@ describe("POST /api/roadmap/[id]/vote", () => {
   it("votes (creates) when no vote exists yet", async () => {
     featureVoteFindUnique.mockResolvedValue(null);
     featureVoteCreate.mockResolvedValue({ id: "vote_2" });
-    const res = await POST(makeRequest(), { params: { id: "feat_1" } });
+    const res = await POST(makeRequest(), routeContext);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ voted: true });
   });
@@ -67,7 +69,7 @@ describe("POST /api/roadmap/[id]/vote", () => {
   it("returns a real 404 (not a false 'voted: true') when the feature request was deleted first", async () => {
     featureVoteFindUnique.mockResolvedValue(null);
     featureVoteCreate.mockRejectedValue(new FakePrismaKnownRequestError("FK violation", { code: "P2003" }));
-    const res = await POST(makeRequest(), { params: { id: "feat_1" } });
+    const res = await POST(makeRequest(), routeContext);
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: "This feature request no longer exists" });
   });
@@ -75,6 +77,6 @@ describe("POST /api/roadmap/[id]/vote", () => {
   it("propagates an unrelated database failure instead of silently reporting success", async () => {
     featureVoteFindUnique.mockResolvedValue(null);
     featureVoteCreate.mockRejectedValue(new Error("connection reset"));
-    await expect(POST(makeRequest(), { params: { id: "feat_1" } })).rejects.toThrow("connection reset");
+    await expect(POST(makeRequest(), routeContext)).rejects.toThrow("connection reset");
   });
 });

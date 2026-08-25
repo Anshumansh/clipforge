@@ -4,11 +4,8 @@
  * keys, an immutable audit trail. This IS the live charging path -- every
  * generation route (app/api/projects/{script,ugc,repurpose}) reserves
  * through here, and every job runner (lib/jobs/*-runner.ts) captures or
- * releases through here on completion/failure. lib/pricing/flags.ts's
- * isPricingV2Enabled() has no real call site anywhere in the app (confirmed
- * via grep, referenced only from its own test) -- it is not a working
- * kill-switch for this file, despite what an earlier version of this
- * comment claimed. Don't treat this as dead/optional scaffolding.
+ * releases through here on completion/failure. This is not optional or
+ * preview scaffolding: it is the production charging path.
  *
  * Design: charging a job is a two-step "reserve, then capture or release"
  * rather than a single decrement, matching what the brief actually asks

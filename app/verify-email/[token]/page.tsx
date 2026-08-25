@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +9,8 @@ import { Sparkles, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 
 type State = "verifying" | "done" | "error";
 
-export default function VerifyEmailPage({ params }: { params: { token: string } }) {
+export default function VerifyEmailPage() {
+  const { token } = useParams<{ token: string }>();
   const [state, setState] = useState<State>("verifying");
   const [error, setError] = useState<string | null>(null);
 
@@ -18,7 +20,7 @@ export default function VerifyEmailPage({ params }: { params: { token: string } 
       const res = await fetch("/api/auth/verify-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: params.token }),
+        body: JSON.stringify({ token }),
       });
       const data = await res.json().catch(() => ({}));
       if (cancelled) return;
@@ -32,7 +34,7 @@ export default function VerifyEmailPage({ params }: { params: { token: string } 
     return () => {
       cancelled = true;
     };
-  }, [params.token]);
+  }, [token]);
 
   return (
     <div className="flex min-h-screen items-center justify-center px-6 py-12">

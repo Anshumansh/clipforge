@@ -48,7 +48,7 @@ function login() {
   );
 }
 
-export default function () {
+export default function generationBurstScenario() {
   login();
 
   // Idempotency-Key required by the real generation routes (see

@@ -5,6 +5,8 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Share2 } from "lucide-react";
+import { useCurrentPlan } from "@/components/plan-provider";
+import { canUseSocialPublishing } from "@/lib/plans";
 
 interface ConnectedAccount {
   id: string;
@@ -19,6 +21,8 @@ const PLATFORM_LABELS: Record<string, string> = {
 };
 
 export function PublishButton({ videoUrl, projectId, clipId }: { videoUrl: string; projectId?: string; clipId?: string }) {
+  const currentPlan = useCurrentPlan();
+  const canPublish = canUseSocialPublishing(currentPlan);
   const [accounts, setAccounts] = useState<ConnectedAccount[] | null>(null);
   const [open, setOpen] = useState(false);
   const [selectedId, setSelectedId] = useState("");
@@ -28,11 +32,18 @@ export function PublishButton({ videoUrl, projectId, clipId }: { videoUrl: strin
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open || accounts) return;
+    if (!canPublish || !open || accounts) return;
     fetch("/api/social/accounts")
-      .then((r) => r.json())
-      .then((data) => setAccounts(data.accounts ?? []));
-  }, [open, accounts]);
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data.error ?? "Could not load connected accounts");
+        setAccounts(data.accounts ?? []);
+      })
+      .catch(() => {
+        setAccounts([]);
+        setError("Could not load connected accounts. Please try again.");
+      });
+  }, [canPublish, open, accounts]);
 
   async function publish() {
     if (!selectedId) return;
@@ -40,18 +51,25 @@ export function PublishButton({ videoUrl, projectId, clipId }: { videoUrl: strin
     setStatus("posting");
     setError(null);
 
-    const res = await fetch("/api/social/post", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        socialAccountId: selectedId,
-        videoUrl,
-        caption,
-        projectId,
-        clipId,
-        ...(scheduling ? { scheduledAt: new Date(scheduleFor).toISOString() } : {}),
-      }),
-    });
+    let res: Response;
+    try {
+      res = await fetch("/api/social/post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          socialAccountId: selectedId,
+          videoUrl,
+          caption,
+          projectId,
+          clipId,
+          ...(scheduling ? { scheduledAt: new Date(scheduleFor).toISOString() } : {}),
+        }),
+      });
+    } catch {
+      setStatus("failed");
+      setError("Could not reach the server. Check your connection and try again.");
+      return;
+    }
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
@@ -60,6 +78,14 @@ export function PublishButton({ videoUrl, projectId, clipId }: { videoUrl: strin
       return;
     }
     setStatus(scheduling ? "scheduled" : "posted");
+  }
+
+  if (!canPublish) {
+    return (
+      <Button variant="outline" size="sm" className="gap-1.5" asChild>
+        <Link href="/pricing"><Share2 className="h-3.5 w-3.5" /> Publish with Creator</Link>
+      </Button>
+    );
   }
 
   if (!open) {
@@ -76,9 +102,12 @@ export function PublishButton({ videoUrl, projectId, clipId }: { videoUrl: strin
 
   if (accounts.length === 0) {
     return (
-      <p className="text-xs text-muted-foreground">
-        No connected accounts. <Link href="/dashboard/settings" className="text-primary underline underline-offset-2 hover:no-underline">Connect one</Link>.
-      </p>
+      <div className="space-y-1">
+        {error && <p className="text-xs text-destructive">{error}</p>}
+        <p className="text-xs text-muted-foreground">
+          No connected accounts. <Link href="/dashboard/settings" className="text-primary underline underline-offset-2 hover:no-underline">Connect one</Link>.
+        </p>
+      </div>
     );
   }
 

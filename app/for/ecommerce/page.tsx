@@ -28,8 +28,8 @@ const config: VerticalConfig = {
     },
     {
       icon: Grid3x3,
-      title: "Export every placement size at once",
-      body: "9:16, 1:1, and 16:9 from the same generation — no separate render per ad format on the Business plan.",
+      title: "Choose each placement size",
+      body: "Generate in 9:16, 1:1, or 16:9 on the Business plan — choose the ad placement you need before each render.",
     },
     {
       icon: ImageIcon,
@@ -48,7 +48,7 @@ const config: VerticalConfig = {
     },
   ],
   ctaHeadline: "Generate your first ad variant free",
-  ctaBody: "50 free credits, no card required — enough to test a real product angle before you commit to a plan.",
+  ctaBody: "Start with five Script-to-Video generations free. UGC ads unlock on Creator and Business.",
 };
 
 export default function EcommercePage() {

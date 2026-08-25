@@ -796,15 +796,16 @@ model MarginAlert {
 }
 
 // A versioned, immutable snapshot of one plan's terms (brief section 8/11).
-// configJson is the canonical feature-gate + credit-cost config for that
-// version -- lib/pricing/plan-config.ts reads from here, not from scattered
-// booleans, once a User has a non-null planVersionId. Existing subscribers
+// configJson is a historical feature-gate + credit-cost snapshot for that
+// version. The live catalogue is lib/pricing/plan-config.ts; an explicitly
+// assigned User.planVersionId can retain prior terms for a subscriber.
+// Existing subscribers
 // keep whatever version they signed up under (User.planVersionId) until an
 // owner-approved migration reassigns them; effectiveUntil stays null for
 // the currently-sold version of each planId.
 model PlanVersion {
   id              String    @id @default(cuid())
-  planId          String // "free" | "starter" | "creator" | "pro" | "business"
+  planId          String // currently "free" | "hobby" | "creator" | "business"
   versionLabel    String // e.g. "2026-08-v1"
   displayName     String
   monthlyPriceUsd Float

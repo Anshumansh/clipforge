@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getClientIp } from "@/lib/rate-limit";
 import { getDemoUserId } from "@/lib/demo-user";
-import { JOB_PRIORITY_DEMO } from "@/lib/jobs/claim";
+import { JOB_PRIORITY_DEMO } from "@/lib/jobs/priorities";
 import { checkAndReserveDemoQuota } from "@/lib/demo/quota";
 
 export const runtime = "nodejs";
@@ -55,8 +55,8 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         error: isPerIp
-          ? "You've used your free demos for today — sign up free for unlimited generations."
-          : "Free demos have hit today's company-wide limit — sign up free for unlimited generations.",
+          ? "You've used your free demos for today — sign up for 50 included credits."
+          : "Free demos have hit today's company-wide limit — sign up for 50 included credits.",
       },
       { status: isPerIp ? 429 : 503 }
     );

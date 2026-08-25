@@ -5,16 +5,23 @@ import { db } from "@/lib/db";
 import { encrypt } from "@/lib/crypto";
 import { isSocialPlatform } from "@/lib/social/platforms";
 import { exchangeCodeForToken, identifyConnectedAccount } from "@/lib/social/oauth";
+import { canUseSocialPublishing } from "@/lib/plans";
 
-export async function GET(req: Request, { params }: { params: { platform: string } }) {
+export async function GET(req: Request, { params }: { params: Promise<{ platform: string }> }) {
+  const { platform: platformParam } = await params;
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (!isSocialPlatform(params.platform)) {
+  if (!isSocialPlatform(platformParam)) {
     return NextResponse.json({ error: "Unknown platform" }, { status: 400 });
   }
-  const platform = params.platform;
+  const platform = platformParam;
+
+  const user = await db.user.findUnique({ where: { id: userId }, select: { plan: true } });
+  if (!user || !canUseSocialPublishing(user.plan)) {
+    return NextResponse.json({ error: "Social publishing is available on Creator and Business" }, { status: 403 });
+  }
 
   const url = new URL(req.url);
   const code = url.searchParams.get("code");

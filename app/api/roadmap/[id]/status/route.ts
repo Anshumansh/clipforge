@@ -7,7 +7,8 @@ export const runtime = "nodejs";
 
 const VALID_STATUSES = ["open", "planned", "in_progress", "shipped"];
 
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -23,6 +24,6 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return NextResponse.json({ error: "Invalid status" }, { status: 400 });
   }
 
-  await db.featureRequest.update({ where: { id: params.id }, data: { status } });
+  await db.featureRequest.update({ where: { id }, data: { status } });
   return NextResponse.json({ ok: true });
 }

@@ -43,10 +43,10 @@ test.describe("@authenticated staging Business journey", () => {
     const authenticatedPages: Array<[string, string]> = [
       ["/dashboard", "Your video workspace"],
       ["/dashboard/create", "What do you want to create?"],
-      ["/dashboard/ideas", "Idea Radar"],
-      ["/dashboard/trends", "Trend Radar"],
+      ["/dashboard/ideas", "Discover ideas"],
+      ["/dashboard/trends", "Discover trends"],
       ["/dashboard/schedule", "Schedule"],
-      ["/dashboard/settings", "Connected accounts"],
+      ["/dashboard/settings", "Settings"],
       ["/dashboard/settings/brand", "Brand kit"],
       ["/dashboard/settings/team", "Team"],
       ["/dashboard/settings/api-keys", "API keys"],
@@ -59,6 +59,13 @@ test.describe("@authenticated staging Business journey", () => {
       // Some pages repeat the page name in a card heading. Target the single
       // document h1 so a valid duplicate h3 does not create a false failure.
       await expect(page.getByRole("heading", { level: 1, name: heading, exact: true })).toBeVisible();
+    }
+
+    await page.goto("/dashboard");
+    const primaryNav = page.locator("aside nav");
+    await expect(primaryNav.getByRole("link")).toHaveCount(5);
+    for (const label of ["Home", "Create video", "Discover", "Publish", "Settings"]) {
+      await expect(primaryNav.getByRole("link", { name: label, exact: true })).toBeVisible();
     }
 
     // The simplified creation hub must lead to all three real generators.
@@ -75,6 +82,10 @@ test.describe("@authenticated staging Business journey", () => {
     const scriptOptions = page.locator("summary", { hasText: "Customize video (optional)" });
     await expect(scriptOptions).toBeVisible();
     await expect(scriptOptions.locator("xpath=..")).not.toHaveAttribute("open", "");
+    await scriptOptions.click();
+    await expect(page.getByRole("button", { name: /1:1/ })).toBeEnabled();
+    await expect(page.getByRole("button", { name: /16:9/ })).toBeEnabled();
+    await expect(page.getByLabel("Clone your voice (optional)")).toBeEnabled();
 
     await page.goto("/dashboard/new/repurpose");
     await expect(page.getByLabel("Video file")).toBeAttached();
@@ -86,6 +97,64 @@ test.describe("@authenticated staging Business journey", () => {
     await expect(page.getByLabel("Key selling points")).toBeVisible();
     await expect(page.getByRole("button", { name: "Generate ad video" })).toBeVisible();
     await expect(page.locator("summary", { hasText: "Customize ad format (optional)" })).toBeVisible();
+
+    // Idea discovery is a real provider-backed feature, not a static card.
+    // Run it once and prove a returned idea can enter the creation flow.
+    await page.goto("/dashboard/ideas");
+    await page.getByLabel("Niche").fill("healthy meal preparation");
+    await page.getByRole("button", { name: "Generate ideas" }).click();
+    const useIdeaButton = page.getByRole("button", { name: "Use this idea" }).first();
+    await expect(useIdeaButton).toBeVisible({ timeout: 45_000 });
+    await useIdeaButton.click();
+    await expect(page).toHaveURL(/\/dashboard\/new\/script\?topic=/);
+    await expect(page.getByLabel("Topic, script, or article text")).not.toHaveValue("");
+
+    // Settings is a real hub: every advanced feature must have one clear,
+    // navigable entry point rather than dashboard text that cannot be used.
+    await page.goto("/dashboard/settings");
+    const settingsLinks: Array<[string, string]> = [
+      ["Brand kit", "/dashboard/settings/brand"],
+      ["Team", "/dashboard/settings/team"],
+      ["Plan and billing", "/dashboard/billing"],
+      ["API access", "/dashboard/settings/api-keys"],
+    ];
+    for (const [name, href] of settingsLinks) {
+      await expect(page.getByRole("link", { name: new RegExp(name, "i") })).toHaveAttribute("href", href);
+    }
+
+    // Exercise a complete API-key lifecycle against the dedicated staging
+    // account and remove the disposable record before continuing.
+    const apiKeyLifecycle = await page.evaluate(async () => {
+      const create = await fetch("/api/api-keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: `E2E disposable ${Date.now()}` }),
+      });
+      const created = await create.json();
+      if (!create.ok) return { createStatus: create.status, deleteStatus: null, rawShape: false };
+      const remove = await fetch(`/api/api-keys/${created.id}`, { method: "DELETE" });
+      return {
+        createStatus: create.status,
+        deleteStatus: remove.status,
+        rawShape: typeof created.raw === "string" && created.raw.startsWith("cf_live_"),
+      };
+    });
+    expect(apiKeyLifecycle).toEqual({ createStatus: 200, deleteStatus: 200, rawShape: true });
+
+    // Starting checkout is non-destructive but proves the live staging
+    // Stripe secret and Business Price are configured and accepted.
+    const checkout = await page.evaluate(async () => {
+      const response = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan: "business" }),
+      });
+      const body = await response.json();
+      return { status: response.status, url: body.url as unknown };
+    });
+    expect(checkout.status).toBe(200);
+    expect(typeof checkout.url).toBe("string");
+    expect(new URL(checkout.url as string).hostname).toMatch(/(^|\.)stripe\.com$/);
 
     // Verify entitlement display and session sharing across a new tab.
     await page.goto("/dashboard/billing");

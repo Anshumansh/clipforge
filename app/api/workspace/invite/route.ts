@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
 import { sendWorkspaceInviteEmail, isEmailConfigured } from "@/lib/email";
 import { requireVerifiedEmail, EmailNotVerifiedError } from "@/lib/email-verification";
+import { canCreateWorkspace } from "@/lib/plans";
 
 const schema = z.object({ email: z.string().email() });
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -29,6 +30,11 @@ export async function POST(req: Request) {
 
   const { ok } = rateLimit(`workspace-invite:${userId}`, 10, 60 * 60 * 1000);
   if (!ok) return NextResponse.json({ error: "Too many invites sent. Try again later." }, { status: 429 });
+
+  const user = await db.user.findUnique({ where: { id: userId }, select: { plan: true } });
+  if (!user || !canCreateWorkspace(user.plan)) {
+    return NextResponse.json({ error: "Team workspaces are a Business-plan feature" }, { status: 403 });
+  }
 
   const workspace = await db.workspace.findUnique({ where: { ownerId: userId }, include: { owner: true } });
   if (!workspace) return NextResponse.json({ error: "You don't have a workspace yet" }, { status: 400 });

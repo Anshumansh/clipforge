@@ -11,7 +11,14 @@ export function VerifyEmailBanner() {
   async function resend() {
     setState("sending");
     setError(null);
-    const res = await fetch("/api/auth/resend-verification", { method: "POST" });
+    let res: Response;
+    try {
+      res = await fetch("/api/auth/resend-verification", { method: "POST" });
+    } catch {
+      setError("Could not reach the server. Check your connection and try again.");
+      setState("idle");
+      return;
+    }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       setError(data.error ?? "Something went wrong");

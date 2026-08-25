@@ -58,30 +58,27 @@ const securityHeaders = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
-  images: {
-    remotePatterns: [
-      { protocol: "https", hostname: "**" },
-    ],
-  },
+  // This app currently uses ordinary <img>/<video> elements for remote
+  // provider assets, not next/image. Do not configure a wildcard Image
+  // Optimizer allowlist: it turns our server into a fetch/cache proxy for
+  // arbitrary hosts and is unnecessary here.
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
-  experimental: {
-    serverComponentsExternalPackages: [
-      "@remotion/bundler",
-      "@remotion/renderer",
-      "@remotion/cli",
-      "remotion",
-      "esbuild",
-      "msedge-tts",
-      "ws",
-      "@tensorflow/tfjs-core",
-      "@tensorflow/tfjs-converter",
-      "@tensorflow/tfjs-backend-wasm",
-      "@tensorflow-models/blazeface",
-      "jpeg-js",
-    ],
-  },
+  serverExternalPackages: [
+    "@remotion/bundler",
+    "@remotion/renderer",
+    "@remotion/cli",
+    "remotion",
+    "esbuild",
+    "msedge-tts",
+    "ws",
+    "@tensorflow/tfjs-core",
+    "@tensorflow/tfjs-converter",
+    "@tensorflow/tfjs-backend-wasm",
+    "@tensorflow-models/blazeface",
+    "jpeg-js",
+  ],
 };
 
 module.exports = nextConfig;

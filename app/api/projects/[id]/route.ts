@@ -4,12 +4,13 @@ import { resolveApiUser } from "@/lib/api-auth";
 import { projectAccessFilter } from "@/lib/workspace";
 import { deleteMediaByPrefix } from "@/lib/storage";
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const apiUser = await resolveApiUser(req);
   if (!apiUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const project = await db.project.findFirst({
-    where: { id: params.id, ...(await projectAccessFilter(apiUser.userId)) },
+    where: { id, ...(await projectAccessFilter(apiUser.userId)) },
     include: {
       clips: { orderBy: { score: "desc" } },
       jobs: { orderBy: { createdAt: "desc" }, take: 1 },
@@ -42,12 +43,13 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
  * JobCostRecord rows referencing this project are deliberately NOT
  * cascade-deleted (they're a plain string projectId, not a real FK) --
  * the financial audit trail must survive project deletion. */
-export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const apiUser = await resolveApiUser(req);
   if (!apiUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const project = await db.project.findFirst({
-    where: { id: params.id, userId: apiUser.userId },
+    where: { id, userId: apiUser.userId },
     include: { jobs: { select: { id: true } } },
   });
   if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });

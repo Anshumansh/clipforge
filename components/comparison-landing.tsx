@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
-import { Reveal, RevealGroup, RevealItem } from "@/components/reveal";
+import { Reveal } from "@/components/reveal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Check, Minus, Sparkles, X } from "lucide-react";

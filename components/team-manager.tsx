@@ -34,8 +34,16 @@ export function TeamManager() {
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    const res = await fetch("/api/workspace");
-    if (res.ok) setState(await res.json());
+    try {
+      const res = await fetch("/api/workspace");
+      if (res.ok) {
+        setState(await res.json());
+      } else {
+        setError("Could not load the workspace. Please refresh and try again.");
+      }
+    } catch {
+      setError("Could not reach the server. Check your connection and try again.");
+    }
   }
 
   useEffect(() => {
@@ -45,11 +53,18 @@ export function TeamManager() {
   async function createWorkspace(name: string) {
     setBusy(true);
     setError(null);
-    const res = await fetch("/api/workspace", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
+    let res: Response;
+    try {
+      res = await fetch("/api/workspace", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+    } catch {
+      setBusy(false);
+      setError("Could not reach the server. Check your connection and try again.");
+      return;
+    }
     const data = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) {
@@ -62,11 +77,18 @@ export function TeamManager() {
   async function inviteMember(email: string) {
     setBusy(true);
     setError(null);
-    const res = await fetch("/api/workspace/invite", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-    });
+    let res: Response;
+    try {
+      res = await fetch("/api/workspace/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+    } catch {
+      setBusy(false);
+      setError("Could not reach the server. Check your connection and try again.");
+      return;
+    }
     const data = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) {
@@ -77,34 +99,59 @@ export function TeamManager() {
   }
 
   async function removeMember(id: string) {
+    if (!window.confirm("Remove this teammate from the workspace?")) return;
     setBusy(true);
-    await fetch(`/api/workspace/members/${id}`, { method: "DELETE" });
+    setError(null);
+    const res = await fetch(`/api/workspace/members/${id}`, { method: "DELETE" }).catch(() => null);
     setBusy(false);
+    if (!res?.ok) {
+      setError("Could not remove the teammate. Please try again.");
+      return;
+    }
     await load();
   }
 
   async function cancelInvite(id: string) {
     setBusy(true);
-    await fetch(`/api/workspace/invite/${id}`, { method: "DELETE" });
+    setError(null);
+    const res = await fetch(`/api/workspace/invite/${id}`, { method: "DELETE" }).catch(() => null);
     setBusy(false);
+    if (!res?.ok) {
+      setError("Could not cancel the invitation. Please try again.");
+      return;
+    }
     await load();
   }
 
   async function leaveWorkspace() {
+    if (!window.confirm("Leave this workspace? You will lose access to its shared projects and credits.")) return;
     setBusy(true);
-    await fetch("/api/workspace/leave", { method: "POST" });
+    setError(null);
+    const res = await fetch("/api/workspace/leave", { method: "POST" }).catch(() => null);
     setBusy(false);
+    if (!res?.ok) {
+      setError("Could not leave the workspace. Please try again.");
+      return;
+    }
     await load();
   }
 
   async function deleteWorkspace() {
+    if (!window.confirm("Delete this workspace? Members will be removed, but existing videos will remain.")) return;
     setBusy(true);
-    await fetch("/api/workspace", { method: "DELETE" });
+    setError(null);
+    const res = await fetch("/api/workspace", { method: "DELETE" }).catch(() => null);
     setBusy(false);
+    if (!res?.ok) {
+      setError("Could not delete the workspace. Please try again.");
+      return;
+    }
     await load();
   }
 
-  if (!state) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (!state) {
+    return <p className={`text-sm ${error ? "text-destructive" : "text-muted-foreground"}`}>{error ?? "Loading…"}</p>;
+  }
 
   if (state.role === null) {
     return (
@@ -155,6 +202,7 @@ export function TeamManager() {
   // owner
   return (
     <div className="space-y-6">
+      {error && <p className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
       <Card>
         <CardHeader>
           <CardTitle>{state.workspace?.name}</CardTitle>

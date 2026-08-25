@@ -34,7 +34,14 @@ function LoginForm() {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    const res = await signIn("credentials", { email, password, totpCode, redirect: false });
+    let res: Awaited<ReturnType<typeof signIn>>;
+    try {
+      res = await signIn("credentials", { email, password, totpCode, redirect: false });
+    } catch {
+      setLoading(false);
+      setError("Could not reach the server. Check your connection and try again.");
+      return;
+    }
     setLoading(false);
 
     if (res?.error === "MFA_REQUIRED") {

@@ -132,7 +132,7 @@ test.describe("prefers-reduced-motion", () => {
     // logic) -- scroll each into view and confirm it ends up visible either
     // way, so a reduced-motion user is never left looking at an invisible
     // page section.
-    for (const label of ["Free", "Hobby", "Business"]) {
+    for (const label of ["Free", "Creator", "Business"]) {
       const el = page.getByText(label, { exact: true }).first();
       await el.scrollIntoViewIfNeeded();
       await expect(el).toBeVisible();

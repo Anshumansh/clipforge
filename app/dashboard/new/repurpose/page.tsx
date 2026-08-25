@@ -11,6 +11,7 @@ import { ArrowLeft, Scissors, Settings2, UploadCloud } from "lucide-react";
 import Link from "next/link";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 import { GenerationOperation } from "@/lib/generation-client";
+import { GenerationSummary } from "@/components/generation-summary";
 
 function readVideoDuration(file: File): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -173,6 +174,7 @@ export default function NewRepurposePage() {
                 <p className="text-xs text-muted-foreground">1:1 and 16:9 are a Business-plan feature.</p>
               </div>
             </details>
+            <GenerationSummary description="the source video and its generated clips" />
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" disabled={loading} className="w-full">
               {loading ? "Uploading & starting render…" : "Generate clips"}

@@ -30,7 +30,7 @@ export const options = {
   },
 };
 
-export default function () {
+export default function spikeRecoveryScenario() {
   // Tag requests in the final stage as "recovery" so its threshold above is
   // measured independent of the spike itself. k6 doesn't expose "which
   // stage am I in" directly to the default export function, so this uses
