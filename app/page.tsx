@@ -30,14 +30,24 @@ import {
 } from "lucide-react";
 
 // This page has no dynamic APIs, so Next would otherwise treat it as fully
-// static: rendered exactly once at Docker build time (with no real
-// DATABASE_URL available then, since .dockerignore keeps .env out of the
-// build context — see Dockerfile) and served as that same fixed HTML
-// forever after. Without this, unstable_cache's revalidate window below is
-// meaningless: nothing would ever call the cached function again to trigger
-// a refresh. This makes the route ISR — background-regenerated against the
-// real running server (real DB access) on access after the interval.
-export const revalidate = 300;
+// static: rendered exactly once at Docker build time (with no real .env
+// available then -- see Dockerfile/.dockerignore) and served as that same
+// fixed HTML forever after. `revalidate` (ISR) was tried here first and
+// confirmed live, twice, to be the actual cause of two separate real bugs:
+// a `RAILWAY_ENVIRONMENT_NAME` read that resolved to its build-time
+// fallback, and -- root-caused via a downloaded CI trace showing the
+// showcase clip 404 coming from this app's own /api/media/[...key] route
+// (not the storage provider) -- `getPresignedDownloadUrl` itself returning
+// null because STORAGE_* wasn't available at build time either. ISR only
+// regenerates in the background *after* a real request lands past the
+// revalidate window, so the very first hit after any deploy (including
+// every CI run, which starts testing within seconds of the deploy
+// completing) reliably got served the stale, secrets-less build-time
+// render. `force-dynamic` makes every request execute fresh with full
+// runtime env access, eliminating that whole class of bug outright --
+// unstable_cache below still keeps the actual S3 calls cheap, so this
+// isn't a full-page performance cliff.
+export const dynamic = "force-dynamic";
 
 const features = [
   {
