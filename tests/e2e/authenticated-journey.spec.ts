@@ -89,7 +89,9 @@ test.describe("@authenticated staging Business journey", () => {
 
     // Verify entitlement display and session sharing across a new tab.
     await page.goto("/dashboard/billing");
-    await expect(page.getByText("Current plan", { exact: true })).toBeVisible();
+    // The Business badge is nested inside this heading, so its accessible
+    // name is "Current plan Business" rather than two independent labels.
+    await expect(page.getByRole("heading", { name: /Current plan Business/i })).toBeVisible();
     await expect(page.getByText("Business", { exact: true })).toBeVisible();
 
     const secondTab = await context.newPage();
