@@ -165,7 +165,18 @@ test.describe("@authenticated @full-acceptance staging Business acceptance", () 
       for (const format of ["edl", "xml"]) {
         const response = await page.request.get(`/api/projects/${scriptProjectId}/export?format=${format}`);
         expect(response.status(), `${format} export`).toBe(200);
-        expect((await response.body()).byteLength).toBeGreaterThan(100);
+        const body = await response.text();
+        if (format === "edl") {
+          expect(response.headers()["content-type"]).toContain("text/plain");
+          expect(response.headers()["content-disposition"]).toContain(".edl");
+          expect(body).toContain("TITLE:");
+          expect(body).toContain("FCM:");
+        } else {
+          expect(response.headers()["content-type"]).toContain("application/xml");
+          expect(response.headers()["content-disposition"]).toContain(".xml");
+          expect(body).toContain("<?xml");
+          expect(body).toContain("<xmeml");
+        }
       }
 
       const sourceVideo = await page.request.get(scriptProject.videoUrl!);
