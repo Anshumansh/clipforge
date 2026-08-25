@@ -29,8 +29,8 @@ function Cell({ text, isWinner, isLoser }: { text: string; isWinner: boolean; is
   return (
     <div className="flex items-start gap-2 text-sm">
       {isWinner && <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />}
-      {isLoser && <X className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/50" />}
-      {!isWinner && !isLoser && <Minus className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/50" />}
+      {isLoser && <X className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />}
+      {!isWinner && !isLoser && <Minus className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />}
       <span className={isLoser ? "text-muted-foreground" : ""}>{text}</span>
     </div>
   );
@@ -63,7 +63,12 @@ export function ComparisonLandingPage({ config }: { config: ComparisonConfig }) 
 
         <section className="mx-auto max-w-4xl px-6 py-16">
           <Reveal>
-            <div className="overflow-x-auto rounded-xl border border-border">
+            <div
+              className="overflow-x-auto rounded-xl border border-border"
+              tabIndex={0}
+              role="region"
+              aria-label={`Comparison table: Clipforge vs ${config.competitorName}. Scroll horizontally to see all columns.`}
+            >
               <table className="w-full border-collapse text-left">
                 <thead>
                   <tr className="border-b border-border bg-secondary/40">

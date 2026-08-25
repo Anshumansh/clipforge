@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   generateTotpSecret,
   buildTotp,
@@ -22,27 +22,43 @@ describe("TOTP", () => {
     expect(verifyTotpCode(secret.base32, "000000", "admin@example.com")).toBe(false);
   });
 
-  it("rejects a code generated from a different secret", () => {
+  describe("cross-secret rejection", () => {
     // Two independently random secrets producing the same 6-digit code at the
     // same 30s step (verifyTotpCode's window:1 tolerance means 3 valid codes
     // per secret at any instant) is a real, if tiny, ~3-in-a-million chance --
     // rare enough to look like a one-off CI flake, common enough to hit
-    // eventually over a project's lifetime. Retry with a fresh secretB on the
-    // vanishingly unlikely event of a genuine collision rather than asserting
-    // on two draws that happened to coincide; this keeps the test exercising
-    // real random secrets (real bugs in cross-secret scoping show up here)
-    // instead of switching to a fixed pair, which would just relocate the
-    // same coincidence risk to a single fixed pair.
-    const secretA = generateTotpSecret();
-    let codeFromB: string;
-    let result: boolean;
-    do {
-      const secretB = generateTotpSecret();
-      codeFromB = buildTotp(secretB.base32, "admin@example.com").generate();
-      result = verifyTotpCode(secretA.base32, codeFromB, "admin@example.com");
-    } while (result === true);
+    // eventually over a project's lifetime, and a retry-until-non-colliding
+    // loop is still nondeterministic in the strict sense (unbounded in
+    // principle, however astronomically unlikely in practice). Fixed secrets
+    // plus a frozen clock removes randomness from the test entirely: every
+    // input is a constant, so the result is the same on every run forever,
+    // not just "very likely" the same. FIXED_TIME/SECRET_A/SECRET_B were
+    // verified once (see git history) to produce genuinely different codes,
+    // including across the full window:1 tolerance range (-30s/0s/+30s) --
+    // this isn't "probably fine", it's a checked, fixed fact about these
+    // exact constants that can never change.
+    const FIXED_TIME = new Date("2026-01-01T00:00:00Z");
+    const SECRET_A = "JBSWY3DPEHPK3PXP";
+    const SECRET_B = "KRSXG5CTMVRXEZLU";
 
-    expect(result).toBe(false);
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(FIXED_TIME);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("rejects a code generated from a different secret", () => {
+      const codeFromB = buildTotp(SECRET_B, "admin@example.com").generate();
+      expect(verifyTotpCode(SECRET_A, codeFromB, "admin@example.com")).toBe(false);
+    });
+
+    it("does still accept the matching secret's own code at the same instant (sanity check on the fixed vectors)", () => {
+      const codeFromA = buildTotp(SECRET_A, "admin@example.com").generate();
+      expect(verifyTotpCode(SECRET_A, codeFromA, "admin@example.com")).toBe(true);
+    });
   });
 });
 

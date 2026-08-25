@@ -61,7 +61,7 @@ export default async function BillingPage({
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-3">
-          {user.stripeCustomerId ? (
+          {user.stripeSubscriptionId ? (
             <ManageBillingButton />
           ) : (
             <Button asChild>

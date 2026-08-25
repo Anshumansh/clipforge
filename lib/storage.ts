@@ -1,6 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  ListObjectsV2Command,
+  DeleteObjectsCommand,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 interface S3Config {
@@ -54,7 +61,7 @@ export function isRemoteStorageConfigured(): boolean {
 }
 
 async function uploadToLocalPublicDir(buffer: Buffer, key: string): Promise<string> {
-  const destPath = path.join(process.cwd(), "public", key);
+  const destPath = localPublicPath(key);
   await fs.mkdir(path.dirname(destPath), { recursive: true });
   await fs.writeFile(destPath, buffer);
   return `/${key}`;
@@ -92,6 +99,152 @@ export async function getPresignedDownloadUrl(key: string, expiresInSeconds = 36
   const client = getS3Client(config);
   const command = new GetObjectCommand({ Bucket: config.bucket, Key: key });
   return getSignedUrl(client, command, { expiresIn: expiresInSeconds });
+}
+
+export interface StoredObjectMetadata {
+  contentType: string;
+  contentLength: number | null;
+  etag: string | null;
+  lastModified: Date | null;
+}
+
+export interface StoredObject extends StoredObjectMetadata {
+  body: ReadableStream<Uint8Array> | Uint8Array;
+  contentRange: string | null;
+  status: 200 | 206;
+}
+
+function isMissingObjectError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { name?: string; $metadata?: { httpStatusCode?: number } };
+  return candidate.name === "NoSuchKey" || candidate.name === "NotFound" || candidate.$metadata?.httpStatusCode === 404;
+}
+
+function isUnsatisfiableRangeError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  return (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 416;
+}
+
+function localPublicPath(key: string): string {
+  const publicRoot = path.resolve(process.cwd(), "public");
+  const filePath = path.resolve(publicRoot, key);
+  if (filePath !== publicRoot && !filePath.startsWith(`${publicRoot}${path.sep}`)) {
+    throw new Error("Storage key escapes the public directory");
+  }
+  return filePath;
+}
+
+function parseLocalByteRange(range: string | undefined, size: number): { start: number; end: number } | null {
+  if (!range) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+  if (!match || (!match[1] && !match[2])) throw new RangeError("Invalid byte range");
+
+  let start: number;
+  let end: number;
+  if (!match[1]) {
+    const suffixLength = Number(match[2]);
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) throw new RangeError("Invalid byte range");
+    start = Math.max(0, size - suffixLength);
+    end = size - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] ? Number(match[2]) : size - 1;
+  }
+
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || start >= size) {
+    throw new RangeError("Byte range is outside the object");
+  }
+  return { start, end: Math.min(end, size - 1) };
+}
+
+/** Reads a private object with server-side storage credentials. This is used
+ * by tightly allowlisted first-party routes (for example homepage showcase
+ * media) that must not depend on an expiring presigned URL in cached HTML. */
+export async function getStoredObject(key: string, range?: string): Promise<StoredObject | null> {
+  const config = getS3Config();
+  if (!config) {
+    const filePath = localPublicPath(key);
+    try {
+      const buffer = await fs.readFile(filePath);
+      const selected = parseLocalByteRange(range, buffer.byteLength);
+      const body = selected ? buffer.subarray(selected.start, selected.end + 1) : buffer;
+      return {
+        body: new Uint8Array(body),
+        contentType: "video/mp4",
+        contentLength: body.byteLength,
+        contentRange: selected ? `bytes ${selected.start}-${selected.end}/${buffer.byteLength}` : null,
+        etag: null,
+        lastModified: null,
+        status: selected ? 206 : 200,
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  }
+
+  try {
+    const result = await getS3Client(config).send(
+      new GetObjectCommand({ Bucket: config.bucket, Key: key, Range: range })
+    );
+    if (!result.Body) return null;
+
+    const body = result.Body as unknown as {
+      transformToWebStream?: () => ReadableStream<Uint8Array>;
+      transformToByteArray: () => Promise<Uint8Array>;
+    };
+    const responseBody = body.transformToWebStream
+      ? body.transformToWebStream()
+      : await body.transformToByteArray();
+
+    return {
+      body: responseBody,
+      contentType: result.ContentType ?? "application/octet-stream",
+      contentLength: result.ContentLength ?? null,
+      contentRange: result.ContentRange ?? null,
+      etag: result.ETag ?? null,
+      lastModified: result.LastModified ?? null,
+      status: result.ContentRange ? 206 : 200,
+    };
+  } catch (error) {
+    if (isMissingObjectError(error)) return null;
+    if (isUnsatisfiableRangeError(error)) throw new RangeError("Byte range is outside the object");
+    throw error;
+  }
+}
+
+/** Metadata-only equivalent of getStoredObject, used for HEAD requests and
+ * deployment preflight without downloading video bytes. */
+export async function headStoredObject(key: string): Promise<StoredObjectMetadata | null> {
+  const config = getS3Config();
+  if (!config) {
+    const filePath = localPublicPath(key);
+    try {
+      const stat = await fs.stat(filePath);
+      return {
+        contentType: "video/mp4",
+        contentLength: stat.size,
+        etag: null,
+        lastModified: stat.mtime,
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  }
+
+  try {
+    const result = await getS3Client(config).send(new HeadObjectCommand({ Bucket: config.bucket, Key: key }));
+    return {
+      contentType: result.ContentType ?? "application/octet-stream",
+      contentLength: result.ContentLength ?? null,
+      etag: result.ETag ?? null,
+      lastModified: result.LastModified ?? null,
+    };
+  } catch (error) {
+    if (isMissingObjectError(error)) return null;
+    throw error;
+  }
 }
 
 /** Cheap connectivity check for /api/health — lists at most 1 key so it

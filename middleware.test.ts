@@ -76,7 +76,7 @@ describe("middleware — staging protection (Release Candidate Validation item 3
     expect(res.status).toBe(401);
   });
 
-  it.each(["/api/health", "/api/health/live", "/api/stripe/webhook", "/api/internal/metrics", "/api/media/some-key.mp4"])(
+  it.each(["/api/health", "/api/health/live", "/api/stripe/webhook", "/api/internal/metrics", "/api/media/some-key.mp4", "/api/showcase/script"])(
     "exempts %s from basic auth even in staging mode (health checks, Stripe signatures, metrics bearer auth, worker media fetches)",
     async (path) => {
       process.env.STAGING_ENVIRONMENT = "true";

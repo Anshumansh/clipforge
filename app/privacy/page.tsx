@@ -119,15 +119,15 @@ export default function PrivacyPage() {
         <p className={P}>
           Trend Radar uses the YouTube Data API Service. By using this feature, you're also agreeing to be bound
           by the{" "}
-          <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+          <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2 hover:no-underline">
             YouTube Terms of Service
           </a>
           . Google's use of information received from the YouTube API is governed by the{" "}
-          <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+          <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2 hover:no-underline">
             Google Privacy Policy
           </a>
           . You can revoke Clipforge's access to your Google/YouTube account at any time via{" "}
-          <a href="https://security.google.com/settings/security/permissions" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+          <a href="https://security.google.com/settings/security/permissions" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2 hover:no-underline">
             Google's security settings
           </a>{" "}
           or by disconnecting YouTube from your Clipforge dashboard.
@@ -160,7 +160,7 @@ export default function PrivacyPage() {
           <span className="text-foreground">Dashboard → Billing → Delete account</span>. This immediately cancels
           any active subscription and cannot be undone. For any other request, or if you'd rather we handle it
           for you, email{" "}
-          <a href="mailto:support@forgecut.app" className="text-primary hover:underline">support@forgecut.app</a>.
+          <a href="mailto:support@forgecut.app" className="text-primary underline underline-offset-2 hover:no-underline">support@forgecut.app</a>.
         </p>
 
         <h2 className={H2}>7. Data security</h2>
@@ -185,7 +185,7 @@ export default function PrivacyPage() {
         <h2 className={H2}>10. Contact</h2>
         <p className={P}>
           Questions about this policy, or want to exercise any of the rights above? Email{" "}
-          <a href="mailto:support@forgecut.app" className="text-primary hover:underline">support@forgecut.app</a>.
+          <a href="mailto:support@forgecut.app" className="text-primary underline underline-offset-2 hover:no-underline">support@forgecut.app</a>.
         </p>
       </main>
       <SiteFooter />

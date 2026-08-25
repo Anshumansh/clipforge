@@ -9,6 +9,7 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.mts",
+    "test:e2e": "playwright test",
     "build:worker": "esbuild worker/index.ts --bundle --platform=node --format=cjs --outfile=dist-worker/index.cjs --external:@remotion/bundler --external:@remotion/renderer --external:@remotion/cli --external:remotion --external:esbuild --external:@tensorflow/tfjs-core --external:@tensorflow/tfjs-converter --external:@tensorflow/tfjs-backend-wasm --external:@tensorflow-models/blazeface --external:jpeg-js --external:@prisma/client",
     "worker": "npm run build:worker && node dist-worker/index.cjs",
     "db:push": "prisma db push",
@@ -54,6 +55,8 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.62.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.7.4",
     "@types/pg": "^8.21.0",

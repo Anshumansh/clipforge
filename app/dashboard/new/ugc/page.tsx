@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { AspectRatioPicker } from "@/components/aspect-ratio-picker";
-import { UserRound } from "lucide-react";
+import { ArrowLeft, Settings2, UserRound } from "lucide-react";
+import Link from "next/link";
 import type { AspectRatio } from "@/lib/aspect-ratio";
 import { GenerationOperation } from "@/lib/generation-client";
 
@@ -67,11 +68,15 @@ export default function NewUgcAdPage() {
 
   return (
     <div className="mx-auto max-w-2xl">
+      <Link href="/dashboard/create" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+        <ArrowLeft className="h-4 w-4" /> Back to video types
+      </Link>
       <div className="mb-6 flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/15">
           <UserRound className="h-5 w-5 text-primary" />
         </div>
         <div>
+          <p className="text-xs font-medium text-primary">Step 2 of 2</p>
           <h1 className="text-xl font-bold">UGC ad</h1>
           <p className="text-sm text-muted-foreground">
             A voiceover-led, UGC-style ad script with captions and a CTA end card. No camera needed.
@@ -110,11 +115,17 @@ export default function NewUgcAdPage() {
                 onChange={(e) => setCtaText(e.target.value)}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label>Format</Label>
-              <AspectRatioPicker value={aspectRatio} onChange={setAspectRatio} />
-              <p className="text-xs text-muted-foreground">1:1 and 16:9 are a Business-plan feature.</p>
-            </div>
+            <details className="group rounded-xl border border-border/70 bg-secondary/20 p-4">
+              <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium">
+                <Settings2 className="h-4 w-4 text-primary" /> Customize ad format (optional)
+                <span className="ml-auto text-xs font-normal text-muted-foreground group-open:hidden">Vertical 9:16</span>
+              </summary>
+              <div className="mt-4 space-y-1.5 border-t border-border/70 pt-4">
+                <Label>Format</Label>
+                <AspectRatioPicker value={aspectRatio} onChange={setAspectRatio} />
+                <p className="text-xs text-muted-foreground">1:1 and 16:9 are a Business-plan feature.</p>
+              </div>
+            </details>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" disabled={loading} className="w-full">
               {loading ? "Starting render…" : "Generate ad video"}

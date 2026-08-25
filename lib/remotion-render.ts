@@ -5,6 +5,7 @@ import { bundle } from "@remotion/bundler";
 import { renderMedia, renderStill, selectComposition } from "@remotion/renderer";
 import { uploadLocalFile, getAppBaseUrl, getPresignedDownloadUrl } from "@/lib/storage";
 import { db } from "@/lib/db";
+import { validateExternalAssetUrl } from "@/lib/asset-url-security";
 import type { ScriptVideoProps } from "@/remotion/ScriptVideo";
 import type { RepurposeClipProps } from "@/remotion/RepurposeClip";
 import type { AudioExtractProps } from "@/remotion/AudioExtract";
@@ -59,16 +60,27 @@ async function resolveExpectedOwnerUserId(storageKey: string): Promise<string | 
 
 export async function resolveInternalMediaUrls<T>(value: T, expectedUserId: string | null): Promise<T> {
   if (typeof value === "string") {
-    if (!value.startsWith(MEDIA_ROUTE_PREFIX)) return value;
-    const key = value.slice(MEDIA_ROUTE_PREFIX.length);
+    if (value.startsWith(MEDIA_ROUTE_PREFIX)) {
+      const key = value.slice(MEDIA_ROUTE_PREFIX.length);
 
-    const owner = await resolveExpectedOwnerUserId(key);
-    if (!expectedUserId || !owner || owner !== expectedUserId) return value;
+      const owner = await resolveExpectedOwnerUserId(key);
+      if (!expectedUserId || !owner || owner !== expectedUserId) return value;
 
-    const presigned = await getPresignedDownloadUrl(key);
-    // null in local dev (no STORAGE_* configured) -- falls back to the
-    // ./public/media path Remotion's staticFile() already handles.
-    return (presigned ?? value) as unknown as T;
+      const presigned = await getPresignedDownloadUrl(key);
+      // null in local dev (no STORAGE_* configured) -- falls back to the
+      // ./public/media path Remotion's staticFile() already handles.
+      return (presigned ?? value) as unknown as T;
+    }
+
+    // Not our own media route -- if it's URL-shaped at all, it's about to be
+    // handed to Remotion's own server-side fetch (see asset-url-security.ts
+    // for why "just pass it through" is an SSRF primitive, not a no-op).
+    // Plain non-URL strings (topic text, aspect ratios, titles, ...) are
+    // untouched -- they were never going anywhere near a network request.
+    if (/^https?:\/\//i.test(value)) {
+      return (await validateExternalAssetUrl(value)) as unknown as T;
+    }
+    return value;
   }
   if (Array.isArray(value)) {
     return (await Promise.all(value.map((v) => resolveInternalMediaUrls(v, expectedUserId)))) as unknown as T;

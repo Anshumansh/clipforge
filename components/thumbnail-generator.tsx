@@ -35,7 +35,7 @@ export function ThumbnailGenerator({ projectId, initialUrl }: { projectId: strin
       {url && (
         <div className="mt-3">
           <img src={url} alt="Generated thumbnail" className="w-full rounded-md" />
-          <a href={url} download className="mt-2 inline-flex items-center gap-1.5 text-xs text-primary hover:underline">
+          <a href={url} download className="mt-2 inline-flex items-center gap-1.5 text-xs text-primary underline underline-offset-2 hover:no-underline">
             <Download className="h-3.5 w-3.5" /> Download
           </a>
         </div>

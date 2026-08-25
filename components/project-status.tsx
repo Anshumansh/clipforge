@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AlertTriangle, Download, FileCode } from "lucide-react";
 import { PublishButton } from "@/components/publish-button";
 import { ThumbnailGenerator } from "@/components/thumbnail-generator";
+import { DeleteProjectButton } from "@/components/delete-project-button";
 
 interface Clip {
   id: string;
@@ -146,7 +147,10 @@ export function ProjectStatus({ initial }: { initial: ProjectData }) {
           <h1 className="text-xl font-bold">{data.title}</h1>
           <p className="text-sm text-muted-foreground capitalize">{data.type} project</p>
         </div>
-        <Badge variant={statusVariant[data.status as keyof typeof statusVariant] ?? "outline"}>{data.status}</Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant={statusVariant[data.status as keyof typeof statusVariant] ?? "outline"}>{data.status}</Badge>
+          <DeleteProjectButton projectId={data.id} />
+        </div>
       </div>
 
       {isRendering && (
