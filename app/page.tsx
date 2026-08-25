@@ -8,6 +8,7 @@ import { StatCounter } from "@/components/stat-counter";
 import { Marquee } from "@/components/marquee";
 import { db } from "@/lib/db";
 import { SOCIAL_PLATFORMS, PLATFORM_LABELS, getLivePlatforms } from "@/lib/social/platforms";
+import { getShowcaseAssets } from "@/lib/showcase-assets";
 import { unstable_cache } from "next/cache";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -28,15 +29,11 @@ import {
   Zap,
 } from "lucide-react";
 
-// This page has no dynamic APIs, so Next would otherwise treat it as fully
-// static: rendered exactly once at Docker build time (with no real
-// DATABASE_URL available then, since .dockerignore keeps .env out of the
-// build context — see Dockerfile) and served as that same fixed HTML
-// forever after. Without this, unstable_cache's revalidate window below is
-// meaningless: nothing would ever call the cached function again to trigger
-// a refresh. This makes the route ISR — background-regenerated against the
-// real running server (real DB access) on access after the interval.
-export const revalidate = 300;
+// Platform capability labels and the generated-video count depend on runtime
+// configuration/data that is intentionally absent from the Docker build.
+// Render the page at runtime, while unstable_cache below keeps the database
+// query cheap. Showcase URLs themselves are stable same-origin paths.
+export const dynamic = "force-dynamic";
 
 const features = [
   {
@@ -118,22 +115,13 @@ const tickerItems = [
   "Trend Radar",
 ];
 
-// Real, unedited renders pulled straight from production — not stock footage or
-// staged mockups. Muted/looped in the phone frames below.
-const showcaseClips = [
-  {
-    src: "https://forgecut.app/api/media/media/cmsfwpkun00005ln9ty9j1vqs/cmsfwtaxc00025ln9310wv1dx/final.mp4",
-    label: "Script to video",
-  },
-  {
-    src: "https://forgecut.app/api/media/media/cmsfwpkun00005ln9ty9j1vqs/cmsjh8bs800017l6bezmf7umb/clip-cmsjh8rxw00057l6bn2le0p6g.mp4",
-    label: "Repurpose — auto face tracking",
-  },
-  {
-    src: "https://forgecut.app/api/media/media/cmsfwpkun00005ln9ty9j1vqs/cmsfwtuq000065ln9yuuato5u/final.mp4",
-    label: "UGC-style ad",
-  },
-];
+// Stable same-origin paths are deliberate: cached homepage HTML never embeds
+// an expiring storage signature, and browsers never depend on a storage
+// provider accepting their direct request. The route streams only these
+// three allowlisted objects with authenticated server-side storage access.
+function getShowcaseClips(): { src: string; label: string }[] {
+  return getShowcaseAssets().map(({ publicPath, label }) => ({ src: publicPath, label }));
+}
 
 const differentiators = [
   {
@@ -225,13 +213,8 @@ const structuredData = [
   },
 ];
 
-// This page has no dynamic APIs (no cookies/headers/searchParams), so Next
-// statically prerenders it at build time by default — which would otherwise
-// bake this count in permanently from whatever the CI build environment saw
-// (a dummy, unreachable DATABASE_URL there — see deploy.yml). unstable_cache
-// makes this one value revalidate on a timer against the real production DB
-// once the page is actually running, instead of freezing at a build-time
-// snapshot that never updates.
+// Cache the database-backed counter independently so runtime rendering does
+// not create a database read on every homepage request.
 const getVideosGeneratedCount = unstable_cache(
   async (): Promise<number> => {
     try {
@@ -253,6 +236,7 @@ const PLATFORM_DOT: Record<(typeof SOCIAL_PLATFORMS)[number], string> = {
 export default async function LandingPage() {
   const videosGenerated = await getVideosGeneratedCount();
   const livePlatforms = getLivePlatforms();
+  const showcaseClips = getShowcaseClips();
 
   return (
     <div className="flex min-h-screen flex-col">

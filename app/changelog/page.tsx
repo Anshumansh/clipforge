@@ -25,7 +25,7 @@ export default function ChangelogPage() {
           <h1 className="text-3xl font-bold tracking-tight">Changelog</h1>
           <p className="mt-3 text-muted-foreground">
             What's actually shipped, most recent first. Have a request instead? See the{" "}
-            <Link href="/roadmap" className="text-primary hover:underline">
+            <Link href="/roadmap" className="text-primary underline underline-offset-2 hover:no-underline">
               roadmap board
             </Link>
             .

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { resolveChannel } from "@/lib/providers/youtube";
+import { resolveChannel, isYouTubeConfigured } from "@/lib/providers/youtube";
 import { rateLimit } from "@/lib/rate-limit";
 
 export async function POST(req: Request) {
@@ -15,6 +15,10 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const input = typeof body.input === "string" ? body.input.slice(0, 200) : "";
   if (!input) return NextResponse.json({ error: "Invalid input" }, { status: 400 });
+
+  if (!isYouTubeConfigured()) {
+    return NextResponse.json({ error: "Trend Radar isn't configured on this server yet" }, { status: 503 });
+  }
 
   const channel = await resolveChannel(input);
   if (!channel) return NextResponse.json({ error: "Couldn't find that channel — check the URL or handle" }, { status: 404 });

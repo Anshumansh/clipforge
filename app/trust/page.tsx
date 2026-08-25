@@ -32,7 +32,7 @@ const facts = [
   {
     icon: EyeOff,
     title: "No ad tracking, no analytics scripts",
-    description: "We set exactly two cookies: a signed session cookie and a short-lived OAuth state cookie. Nothing else runs on the site to track you.",
+    description: "We set a signed session cookie once you're logged in, plus short-lived cookies NextAuth itself uses for CSRF protection and post-login redirects. Nothing else runs on the site to track you — no ad pixels, no analytics scripts.",
   },
   {
     icon: ShieldCheck,
@@ -131,15 +131,15 @@ export default function TrustPage() {
             </p>
             <p className="mt-6 text-sm text-muted-foreground">
               Full details in the{" "}
-              <Link href="/privacy" className="text-primary hover:underline">
+              <Link href="/privacy" className="text-primary underline underline-offset-2 hover:no-underline">
                 Privacy Policy
               </Link>{" "}
               and{" "}
-              <Link href="/terms" className="text-primary hover:underline">
+              <Link href="/terms" className="text-primary underline underline-offset-2 hover:no-underline">
                 Terms of Service
               </Link>
               . Questions go to{" "}
-              <a href="mailto:support@forgecut.app" className="text-primary hover:underline">
+              <a href="mailto:support@forgecut.app" className="text-primary underline underline-offset-2 hover:no-underline">
                 support@forgecut.app
               </a>
               .

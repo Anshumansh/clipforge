@@ -32,7 +32,7 @@ const config: ComparisonConfig = {
     },
     {
       feature: "Voiceover language coverage",
-      us: "20 languages with real per-language neural voices",
+      us: "21 languages with real per-language neural voices",
       them: "70+ languages (Growth plan)",
       winner: "them",
     },

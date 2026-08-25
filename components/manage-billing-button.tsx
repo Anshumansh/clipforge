@@ -11,7 +11,14 @@ export function ManageBillingButton() {
     setLoading(true);
     setError(null);
 
-    const res = await fetch("/api/stripe/portal", { method: "POST" });
+    let res: Response;
+    try {
+      res = await fetch("/api/stripe/portal", { method: "POST" });
+    } catch {
+      setError("Could not reach billing. Check your connection and try again.");
+      setLoading(false);
+      return;
+    }
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok || !data.url) {

@@ -20,6 +20,10 @@ export interface VideoStats {
   comments: number;
 }
 
+export function isYouTubeConfigured(): boolean {
+  return Boolean(process.env.YOUTUBE_DATA_API_KEY);
+}
+
 function apiKey(): string {
   const key = process.env.YOUTUBE_DATA_API_KEY;
   if (!key) throw new Error("YOUTUBE_DATA_API_KEY not set");

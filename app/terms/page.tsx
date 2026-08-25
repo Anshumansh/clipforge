@@ -109,7 +109,7 @@ export default function TermsPage() {
         <h2 className={H2}>8. Copyright complaints (DMCA)</h2>
         <p className={P}>
           If you believe content generated or hosted through Clipforge infringes your copyright, send a notice to{" "}
-          <a href="mailto:support@forgecut.app" className="text-primary hover:underline">support@forgecut.app</a>{" "}
+          <a href="mailto:support@forgecut.app" className="text-primary underline underline-offset-2 hover:no-underline">support@forgecut.app</a>{" "}
           with: (1) a description of the copyrighted work, (2) the specific URL or location of the material on
           Clipforge, (3) your contact information, (4) a statement that you have a good-faith belief the use is
           unauthorized, and (5) a statement made under penalty of perjury that the notice is accurate and you're
@@ -156,7 +156,7 @@ export default function TermsPage() {
         <h2 className={H2}>14. Contact</h2>
         <p className={P}>
           Questions about these Terms? Reach us at{" "}
-          <a href="mailto:support@forgecut.app" className="text-primary hover:underline">support@forgecut.app</a>.
+          <a href="mailto:support@forgecut.app" className="text-primary underline underline-offset-2 hover:no-underline">support@forgecut.app</a>.
         </p>
       </main>
       <SiteFooter />
