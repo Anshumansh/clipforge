@@ -31,6 +31,11 @@ projects and settings are cleaned up. It intentionally spends 30 staging
 credits, so it runs only when `E2E (cross-browser)` is manually dispatched with
 `acceptance_mode=full`; routine pull-request runs never execute it.
 
+When staging intentionally runs a different commit whose application tree has
+already been proven equivalent (for example, a test-only PR), pass the exact
+SHA returned by staging's `/api/version` as `staging_sha`. The preflight still
+requires that exact value and never accepts an unknown or merely healthy build.
+
 ## What's deliberately not covered yet
 
 Full signup -> verify -> login and TOTP enrollment still require owner-assisted
