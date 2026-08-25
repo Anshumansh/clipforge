@@ -46,7 +46,7 @@ export const options = {
   },
 };
 
-export default function () {
+export default function publicBrowsingScenario() {
   const path = PUBLIC_PATHS[Math.floor(Math.random() * PUBLIC_PATHS.length)];
   const res = http.get(`${BASE_URL}${path}`);
 

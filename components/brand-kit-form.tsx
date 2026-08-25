@@ -3,8 +3,7 @@
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Upload, X, Sparkles } from "lucide-react";
+import { Upload, X } from "lucide-react";
 import { BRAND_FONT_KEYS, BRAND_FONT_LABELS, type BrandFontKey } from "@/lib/brand";
 
 interface BrandKitData {
@@ -12,7 +11,6 @@ interface BrandKitData {
   primaryColor: string | null;
   secondaryColor: string | null;
   fontFamily: string | null;
-  canApply: boolean;
 }
 
 const DEFAULT_PRIMARY = "#7c3aed";
@@ -56,7 +54,14 @@ export function BrandKitForm({ initial }: { initial: BrandKitData }) {
     if (logoFile) form.set("logo", logoFile);
     if (!logoPreview && logoUrl === null) form.set("removeLogo", "true");
 
-    const res = await fetch("/api/brand-kit", { method: "POST", body: form });
+    let res: Response;
+    try {
+      res = await fetch("/api/brand-kit", { method: "POST", body: form });
+    } catch {
+      setSaving(false);
+      setError("Could not reach the server. Check your connection and try again.");
+      return;
+    }
     const data = await res.json().catch(() => ({}));
     setSaving(false);
 
@@ -73,17 +78,9 @@ export function BrandKitForm({ initial }: { initial: BrandKitData }) {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle>Brand kit</CardTitle>
-          {!initial.canApply && (
-            <Badge variant="outline" className="gap-1 border-primary/30 bg-primary/5">
-              <Sparkles className="h-3 w-3 text-primary" /> Business plan
-            </Badge>
-          )}
-        </div>
+        <CardTitle>Brand kit</CardTitle>
         <CardDescription>
           Your logo, colors, and font applied to every script-to-video, repurpose, and UGC ad render.
-          {!initial.canApply && " Set it up now — it takes effect automatically once you're on the Business plan."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -92,6 +89,8 @@ export function BrandKitForm({ initial }: { initial: BrandKitData }) {
           <div className="flex items-center gap-4">
             <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-secondary/40">
               {logoPreview ? (
+                // The preview can be a local blob URL before upload; next/image cannot render blob URLs reliably.
+                // eslint-disable-next-line @next/next/no-img-element
                 <img src={logoPreview} alt="Logo preview" className="h-full w-full object-contain" />
               ) : (
                 <span className="text-[10px] text-muted-foreground">No logo</span>

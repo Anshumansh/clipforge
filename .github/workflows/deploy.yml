@@ -93,6 +93,8 @@ jobs:
         run: npx prisma validate
       - name: Typecheck
         run: npx tsc --noEmit -p .
+      - name: Lint
+        run: npm run lint
       - name: Build
         run: |
           npx prisma generate

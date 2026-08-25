@@ -1,138 +1,31 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { unstable_cache } from "next/cache";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { Reveal, RevealGroup, RevealItem } from "@/components/reveal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { SubscribeButton } from "@/components/subscribe-button";
-import { PricingV2 } from "@/components/pricing-v2";
 import { Check } from "lucide-react";
-import { isPricingV2Enabled } from "@/lib/pricing/flags";
-import { getActiveCompetitorBenchmarks } from "@/lib/pricing/competitors";
-
-// This page has no dynamic APIs, so Next statically prerenders it at build
-// time by default -- which would otherwise crash the build against CI's
-// intentionally unreachable dummy DATABASE_URL (see deploy.yml and
-// app/page.tsx's getVideosGeneratedCount for the same pattern). The try/catch
-// lets static generation succeed with an empty list rather than failing the
-// whole build; unstable_cache then revalidates against the real DB once the
-// page is actually serving live traffic.
-const getCachedCompetitorBenchmarks = unstable_cache(
-  async () => {
-    try {
-      return await getActiveCompetitorBenchmarks();
-    } catch {
-      return [];
-    }
-  },
-  ["pricing-v2-competitor-benchmarks"],
-  { revalidate: 3600 }
-);
+import {
+  getPublicPlanConfigs,
+  isPurchasablePlanId,
+} from "@/lib/pricing/plan-config";
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: "Simple, credit-based pricing for Clipforge — Free, Hobby, Creator, and Business plans.",
+  description: "Simple Clipforge pricing for creators, brands and small teams.",
 };
 
-const plans = [
-  {
-    name: "Free",
-    planId: null,
-    price: "$0",
-    credits: "50 credits / month",
-    description: "Try the full pipeline before you commit.",
-    features: [
-      "~5 short videos / month",
-      "Full pipeline — script, voiceover, captions, b-roll",
-      "Watermarked exports",
-      "720p export",
-      "No credit card required",
-    ],
-    cta: "Start free",
-    highlighted: false,
-  },
-  {
-    name: "Hobby",
-    planId: "hobby" as const,
-    price: "$19.99",
-    credits: "300 credits / month",
-    description: "For casual creators just getting started.",
-    features: [
-      "~30 short videos / month",
-      "No watermark",
-      "1080p export",
-      "AI hook-score ranking on every clip",
-      "Standard render queue",
-    ],
-    cta: "Start Hobby plan",
-    highlighted: false,
-  },
-  {
-    name: "Creator",
-    planId: "creator" as const,
-    price: "$26.88",
-    credits: "600 credits / month",
-    description: "For creators posting daily shorts.",
-    features: [
-      "~60 short videos / month",
-      "No watermark",
-      "1080p export",
-      "Repurpose long-form uploads",
-      "AI hook-score ranking on every clip",
-      "Priority render queue",
-    ],
-    cta: "Start Creator plan",
-    highlighted: true,
-  },
-  {
-    name: "Business",
-    planId: "business" as const,
-    price: "$44.99",
-    credits: "2,500 credits / month",
-    description: "For agencies and brands running UGC ad campaigns.",
-    features: [
-      "~250 short videos / month",
-      "UGC-style ad generation",
-      "4K export",
-      "Multi-format export (9:16, 1:1, 16:9)",
-      "AI voice cloning from a sample clip",
-      "Invite teammates to share your credits",
-      "API / MCP access",
-    ],
-    cta: "Start Business plan",
-    highlighted: false,
-  },
-];
+const plans = getPublicPlanConfigs();
 
-export default async function PricingPage({ searchParams }: { searchParams: { plan?: string; canceled?: string } }) {
-  const v2Enabled = isPricingV2Enabled();
-  const selectedPlan = ["hobby", "creator", "business"].includes(searchParams.plan ?? "") ? searchParams.plan : null;
-  const competitors = v2Enabled
-    ? (await getCachedCompetitorBenchmarks())
-        .filter((c): c is typeof c & { priceUsd: number } => c.priceUsd !== null)
-        .map((c) => ({ ...c, verifiedAt: c.verifiedAt.toISOString() }))
-    : [];
-
-  if (v2Enabled) {
-    return (
-      <div className="flex min-h-screen flex-col">
-        <SiteHeader />
-        <main className="ambient-glow relative flex-1 px-6 py-20">
-          <Reveal>
-            <div className="mx-auto max-w-2xl text-center">
-              <h1 className="text-4xl font-bold tracking-tight">Simple, credit-based pricing</h1>
-            </div>
-          </Reveal>
-          <div className="mt-14">
-            <PricingV2 competitors={competitors} />
-          </div>
-        </main>
-        <SiteFooter />
-      </div>
-    );
-  }
+export default async function PricingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ plan?: string; canceled?: string }>;
+}) {
+  const query = await searchParams;
+  const selectedPlan = isPurchasablePlanId(query.plan ?? "") ? query.plan : null;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -140,27 +33,34 @@ export default async function PricingPage({ searchParams }: { searchParams: { pl
       <main className="ambient-glow relative flex-1 px-6 py-20">
         <Reveal>
           <div className="mx-auto max-w-2xl text-center">
-            <h1 className="text-4xl font-bold tracking-tight">Simple, credit-based pricing</h1>
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-primary">Simple plans</p>
+            <h1 className="mt-3 text-4xl font-bold tracking-tight">Start free. Upgrade when you are publishing consistently.</h1>
             <p className="mt-4 text-muted-foreground">
-              Every generated video costs a flat 10 credits, regardless of length. One shared credit pool across all
-              three engines. Upgrade, downgrade, or cancel any time.
+              One credit balance works across Idea-to-video, Repurpose and UGC. The exact price is shown before
+              generation, failed jobs are refunded, and paid plans can be managed through Stripe.
             </p>
           </div>
         </Reveal>
+
         {selectedPlan && (
           <div className="mx-auto mt-8 max-w-2xl rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-center text-sm">
-            Your account is ready. Continue with the <span className="font-semibold capitalize">{selectedPlan}</span> plan below.
+            Your account is ready. Continue with the <span className="font-semibold capitalize">{selectedPlan}</span>{" "}
+            plan below.
           </div>
         )}
-        {searchParams.canceled && (
+        {query.canceled && (
           <div className="mx-auto mt-8 max-w-2xl rounded-xl border border-border bg-card/70 px-4 py-3 text-center text-sm text-muted-foreground">
-            Checkout was canceled. Nothing was charged; choose a plan whenever you&apos;re ready.
+            Checkout was canceled. Nothing was charged; choose a plan whenever you are ready.
           </div>
         )}
-        <RevealGroup className="mx-auto mt-14 grid max-w-6xl gap-6 sm:grid-cols-2 lg:grid-cols-4">
+
+        <RevealGroup className="mx-auto mt-14 grid max-w-5xl gap-6 md:grid-cols-3">
           {plans.map((plan) => (
-            <RevealItem key={plan.name} className="h-full">
-              <div id={plan.planId ? `plan-${plan.planId}` : undefined} className={plan.highlighted || selectedPlan === plan.planId ? "glow-ring h-full scroll-mt-24" : "h-full scroll-mt-24"}>
+            <RevealItem key={plan.planId} className="h-full">
+              <div
+                id={`plan-${plan.planId}`}
+                className={plan.highlighted || selectedPlan === plan.planId ? "glow-ring h-full scroll-mt-24" : "h-full scroll-mt-24"}
+              >
                 <Card
                   className={
                     "flex h-full flex-col border-transparent bg-card/90 transition-transform duration-200 hover:-translate-y-1" +
@@ -169,33 +69,37 @@ export default async function PricingPage({ searchParams }: { searchParams: { pl
                 >
                   <CardHeader>
                     <CardTitle className="flex items-center justify-between font-display">
-                      {plan.name}
+                      {plan.displayName}
                       {plan.highlighted && (
                         <span
-                          aria-label=", Popular"
+                          aria-label=", Most popular"
                           className="rounded-full bg-gradient-to-r from-[hsl(262_83%_66%)] to-[hsl(316_80%_62%)] px-2 py-0.5 text-xs font-medium text-white"
                         >
-                          Popular
+                          Most popular
                         </span>
                       )}
                     </CardTitle>
                     <CardDescription>{plan.description}</CardDescription>
                     <div className="pt-4">
-                      <span className="font-display text-3xl font-bold">{plan.price}</span>
-                      <span className="text-muted-foreground">/mo</span>
+                      <span className="font-display text-3xl font-bold">
+                        ${plan.monthlyPriceUsd.toFixed(plan.monthlyPriceUsd % 1 === 0 ? 0 : 2)}
+                      </span>
+                      {plan.planId !== "free" && <span className="text-muted-foreground">/month</span>}
                     </div>
-                    <p className="text-sm text-muted-foreground">{plan.credits}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {plan.monthlyCredits} {plan.oneTimeCreditsOnly ? "included credits" : "credits per month"}
+                    </p>
                   </CardHeader>
                   <CardContent className="flex flex-1 flex-col">
                     <ul className="flex-1 space-y-2.5 text-sm">
-                      {plan.features.map((f) => (
-                        <li key={f} className="flex items-start gap-2">
+                      {plan.marketingFeatures.map((feature) => (
+                        <li key={feature} className="flex items-start gap-2">
                           <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                          <span>{f}</span>
+                          <span>{feature}</span>
                         </li>
                       ))}
                     </ul>
-                    {plan.planId ? (
+                    {isPurchasablePlanId(plan.planId) ? (
                       <div className="mt-8">
                         <SubscribeButton plan={plan.planId} variant={plan.highlighted ? "default" : "outline"}>
                           {plan.cta}
@@ -212,6 +116,11 @@ export default async function PricingPage({ searchParams }: { searchParams: { pl
             </RevealItem>
           ))}
         </RevealGroup>
+
+        <div className="mx-auto mt-10 max-w-3xl rounded-xl border border-border/70 bg-card/60 px-5 py-4 text-center text-sm text-muted-foreground">
+          Subscriptions renew automatically until canceled. Taxes may apply at checkout. Existing Hobby subscribers
+          keep their current plan and can manage it from Billing.
+        </div>
       </main>
       <SiteFooter />
     </div>

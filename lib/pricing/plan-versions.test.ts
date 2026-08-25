@@ -20,12 +20,12 @@ beforeEach(() => {
 });
 
 describe("seedPlanVersions", () => {
-  it("upserts all five plans keyed on [planId, versionLabel]", async () => {
+  it("upserts all canonical plans keyed on [planId, versionLabel]", async () => {
     planVersionUpsert.mockResolvedValue({});
 
     await seedPlanVersions();
 
-    expect(planVersionUpsert).toHaveBeenCalledTimes(5);
+    expect(planVersionUpsert).toHaveBeenCalledTimes(4);
     expect(planVersionUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { planId_versionLabel: { planId: "business", versionLabel: CURRENT_PLAN_VERSION_LABEL } },

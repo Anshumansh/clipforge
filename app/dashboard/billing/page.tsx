@@ -7,20 +7,21 @@ import { Button } from "@/components/ui/button";
 import { ManageBillingButton } from "@/components/manage-billing-button";
 import { DeleteAccountButton } from "@/components/delete-account-button";
 import { PLANS } from "@/lib/plans";
+import { getPlanConfig } from "@/lib/pricing/plan-config";
 import { formatDate } from "@/lib/utils";
 import { CheckCircle2, AlertTriangle } from "lucide-react";
 
 export const metadata: Metadata = { title: "Billing" };
 
-const planNames: Record<string, string> = { free: "Free", hobby: "Hobby", creator: "Creator", business: "Business" };
-
 export default async function BillingPage({
   searchParams,
 }: {
-  searchParams: { success?: string };
+  searchParams: Promise<{ success?: string }>;
 }) {
+  const query = await searchParams;
   const user = await requireUser();
   const currentPlan = PLANS.find((p) => p.id === user.plan);
+  const currentPlanConfig = getPlanConfig(user.plan);
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -29,7 +30,7 @@ export default async function BillingPage({
         <p className="text-sm text-muted-foreground">Manage your plan and credits.</p>
       </div>
 
-      {searchParams.success && (
+      {query.success && (
         <div className="flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-500">
           <CheckCircle2 className="h-4 w-4" /> Subscription active — credits have been added to your account.
         </div>
@@ -52,7 +53,9 @@ export default async function BillingPage({
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             Current plan
-            <Badge variant={user.plan === "free" ? "outline" : "success"}>{planNames[user.plan] ?? user.plan}</Badge>
+            <Badge variant={user.plan === "free" ? "outline" : "success"}>
+              {currentPlanConfig?.displayName ?? user.plan}
+            </Badge>
           </CardTitle>
           <CardDescription>
             {user.credits} credits remaining

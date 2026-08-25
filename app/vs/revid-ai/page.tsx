@@ -9,19 +9,19 @@ export const metadata: Metadata = {
 const config: ComparisonConfig = {
   competitorName: "Revid.ai",
   badge: "Clipforge vs Revid.ai",
-  headline: "Same idea — a real free plan and a cheaper way in.",
-  subhead: "Revid.ai's published pricing starts at $39/mo with no free tier. Clipforge starts at $0, no card required, and its cheapest paid plan is half that.",
+  headline: "Same goal — a lower-cost way to prove your workflow.",
+  subhead: "Revid.ai's published memberships start at $39/month. Clipforge starts with 50 included credits and its Creator plan is $26.88/month.",
   rows: [
     {
       feature: "Free plan",
-      us: "Yes — 50 credits/month, no card required",
-      them: "Not listed — plans start at $39/mo",
+      us: "50 included signup credits, no card required",
+      them: "No ongoing free membership listed; paid memberships start at $39/mo",
       winner: "us",
     },
     {
       feature: "Entry-level pricing",
-      us: "$0 free, then $19.99/mo Hobby (300 credits, ~30 videos)",
-      them: "$39/mo Growth — 2,000 AI credits/month",
+      us: "$26.88/mo Creator (600 credits, about 60 standard videos)",
+      them: "$39/mo Hobby; Growth is also advertised from $39/mo",
       winner: "us",
     },
     {
@@ -44,18 +44,18 @@ const config: ComparisonConfig = {
     },
     {
       feature: "UGC-style ad generation",
-      us: "Voiceover-led ad videos with matched b-roll, no avatar, on the Business plan",
+      us: "Voiceover-led ad videos with matched b-roll, no avatar, on Creator and Business",
       them: "Yes — AI avatars and face swaps (Growth plan)",
       winner: "them",
     },
     {
       feature: "Track chosen channels for breakout content ideas",
       us: "Yes — Trend Radar scores breakouts against each tracked channel's own baseline",
-      them: "Not listed among published features",
-      winner: "us",
+      them: "Growth lists monitoring 5 channels for viral ideas",
+      winner: "neutral",
     },
   ],
-  fairnessNote: "Feature and pricing details for Revid.ai reflect its public pricing page as of August 2026 — check revid.ai for current numbers before switching.",
+  fairnessNote: "Revid.ai details were checked against its official pricing page on 25 August 2026. Prices and features can change; verify revid.ai/pricing before switching.",
   advantage: {
     title: "A free plan you can actually finish a video on",
     body: "50 free credits is enough for roughly five real, full-pipeline videos — script, voiceover, captions, and b-roll — before you're asked for a card. It's meant to answer \"does this actually work for my idea\" before you commit to a subscription.",

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { canUseRepurpose, canUseUgc } from "@/lib/plans";
+import { canUseRepurpose, canUseSocialPublishing, canUseUgc } from "@/lib/plans";
 
 describe("canUseRepurpose", () => {
   it("allows hobby plan", () => expect(canUseRepurpose("hobby")).toBe(true));
@@ -15,4 +15,17 @@ describe("canUseUgc", () => {
   it("blocks hobby plan", () => expect(canUseUgc("hobby")).toBe(false));
   it("blocks free plan", () => expect(canUseUgc("free")).toBe(false));
   it("blocks unknown plan strings", () => expect(canUseUgc("")).toBe(false));
+});
+
+describe("canUseSocialPublishing", () => {
+  it("allows legacy Hobby, Creator and Business accounts", () => {
+    expect(canUseSocialPublishing("hobby")).toBe(true);
+    expect(canUseSocialPublishing("creator")).toBe(true);
+    expect(canUseSocialPublishing("business")).toBe(true);
+  });
+
+  it("blocks Free and unknown accounts", () => {
+    expect(canUseSocialPublishing("free")).toBe(false);
+    expect(canUseSocialPublishing("unknown")).toBe(false);
+  });
 });

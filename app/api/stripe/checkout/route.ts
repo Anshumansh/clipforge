@@ -4,10 +4,10 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getStripe } from "@/lib/stripe";
-import { getPlanById } from "@/lib/plans";
+import { getPlanConfig, getStripePriceId } from "@/lib/pricing/plan-config";
 import { getPublicAppOrigin } from "@/lib/public-app-url";
 
-const schema = z.object({ plan: z.enum(["hobby", "creator", "business"]) });
+const schema = z.object({ plan: z.enum(["creator", "business"]) });
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
@@ -17,8 +17,9 @@ export async function POST(req: Request) {
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
 
-  const plan = getPlanById(parsed.data.plan);
-  if (!plan?.priceId) {
+  const plan = getPlanConfig(parsed.data.plan);
+  const priceId = getStripePriceId(parsed.data.plan);
+  if (!plan?.purchasable || !priceId) {
     return NextResponse.json({ error: "This plan isn't configured yet" }, { status: 500 });
   }
 
@@ -40,11 +41,11 @@ export async function POST(req: Request) {
     const checkoutSession = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: "subscription",
-      line_items: [{ price: plan.priceId, quantity: 1 }],
+      line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${origin}/dashboard/billing?success=1`,
-      cancel_url: `${origin}/pricing?canceled=1&plan=${plan.id}#plan-${plan.id}`,
-      metadata: { userId: user.id, plan: plan.id },
-      subscription_data: { metadata: { userId: user.id, plan: plan.id } },
+      cancel_url: `${origin}/pricing?canceled=1&plan=${plan.planId}#plan-${plan.planId}`,
+      metadata: { userId: user.id, plan: plan.planId },
+      subscription_data: { metadata: { userId: user.id, plan: plan.planId } },
     });
 
     return NextResponse.json({ url: checkoutSession.url });

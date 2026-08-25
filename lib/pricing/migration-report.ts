@@ -22,8 +22,9 @@ export interface LegacyPlanAccountSummary {
   legacyMonthlyPriceUsd: number | null; // null for free (no price) or an unrecognized plan id
   legacyMonthlyCredits: number | null;
   /** The new-structure plan this legacy plan id most directly corresponds
-   * to, for comparison purposes only -- not an assignment. hobby -> starter,
-   * creator -> creator, business -> business, free -> free. */
+   * to, for comparison purposes only -- not an assignment. The canonical
+   * recovery preserves every existing id, so every recognized plan maps to
+   * itself and the report detects unintended drift. */
   suggestedNewPlanId: keyof typeof PLAN_CONFIGS | null;
   newMonthlyPriceUsd: number | null;
   newMonthlyCredits: number | null;
@@ -33,7 +34,7 @@ export interface LegacyPlanAccountSummary {
 
 const LEGACY_TO_NEW_PLAN_MAP: Record<string, keyof typeof PLAN_CONFIGS | undefined> = {
   free: "free",
-  hobby: "starter",
+  hobby: "hobby",
   creator: "creator",
   business: "business",
 };
@@ -89,7 +90,7 @@ export async function generateMigrationImpactReport(): Promise<MigrationImpactRe
 
   if (activeStripeSubscriptions === 0) {
     notes.push(
-      "Zero active paid Stripe subscriptions at report generation time -- there is currently no paid customer base to migrate. The only real grandfathering concern today is the Free tier's terms changing (50 recurring monthly credits today vs. 20 one-time credits after email verification in the new structure), which existing free accounts must be protected from unless the owner explicitly approves applying it to them too."
+      "Zero active paid Stripe subscriptions at report generation time -- there is currently no paid customer base to migrate. The canonical recovery preserves the existing Free balance and all recognized legacy plan terms."
     );
   }
 

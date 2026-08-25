@@ -80,8 +80,9 @@ async function isAuthorized(req: Request, key: string, segments: string[]): Prom
   return !!authorized;
 }
 
-export async function GET(req: Request, { params }: { params: { key: string[] } }) {
-  const segments = params.key;
+export async function GET(req: Request, { params }: { params: Promise<{ key: string[] }> }) {
+  const { key: keySegments } = await params;
+  const segments = keySegments;
   const key = segments.join("/");
 
   if (

@@ -48,7 +48,7 @@ const config: VerticalConfig = {
     },
   ],
   ctaHeadline: "Upload your next episode and see the clips it finds",
-  ctaBody: "50 free credits to start — enough to repurpose a real episode before you decide anything.",
+  ctaBody: "Start free with Script-to-Video. Long-form Repurpose unlocks on Creator and Business.",
 };
 
 export default function PodcastersPage() {

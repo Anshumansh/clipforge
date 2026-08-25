@@ -14,6 +14,9 @@ import { LANGUAGES } from "@/lib/languages";
 import { GenerationOperation } from "@/lib/generation-client";
 import Link from "next/link";
 import { ArrowLeft, Settings2 } from "lucide-react";
+import { GenerationSummary } from "@/components/generation-summary";
+import { useCurrentPlan } from "@/components/plan-provider";
+import { canUseVoiceClone } from "@/lib/plans";
 
 export default function NewScriptVideoPage() {
   const router = useRouter();
@@ -32,6 +35,8 @@ export default function NewScriptVideoPage() {
   // stable instance for the component's lifetime (never re-created, never
   // triggers a re-render).
   const [operation] = useState(() => new GenerationOperation());
+  const currentPlan = useCurrentPlan();
+  const voiceCloneAvailable = canUseVoiceClone(currentPlan);
 
   async function getHooks() {
     setHooksLoading(true);
@@ -46,7 +51,7 @@ export default function NewScriptVideoPage() {
     if (res.ok) setHooks(data.hooks ?? []);
   }
 
-  function useHook(hook: string) {
+  function chooseHook(hook: string) {
     setTopic((current) => `Open with this exact hook: "${hook}"\n\n${current}`);
     setHooks(null);
   }
@@ -150,7 +155,7 @@ export default function NewScriptVideoPage() {
                     <button
                       key={i}
                       type="button"
-                      onClick={() => useHook(hook)}
+                      onClick={() => chooseHook(hook)}
                       className="block w-full rounded-md border border-transparent px-2 py-1.5 text-left text-sm transition-colors hover:border-primary/40 hover:bg-primary/10"
                     >
                       "{hook}"
@@ -187,12 +192,17 @@ export default function NewScriptVideoPage() {
                     id="voiceSample"
                     type="file"
                     accept="audio/*"
+                    disabled={!voiceCloneAvailable}
                     onChange={(e) => {
                       setVoiceSample(e.target.files?.[0] ?? null);
                       setVoiceConsent(false);
                     }}
                   />
-                  <p className="text-xs text-muted-foreground">Upload a clean 10-30s voice sample. A Business-plan feature.</p>
+                  <p className="text-xs text-muted-foreground">
+                    {voiceCloneAvailable
+                      ? "Upload a clean 10-30s voice sample."
+                      : "Voice cloning is available on Business. The standard voices remain available on your plan."}
+                  </p>
                   {voiceSample && (
                     <label className="flex items-start gap-2 rounded-lg border border-border bg-secondary/30 p-3 text-xs text-muted-foreground">
                       <input type="checkbox" required checked={voiceConsent} onChange={(e) => setVoiceConsent(e.target.checked)} className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-primary" />
@@ -202,6 +212,7 @@ export default function NewScriptVideoPage() {
                 </div>
               </div>
             </details>
+            <GenerationSummary />
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" disabled={loading || (!!voiceSample && !voiceConsent)} className="w-full">
               {loading ? "Starting render…" : "Generate video"}

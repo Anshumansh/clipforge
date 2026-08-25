@@ -61,7 +61,7 @@ function checkStagingProtection(req: NextRequest): NextResponse | null {
   return null; // authenticated, continue
 }
 
-export default async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const stagingBlock = checkStagingProtection(req);
   if (stagingBlock) return stagingBlock;
 
@@ -70,7 +70,10 @@ export default async function middleware(req: NextRequest) {
   // only supports a single middleware chain and the staging gate above
   // needs to run on every path, not just /dashboard.
   if (req.nextUrl.pathname.startsWith("/dashboard")) {
-    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+    // next-auth v4's getToken may throw on malformed Bearer input. Treat
+    // malformed tokens as unauthenticated so an attacker cannot turn one
+    // bad header into an uncaught 500 on every protected page.
+    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET }).catch(() => null);
     if (!token) {
       // `req.url`/`new URL(path, req.url)` resolve using whatever origin
       // Next.js's edge runtime believes it is -- behind a reverse proxy

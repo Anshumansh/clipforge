@@ -1,14 +1,14 @@
 /**
- * Stripe price mapping for the pricing overhaul's new plans (brief section
- * 9). TEST MODE ONLY -- these price IDs were provisioned in Stripe test
- * mode (see STRIPE_PRODUCT_MAPPING.md for the exact products/prices and how
- * they were created). Production equivalents do not exist and must not be
- * created without explicit owner approval, per the brief's staged rollout.
- *
- * Additive alongside the legacy lib/plans.ts, which the live checkout route
- * still uses exclusively until PRICING_V2_ENABLED flips on.
+ * Compatibility wrappers for Stripe mapping consumers. Plan prices now come
+ * from the canonical catalogue and the production `STRIPE_PRICE_*` env keys.
+ * Annual subscriptions and add-ons are not sold by the current checkout.
  */
-import type { StandardPlanId } from "@/lib/pricing/plan-config";
+import {
+  getPlanConfigByPriceId,
+  getStripePriceId,
+  type PaidPlanId,
+  type StandardPlanId,
+} from "@/lib/pricing/plan-config";
 
 export type BillingInterval = "monthly" | "annual";
 
@@ -18,27 +18,25 @@ export interface PlanPriceMapping {
   annualPriceId: string | undefined;
 }
 
-const PAID_PLAN_IDS: Exclude<StandardPlanId, "free">[] = ["starter", "creator", "pro", "business"];
+const PAID_PLAN_IDS: PaidPlanId[] = ["hobby", "creator", "business"];
 
 export function getV2PlanPriceMapping(): PlanPriceMapping[] {
   return PAID_PLAN_IDS.map((planId) => ({
     planId,
-    monthlyPriceId: process.env[`STRIPE_PRICE_V2_${planId.toUpperCase()}_MONTHLY`],
-    annualPriceId: process.env[`STRIPE_PRICE_V2_${planId.toUpperCase()}_ANNUAL`],
+    monthlyPriceId: getStripePriceId(planId),
+    annualPriceId: undefined,
   }));
 }
 
-export function getV2PriceId(planId: Exclude<StandardPlanId, "free">, interval: BillingInterval): string | undefined {
-  const envKey = `STRIPE_PRICE_V2_${planId.toUpperCase()}_${interval === "monthly" ? "MONTHLY" : "ANNUAL"}`;
-  return process.env[envKey];
+export function getV2PriceId(planId: PaidPlanId, interval: BillingInterval): string | undefined {
+  return interval === "monthly" ? getStripePriceId(planId) : undefined;
 }
 
-export function getV2PlanByPriceId(priceId: string): { planId: StandardPlanId; interval: BillingInterval } | undefined {
-  for (const planId of PAID_PLAN_IDS) {
-    if (getV2PriceId(planId, "monthly") === priceId) return { planId, interval: "monthly" };
-    if (getV2PriceId(planId, "annual") === priceId) return { planId, interval: "annual" };
-  }
-  return undefined;
+export function getV2PlanByPriceId(
+  priceId: string
+): { planId: StandardPlanId; interval: BillingInterval } | undefined {
+  const plan = getPlanConfigByPriceId(priceId);
+  return plan && plan.planId !== "free" ? { planId: plan.planId, interval: "monthly" } : undefined;
 }
 
 export type CreditPackId = "pack_100" | "pack_500" | "pack_1500" | "pack_5000";
@@ -50,9 +48,8 @@ export const CREDIT_PACK_SIZES: Record<CreditPackId, number> = {
   pack_5000: 5000,
 };
 
-/** pack_5000 is restricted to owner-approved Business/Enterprise accounts
- * per the brief -- callers must check plan/approval before offering it,
- * this mapping alone doesn't enforce that restriction. */
+/** Add-ons are not exposed by checkout yet. These helpers remain for the
+ * owner-gated future implementation and read values lazily. */
 export function getCreditPackPriceId(packId: CreditPackId): string | undefined {
   return process.env[`STRIPE_PRICE_V2_CREDIT_PACK_${CREDIT_PACK_SIZES[packId]}`];
 }

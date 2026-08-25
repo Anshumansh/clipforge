@@ -4,7 +4,7 @@ import { NextRequest } from "next/server";
 const getTokenFn = vi.fn();
 vi.mock("next-auth/jwt", () => ({ getToken: (...a: unknown[]) => getTokenFn(...a) }));
 
-const { default: middleware } = await import("./middleware");
+const { proxy: middleware } = await import("./proxy");
 
 function req(path: string, opts: { auth?: string } = {}): NextRequest {
   const headers = new Headers();
@@ -16,7 +16,7 @@ function basicAuthHeader(user: string, pass: string): string {
   return `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`;
 }
 
-describe("middleware — staging protection (Release Candidate Validation item 3)", () => {
+describe("proxy — staging protection and dashboard session enforcement", () => {
   const ORIGINAL_ENV = { ...process.env };
 
   beforeEach(() => {
@@ -145,6 +145,16 @@ describe("middleware — staging protection (Release Candidate Validation item 3
     const res = await middleware(req("/dashboard", { auth: basicAuthHeader("staging", "correct-horse") }));
 
     // Basic auth passed, but no session -> redirected to login, not a raw 401.
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toContain("/login");
+  });
+
+  it("rejects a malformed bearer token without crashing the request", async () => {
+    delete process.env.STAGING_ENVIRONMENT;
+    getTokenFn.mockRejectedValueOnce(new Error("Malformed Bearer authorization header"));
+
+    const res = await middleware(req("/dashboard", { auth: "Bearer" }));
+
     expect(res.status).toBe(307);
     expect(res.headers.get("location")).toContain("/login");
   });

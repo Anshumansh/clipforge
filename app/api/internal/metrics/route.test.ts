@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import parsePrometheusTextFormat from "parse-prometheus-text-format";
 import { GET } from "./route";
 import { db } from "@/lib/db";

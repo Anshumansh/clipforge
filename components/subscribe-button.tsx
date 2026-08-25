@@ -4,13 +4,14 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
+import type { PurchasablePlanId } from "@/lib/pricing/plan-config";
 
 export function SubscribeButton({
   plan,
   children,
   variant,
 }: {
-  plan: "hobby" | "creator" | "business";
+  plan: PurchasablePlanId;
   children: React.ReactNode;
   variant?: "default" | "outline";
 }) {

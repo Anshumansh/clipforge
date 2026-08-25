@@ -16,6 +16,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { ASPECT_RATIOS, canUseAspectRatio } from "@/lib/aspect-ratio";
 import { resolveGenerationContext } from "@/lib/workspace";
 import { requireVerifiedEmail, EmailNotVerifiedError } from "@/lib/email-verification";
+import { getGenerationPriority } from "@/lib/jobs/priorities";
 import { canUseUgc } from "@/lib/plans";
 
 const schema = z.object({
@@ -101,7 +102,7 @@ export async function POST(req: Request) {
   const reservationId = genResult.reservationId;
 
   try {
-    const { project, job } = await db.$transaction(async (tx) => {
+    const project = await db.$transaction(async (tx) => {
       const project = await tx.project.create({
         data: {
           userId,
@@ -113,10 +114,16 @@ export async function POST(req: Request) {
         },
       });
       const job = await tx.job.create({
-        data: { userId, projectId: project.id, type: "render", status: "queued" },
+        data: {
+          userId,
+          projectId: project.id,
+          type: "render",
+          status: "queued",
+          priority: getGenerationPriority(genCtx.effectivePlan),
+        },
       });
       await tx.creditReservation.update({ where: { id: reservationId }, data: { jobId: job.id } });
-      return { project, job };
+      return project;
     });
 
     // No local enqueue step -- the worker process picks up this queued

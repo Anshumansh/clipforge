@@ -24,6 +24,8 @@ function makeRequest(method = "GET"): Request {
   return new Request("https://forgecut.app/api/projects/proj_1", { method });
 }
 
+const routeContext = { params: Promise.resolve({ id: "proj_1" }) };
+
 describe("GET /api/projects/[id]", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -33,13 +35,13 @@ describe("GET /api/projects/[id]", () => {
 
   it("returns 401 with no session", async () => {
     resolveApiUserFn.mockResolvedValue(null);
-    const res = await GET(makeRequest(), { params: { id: "proj_1" } });
+    const res = await GET(makeRequest(), routeContext);
     expect(res.status).toBe(401);
   });
 
   it("returns 404 when the project isn't found or isn't accessible", async () => {
     projectFindFirst.mockResolvedValue(null);
-    const res = await GET(makeRequest(), { params: { id: "proj_1" } });
+    const res = await GET(makeRequest(), routeContext);
     expect(res.status).toBe(404);
   });
 
@@ -56,7 +58,7 @@ describe("GET /api/projects/[id]", () => {
       clips: [],
       jobs: [{ status: "completed", progress: 100, log: "Done" }],
     });
-    const res = await GET(makeRequest(), { params: { id: "proj_1" } });
+    const res = await GET(makeRequest(), routeContext);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.id).toBe("proj_1");
@@ -77,7 +79,7 @@ describe("DELETE /api/projects/[id]", () => {
 
   it("returns 401 with no session", async () => {
     resolveApiUserFn.mockResolvedValue(null);
-    const res = await DELETE(makeRequest("DELETE"), { params: { id: "proj_1" } });
+    const res = await DELETE(makeRequest("DELETE"), routeContext);
     expect(res.status).toBe(401);
   });
 
@@ -85,7 +87,7 @@ describe("DELETE /api/projects/[id]", () => {
     // Deliberately does not stub projectAccessFilter here: DELETE must
     // scope directly by userId, not via the workspace-viewer set.
     projectFindFirst.mockResolvedValue(null);
-    const res = await DELETE(makeRequest("DELETE"), { params: { id: "proj_1" } });
+    const res = await DELETE(makeRequest("DELETE"), routeContext);
     expect(res.status).toBe(404);
     expect(projectFindFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "proj_1", userId: "user_1" } })
@@ -100,7 +102,7 @@ describe("DELETE /api/projects/[id]", () => {
     });
     projectDelete.mockResolvedValue({});
 
-    const res = await DELETE(makeRequest("DELETE"), { params: { id: "proj_1" } });
+    const res = await DELETE(makeRequest("DELETE"), routeContext);
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
@@ -115,7 +117,7 @@ describe("DELETE /api/projects/[id]", () => {
     deleteMediaByPrefixFn.mockRejectedValue(new Error("storage unavailable"));
     projectDelete.mockResolvedValue({});
 
-    const res = await DELETE(makeRequest("DELETE"), { params: { id: "proj_1" } });
+    const res = await DELETE(makeRequest("DELETE"), routeContext);
 
     expect(res.status).toBe(200);
     expect(projectDelete).toHaveBeenCalled();

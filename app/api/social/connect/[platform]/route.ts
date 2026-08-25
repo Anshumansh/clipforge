@@ -4,8 +4,11 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { isSocialPlatform, isPlatformConfigured, PLATFORM_OAUTH, getRedirectUri } from "@/lib/social/platforms";
 import { requireVerifiedEmail, EmailNotVerifiedError } from "@/lib/email-verification";
+import { db } from "@/lib/db";
+import { canUseSocialPublishing } from "@/lib/plans";
 
-export async function GET(req: Request, { params }: { params: { platform: string } }) {
+export async function GET(req: Request, { params }: { params: Promise<{ platform: string }> }) {
+  const { platform: platformParam } = await params;
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -17,10 +20,15 @@ export async function GET(req: Request, { params }: { params: { platform: string
     throw err;
   }
 
-  if (!isSocialPlatform(params.platform)) {
+  const user = await db.user.findUnique({ where: { id: userId }, select: { plan: true } });
+  if (!user || !canUseSocialPublishing(user.plan)) {
+    return NextResponse.json({ error: "Social publishing is available on Creator and Business" }, { status: 403 });
+  }
+
+  if (!isSocialPlatform(platformParam)) {
     return NextResponse.json({ error: "Unknown platform" }, { status: 400 });
   }
-  const platform = params.platform;
+  const platform = platformParam;
 
   if (!isPlatformConfigured(platform)) {
     return NextResponse.json({ error: `${platform} isn't configured on this server yet` }, { status: 501 });

@@ -35,11 +35,18 @@ function RegisterForm() {
     setLoading(true);
     setError(null);
 
-    const res = await fetch("/api/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, password }),
-    });
+    let res: Response;
+    try {
+      res = await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, password }),
+      });
+    } catch {
+      setError("Could not reach the server. Check your connection and try again.");
+      setLoading(false);
+      return;
+    }
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -48,7 +55,15 @@ function RegisterForm() {
       return;
     }
 
-    const signInRes = await signIn("credentials", { email, password, redirect: false });
+    let signInRes: Awaited<ReturnType<typeof signIn>>;
+    try {
+      signInRes = await signIn("credentials", { email, password, redirect: false });
+    } catch {
+      setLoading(false);
+      setError("Your account was created, but automatic login failed. Please log in to continue.");
+      router.replace(next !== "/dashboard" ? `/login?next=${encodeURIComponent(next)}` : "/login");
+      return;
+    }
     setLoading(false);
     if (signInRes?.error) {
       setError("Account created — please log in.");

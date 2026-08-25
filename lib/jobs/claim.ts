@@ -1,8 +1,8 @@
 /**
  * Full 8-status queue lifecycle with lease-based claiming, worker heartbeat,
  * priority-ordered claiming, exponential-backoff retry for stale leases,
- * and dead-lettering after maxAttempts. Supports all 7 priority tiers
- * (currently only demo=-10 wired; others default to priority=0).
+ * and dead-lettering after maxAttempts. New jobs are assigned a real tier
+ * by lib/jobs/priorities.ts: Business, paid, verified Free, then demo.
  *
  * Status machine:
  *  queued → leased → processing → completed (success)
@@ -15,6 +15,15 @@ import { db } from "@/lib/db";
 import { refundCredits, CREDITS_PER_VIDEO } from "@/lib/credits";
 import { releaseReservationInTx } from "@/lib/pricing/ledger";
 import { resolveProjectCreditOwnerId } from "@/lib/workspace";
+export {
+  JOB_PRIORITY_PAID_URGENT,
+  JOB_PRIORITY_PAID_STANDARD,
+  JOB_PRIORITY_VERIFIED_FREE,
+  JOB_PRIORITY_STANDARD,
+  JOB_PRIORITY_HEAVY,
+  JOB_PRIORITY_4K,
+  JOB_PRIORITY_DEMO,
+} from "@/lib/jobs/priorities";
 
 export type JobType = "script" | "repurpose" | "ugc";
 
@@ -30,15 +39,6 @@ export interface ClaimedJob {
   type: JobType;
   attemptToken: string; // UUID for this attempt; must be verified on all mutations
 }
-
-// 7-tier priority system (section 13). Higher = claimed first.
-export const JOB_PRIORITY_PAID_URGENT = 100;    // Future: urgent paid (e.g., B2B)
-export const JOB_PRIORITY_PAID_STANDARD = 50;   // Future: standard paid customer
-export const JOB_PRIORITY_VERIFIED_FREE = 10;   // Future: verified free account (not anonymous demo)
-export const JOB_PRIORITY_STANDARD = 0;         // Default/neutral priority
-export const JOB_PRIORITY_HEAVY = -5;           // Future: 4K or voice-cloning (expensive)
-export const JOB_PRIORITY_4K = -8;              // Future: 4K render (compute-intensive)
-export const JOB_PRIORITY_DEMO = -10;           // Anonymous demo (lowest priority)
 
 // Lease and heartbeat constants
 export const LEASE_DURATION_MS = 45_000;

@@ -25,8 +25,8 @@ function resolveName(params: { name: string }): ReturnType<typeof getShowcaseAss
   return isShowcaseName(params.name) ? getShowcaseAsset(params.name) : null;
 }
 
-export async function HEAD(_req: Request, { params }: { params: { name: string } }) {
-  const asset = resolveName(params);
+export async function HEAD(_req: Request, { params }: { params: Promise<{ name: string }> }) {
+  const asset = resolveName(await params);
   if (!asset) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   try {
@@ -41,8 +41,8 @@ export async function HEAD(_req: Request, { params }: { params: { name: string }
   }
 }
 
-export async function GET(req: Request, { params }: { params: { name: string } }) {
-  const asset = resolveName(params);
+export async function GET(req: Request, { params }: { params: Promise<{ name: string }> }) {
+  const asset = resolveName(await params);
   if (!asset) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const range = req.headers.get("range")?.trim();

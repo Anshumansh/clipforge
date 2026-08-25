@@ -9,7 +9,8 @@ import { projectAccessFilter } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -17,7 +18,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const { ok } = rateLimit(`thumbnail:${userId}`, 10, 60 * 1000);
   if (!ok) return NextResponse.json({ error: "Too many requests. Slow down and try again shortly." }, { status: 429 });
 
-  const project = await db.project.findFirst({ where: { id: params.id, ...(await projectAccessFilter(userId)) } });
+  const project = await db.project.findFirst({ where: { id, ...(await projectAccessFilter(userId)) } });
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
   if (project.status !== "ready") {
     return NextResponse.json({ error: "Project isn't finished rendering yet" }, { status: 400 });

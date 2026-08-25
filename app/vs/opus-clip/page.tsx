@@ -26,9 +26,9 @@ const config: ComparisonConfig = {
     },
     {
       feature: "UGC-style ad generation (voiceover-led, no avatar)",
-      us: "Yes, included on the Business plan",
-      them: "Not listed as a feature",
-      winner: "us",
+      us: "Yes, included on Creator and Business",
+      them: "Real-time trend analysis is listed on the custom Business tier",
+      winner: "neutral",
     },
     {
       feature: "Track chosen channels for breakout content ideas",
@@ -44,24 +44,24 @@ const config: ComparisonConfig = {
     },
     {
       feature: "Entry-level paid plan",
-      us: "$19.99/mo Hobby — 300 credits, ~30 videos",
-      them: "$15/mo Starter — watermark-free export",
+      us: "$26.88/mo Creator — 600 credits, about 60 standard videos",
+      them: "$15/mo Starter — 150 credits and watermark-free export",
       winner: "them",
     },
     {
       feature: "Free plan",
-      us: "Yes — 50 credits/month, no card required",
-      them: "Yes — includes watermarked exports",
+      us: "Yes — 50 included signup credits, no card required",
+      them: "Yes — 60 monthly credits, watermarked exports, and 3-day export availability",
       winner: "neutral",
     },
   ],
-  fairnessNote: "Feature and pricing details for Opus Clip reflect its public pricing page as of August 2026 — check opus.pro for current numbers before switching.",
+  fairnessNote: "Opus Clip details were checked against its official pricing page on 25 August 2026. Prices and features can change; verify opus.pro/pricing before switching.",
   advantage: {
     title: "One credit pool, three engines",
     body: "Script-to-video, Repurpose, and UGC ads all draw from the same Clipforge account and the same credit balance. You're not paying for a separate tool, and a separate subscription, every time the format of what you need changes.",
   },
   ctaHeadline: "See the difference on a real idea",
-  ctaBody: "50 free credits, no card required — enough to try script-to-video or repurposing before you decide anything.",
+  ctaBody: "50 included credits, no card required — enough to try Script-to-Video before you decide anything.",
 };
 
 export default function OpusClipComparisonPage() {

@@ -4,14 +4,15 @@ import { getDemoUserId } from "@/lib/demo-user";
 
 export const runtime = "nodejs";
 
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const demoUserId = await getDemoUserId();
 
   // Scoped to the shared demo account specifically — this is a public,
   // unauthenticated endpoint, so it must never be usable to peek at a real
   // user's project by guessing an id.
   const project = await db.project.findFirst({
-    where: { id: params.id, userId: demoUserId },
+    where: { id, userId: demoUserId },
     select: {
       status: true,
       videoUrl: true,

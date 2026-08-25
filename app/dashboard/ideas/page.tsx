@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Lightbulb, Sparkles, Wand2 } from "lucide-react";
 import type { VideoIdea } from "@/lib/providers/ideas";
+import { DiscoverTabs } from "@/components/discover-tabs";
 
 export default function IdeaRadarPage() {
   const router = useRouter();
@@ -35,19 +36,20 @@ export default function IdeaRadarPage() {
     setIdeas(data.ideas);
   }
 
-  function useIdea(idea: VideoIdea) {
+  function chooseIdea(idea: VideoIdea) {
     const topic = idea.hook ? `${idea.title}\n\nOpen with this hook: "${idea.hook}"\n\n${idea.description}` : `${idea.title}\n\n${idea.description}`;
     router.push(`/dashboard/new/script?topic=${encodeURIComponent(topic)}`);
   }
 
   return (
     <div className="mx-auto max-w-4xl">
+      <DiscoverTabs />
       <div className="mb-6 flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500/20 to-primary/20">
           <Lightbulb className="h-5 w-5 text-amber-500" />
         </div>
         <div>
-          <h1 className="text-xl font-bold">Idea Radar</h1>
+          <h1 className="text-xl font-bold">Discover ideas</h1>
           <p className="text-sm text-muted-foreground">Stuck on what to post today? Get fresh, ready-to-use video ideas — free, no credits used.</p>
         </div>
       </div>
@@ -87,7 +89,7 @@ export default function IdeaRadarPage() {
                 <CardDescription>{idea.description}</CardDescription>
               </CardHeader>
               <CardContent className="pt-0">
-                <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => useIdea(idea)}>
+                <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={() => chooseIdea(idea)}>
                   <Wand2 className="h-3.5 w-3.5" /> Use this idea
                 </Button>
               </CardContent>

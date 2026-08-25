@@ -1,80 +1,73 @@
+/** Compatibility helpers around the single canonical plan catalogue.
+ * New code should prefer `lib/pricing/plan-config` directly. */
+import {
+  PLAN_CONFIGS,
+  getPlanConfig,
+  getPlanConfigByPriceId,
+  getStripePriceId,
+  type PaidPlanId,
+} from "@/lib/pricing/plan-config";
+
 export interface Plan {
-  id: "hobby" | "creator" | "business";
+  id: PaidPlanId;
   name: string;
-  priceId: string | undefined;
+  readonly priceId: string | undefined;
   monthlyCredits: number;
   priceLabel: string;
 }
 
-export const PLANS: Plan[] = [
-  {
-    id: "hobby",
-    name: "Hobby",
-    priceId: process.env.STRIPE_PRICE_HOBBY,
-    monthlyCredits: 300,
-    priceLabel: "$19.99/mo",
-  },
-  {
-    id: "creator",
-    name: "Creator",
-    priceId: process.env.STRIPE_PRICE_CREATOR,
-    monthlyCredits: 600,
-    priceLabel: "$26.88/mo",
-  },
-  {
-    id: "business",
-    name: "Business",
-    priceId: process.env.STRIPE_PRICE_BUSINESS,
-    monthlyCredits: 2500,
-    priceLabel: "$44.99/mo",
-  },
-];
-
-export function getPlanById(id: string) {
-  return PLANS.find((p) => p.id === id);
+function paidPlan(id: PaidPlanId): Plan {
+  const config = PLAN_CONFIGS[id];
+  return {
+    id,
+    name: config.displayName,
+    get priceId() {
+      return getStripePriceId(id);
+    },
+    monthlyCredits: config.monthlyCredits,
+    priceLabel: `$${config.monthlyPriceUsd.toFixed(2)}/mo`,
+  };
 }
 
-export function getPlanByPriceId(priceId: string) {
-  return PLANS.find((p) => p.priceId === priceId);
+/** Includes Hobby for existing-subscriber/admin compatibility. New sales
+ * are limited by the checkout schema and public catalogue. */
+export const PLANS: Plan[] = [paidPlan("hobby"), paidPlan("creator"), paidPlan("business")];
+
+export function getPlanById(id: string): Plan | undefined {
+  if (id === "free") return undefined;
+  return PLANS.find((plan) => plan.id === id);
 }
 
-/** Voice cloning is CPU/memory-heavy on the render VPS (see OPERATIONS.md) —
- * reserved for the Business plan, same tier gate as multi-format export. */
+export function getPlanByPriceId(priceId: string): Plan | undefined {
+  const config = getPlanConfigByPriceId(priceId);
+  return config && config.planId !== "free" ? getPlanById(config.planId) : undefined;
+}
+
 export function canUseVoiceClone(plan: string): boolean {
-  return plan === "business";
+  return getPlanConfig(plan)?.voiceCloning === true;
 }
 
-/** Brand kits can be configured on any plan (see app/api/brand-kit) so a
- * user can set one up in advance, but only actually applied to a render on
- * the Business plan -- same tier gate as voice cloning and multi-format. */
 export function canUseBrandKit(plan: string): boolean {
-  return plan === "business";
+  return (getPlanConfig(plan)?.brandPresetLimit ?? 0) > 0;
 }
 
-/** API access (item 10, MCP server) -- advertised on the pricing page as a
- * Business-plan feature. Checked both at key-creation time and on every
- * request (lib/api-auth.ts), so a downgraded account's existing keys stop
- * working immediately rather than at next renewal. */
 export function canUseApiAccess(plan: string): boolean {
-  return plan === "business";
+  const config = getPlanConfig(plan);
+  return config !== undefined && config.apiAccess !== "none";
 }
 
-/** Team workspaces (item 12) -- creating one is a Business-plan feature,
- * since invited members spend from the owner's credit pool. Already-joined
- * members can stay in a workspace regardless of their own plan (they're
- * not the one being billed). */
 export function canCreateWorkspace(plan: string): boolean {
-  return plan === "business";
+  return getPlanConfig(plan)?.canCreateWorkspace === true;
 }
 
-/** Repurpose (long-form → highlight clips) -- available on any paid plan.
- * Free accounts cannot access this workflow. */
 export function canUseRepurpose(plan: string): boolean {
-  return plan === "hobby" || plan === "creator" || plan === "business";
+  return getPlanConfig(plan)?.workflows.repurpose === true;
 }
 
-/** UGC ad generator -- Creator and Business plans only.
- * Hobby accounts get the script-to-video workflow only. */
 export function canUseUgc(plan: string): boolean {
-  return plan === "creator" || plan === "business";
+  return getPlanConfig(plan)?.workflows.ugc === true;
+}
+
+export function canUseSocialPublishing(plan: string): boolean {
+  return getPlanConfig(plan)?.socialPublishing === true;
 }

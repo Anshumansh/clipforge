@@ -38,13 +38,9 @@ export async function seedPlanVersions(): Promise<void> {
   }
 }
 
-/** Resolves the effective plan config for a user. A non-null
- * User.planVersionId always wins (an explicit, versioned assignment,
- * whether from new-customer signup or an owner-approved migration). A null
- * planVersionId falls back to null -- the caller is responsible for mapping
- * that to the pre-overhaul hobby/creator/business definitions in
- * lib/plans.ts, since this module's whole purpose is the NEW versioned
- * config, not a compatibility shim for the old one. */
+/** Resolves an explicitly assigned historical plan snapshot. A null
+ * planVersionId returns null so the caller can use the canonical live
+ * catalogue in lib/pricing/plan-config.ts. */
 export async function resolvePlanConfig(planVersionId: string | null): Promise<PlanFeatureConfig | null> {
   if (!planVersionId) return null;
   const version = await db.planVersion.findUnique({ where: { id: planVersionId } });

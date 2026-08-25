@@ -8,7 +8,7 @@ import { rateLimit } from "@/lib/rate-limit";
 
 const MIN_BASELINE_SAMPLES = 3; // must match lib/trend/scoring.ts
 
-export async function GET(req: Request) {
+export async function GET() {
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

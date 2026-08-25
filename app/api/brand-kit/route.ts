@@ -35,6 +35,11 @@ export async function POST(req: Request) {
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const user = await db.user.findUnique({ where: { id: userId }, select: { plan: true } });
+  if (!user || !canUseBrandKit(user.plan)) {
+    return NextResponse.json({ error: "Brand kit is a Business-plan feature" }, { status: 403 });
+  }
+
   const form = await req.formData().catch(() => null);
   if (!form) return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
 
