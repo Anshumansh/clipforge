@@ -11,5 +11,11 @@ describe("production image runtime dependencies", () => {
     expect(dockerfile).toContain(
       "COPY --from=builder /app/node_modules/remotion ./node_modules/remotion"
     );
+
+    for (const packagePath of ["@jridgewell", "@mediabunny", "mediabunny", "zod"]) {
+      expect(dockerfile).toContain(
+        `COPY --from=builder /app/node_modules/${packagePath} ./node_modules/${packagePath}`
+      );
+    }
   });
 });
