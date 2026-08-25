@@ -78,10 +78,20 @@ test.describe("homepage", () => {
       // muted autoplay should already be underway from the click (see
       // ClipTile's loadThenPlay in components/hero-demo.tsx) -- confirm
       // currentTime actually advances rather than trusting `paused` alone.
+      // Polls instead of a single fixed wait: headless Firefox/WebKit in CI
+      // can take noticeably longer than Chromium to actually begin
+      // decoding/playing a muted video after .play() resolves, and a tight
+      // one-shot window was flaking on exactly those two browsers even
+      // though the video had already loaded correctly (readyState/duration/
+      // error all fine) -- this isn't a real product defect, just CI
+      // startup variance across engines.
       const t0 = await handle.evaluate((el) => (el as HTMLVideoElement).currentTime);
-      await page.waitForTimeout(500);
-      const t1 = await handle.evaluate((el) => (el as HTMLVideoElement).currentTime);
-      expect(t1, `${label} currentTime did not advance -- playback never actually started`).toBeGreaterThan(t0);
+      await expect
+        .poll(async () => handle.evaluate((el) => (el as HTMLVideoElement).currentTime), {
+          message: `${label} currentTime did not advance -- playback never actually started`,
+          timeout: 8000,
+        })
+        .toBeGreaterThan(t0);
 
       await handle.evaluate((el) => (el as HTMLVideoElement).pause());
     }
