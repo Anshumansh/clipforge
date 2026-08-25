@@ -48,7 +48,14 @@ test.describe("homepage", () => {
       // provider behaviour cannot vary by browser or CI runner.
       expect(response, `${label} produced no video request`).not.toBeNull();
       expect(response!.status(), `${label} video request`).toBeLessThan(400);
-      expect(response!.headers()["content-type"]).toContain("video/mp4");
+      // headerValue(), not headers()["content-type"] -- confirmed live that
+      // WebKit's Playwright headers() doesn't reliably normalize the key to
+      // lowercase the way Chromium/Firefox do, so a direct bracket lookup
+      // came back undefined even though the real response header was
+      // present and correct. headerValue() is Playwright's own
+      // case-insensitive accessor, built for exactly this.
+      const contentType = await response!.headerValue("content-type");
+      expect(contentType, `${label} content-type`).toContain("video/mp4");
 
       // A successful network response isn't proof the clip actually plays --
       // the browser cache can serve a stale/empty response as a 200, and a
