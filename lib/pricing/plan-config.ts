@@ -197,11 +197,37 @@ export function isPurchasablePlanId(id: string): id is PurchasablePlanId {
   return id === "creator" || id === "business";
 }
 
+/** A real Stripe price id is `price_` followed by an opaque token of letters,
+ * digits, underscores or hyphens -- never a decimal point. Staging was found
+ * configured with the literal placeholder `price_44.99` (the plan's dollar
+ * amount, not an id): truthy, so it passed every `!priceId` guard, reached
+ * Stripe, and came back as a generic "No such price" that callers surfaced as
+ * a transient "try again in a moment" 503 -- a permanent misconfiguration
+ * masquerading as a temporary outage. Kept permissive about separators on
+ * purpose (that isn't the failure mode worth guessing at); the point is to
+ * reject a value that is plainly a price *amount* rather than an id. */
+function isValidStripePriceId(value: string): boolean {
+  return /^price_[A-Za-z0-9_-]+$/.test(value);
+}
+
 /** Read at request time, not module load time, so rotated Railway/VPS values
- * are picked up after a process restart and tests can safely isolate env. */
+ * are picked up after a process restart and tests can safely isolate env.
+ * Returns undefined for a malformed value so callers treat it the same as
+ * "not configured" (an honest, actionable error) rather than forwarding
+ * junk to Stripe. */
 export function getStripePriceId(planId: string): string | undefined {
   const key = getPlanConfig(planId)?.stripePriceEnvKey;
-  return key ? process.env[key] : undefined;
+  if (!key) return undefined;
+  const value = process.env[key]?.trim();
+  if (!value) return undefined;
+  if (!isValidStripePriceId(value)) {
+    console.error(
+      `${key} is set to a malformed Stripe price id and is being ignored. ` +
+        `Expected "price_<alphanumeric>". Set it to a real price id from the Stripe dashboard.`
+    );
+    return undefined;
+  }
+  return value;
 }
 
 export function getPlanConfigByPriceId(priceId: string): PlanFeatureConfig | undefined {
