@@ -1,8 +1,19 @@
 import Link from "next/link";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Sparkles } from "lucide-react";
 
-export function SiteHeader() {
+// Real bug this fixes: this header previously showed "Log in" / "Start
+// free" unconditionally, with no way to tell an already-authenticated
+// visitor apart from a new one. A logged-in user landing here (from the
+// dashboard's own logo link back to the marketing site) had no visible way
+// back to their dashboard, and clicking "Log in" -- reasonably mistaken for
+// some kind of account/dashboard entry point -- landed them on a login
+// form, which looked exactly like being signed out even though the
+// underlying session was untouched.
+export async function SiteHeader() {
+  const session = await getServerSession(authOptions);
   return (
     <header className="glass sticky top-0 z-40 border-b border-border">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
@@ -37,12 +48,20 @@ export function SiteHeader() {
           <Link href="/#faq" className="transition-colors hover:text-foreground">FAQ</Link>
         </nav>
         <div className="flex items-center gap-3">
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/login">Log in</Link>
-          </Button>
-          <Button asChild size="sm">
-            <Link href="/register">Start free</Link>
-          </Button>
+          {session ? (
+            <Button asChild size="sm">
+              <Link href="/dashboard">Dashboard</Link>
+            </Button>
+          ) : (
+            <>
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/login">Log in</Link>
+              </Button>
+              <Button asChild size="sm">
+                <Link href="/register">Start free</Link>
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </header>
