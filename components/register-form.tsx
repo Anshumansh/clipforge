@@ -19,6 +19,7 @@ export function RegisterForm() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState(prefillEmail);
   const [password, setPassword] = useState("");
+  const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -101,8 +102,28 @@ export function RegisterForm() {
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
+            <div className="flex items-start gap-2">
+              <input
+                id="agreed"
+                type="checkbox"
+                required
+                checked={agreed}
+                onChange={(e) => setAgreed(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-border"
+              />
+              <Label htmlFor="agreed" className="text-sm font-normal text-muted-foreground">
+                I agree to the{" "}
+                <Link href="/terms" target="_blank" className="text-primary underline underline-offset-2 hover:no-underline">
+                  Terms
+                </Link>{" "}
+                and{" "}
+                <Link href="/privacy" target="_blank" className="text-primary underline underline-offset-2 hover:no-underline">
+                  Privacy Policy
+                </Link>
+              </Label>
+            </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full" disabled={loading || !agreed}>
               {loading ? "Creating account…" : "Create account"}
             </Button>
           </form>

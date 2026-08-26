@@ -5,9 +5,11 @@ const userFindUniqueOrThrow = vi.fn();
 const userUpdate = vi.fn();
 const customerCreate = vi.fn();
 const checkoutCreate = vi.fn();
+const rateLimitFn = vi.fn();
 
 vi.mock("next-auth", () => ({ getServerSession: (...args: unknown[]) => getServerSession(...args) }));
 vi.mock("@/lib/auth", () => ({ authOptions: {} }));
+vi.mock("@/lib/rate-limit", () => ({ rateLimit: (...args: unknown[]) => rateLimitFn(...args) }));
 vi.mock("@/lib/db", () => ({
   db: {
     user: {
@@ -39,6 +41,7 @@ beforeEach(() => {
   delete process.env.STRIPE_PRICE_BUSINESS;
   process.env.NEXTAUTH_URL = "https://staging.clipforge.test";
   getServerSession.mockResolvedValue({ user: { id: "user_1" } });
+  rateLimitFn.mockReturnValue({ ok: true, remaining: 4, resetAt: Date.now() + 60_000 });
   userFindUniqueOrThrow.mockResolvedValue({
     id: "user_1",
     email: "creator@example.test",
@@ -54,6 +57,15 @@ describe("POST /api/stripe/checkout", () => {
     getServerSession.mockResolvedValue(null);
     const response = await POST(request("creator"));
     expect(response.status).toBe(401);
+  });
+
+  it("rate-limits repeated checkout attempts per user", async () => {
+    rateLimitFn.mockReturnValue({ ok: false, remaining: 0, resetAt: Date.now() + 60_000 });
+
+    const response = await POST(request("creator"));
+    expect(response.status).toBe(429);
+    expect(rateLimitFn).toHaveBeenCalledWith("checkout:user_1", 5, 60 * 1000);
+    expect(checkoutCreate).not.toHaveBeenCalled();
   });
 
   it("does not sell the legacy Hobby plan", async () => {
