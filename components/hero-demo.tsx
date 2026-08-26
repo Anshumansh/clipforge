@@ -256,14 +256,19 @@ export function HeroDemo({ clips }: { clips: Clip[] }) {
         </div>
       )}
 
-      <div className="mt-5">
-        <p className="text-center text-xs text-muted-foreground lg:text-left">Real output — tap or hover to preview:</p>
-        <div className="mt-2 grid grid-cols-3 gap-2">
-          {clips.map((clip) => (
-            <ClipTile key={clip.src} clip={clip} />
-          ))}
+      {/* The label invites an interaction, so it must not appear when there
+          is nothing to interact with -- see getAvailableShowcaseClips in
+          app/page.tsx, which omits any clip this environment cannot serve. */}
+      {clips.length > 0 && (
+        <div className="mt-5">
+          <p className="text-center text-xs text-muted-foreground lg:text-left">Real output — tap or hover to preview:</p>
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            {clips.map((clip) => (
+              <ClipTile key={clip.src} clip={clip} />
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="mt-5 rounded-xl border border-border bg-card/40 p-4">
         <p className="text-xs font-medium text-muted-foreground">How it works</p>
