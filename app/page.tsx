@@ -9,6 +9,7 @@ import { Marquee } from "@/components/marquee";
 import { db } from "@/lib/db";
 import { SOCIAL_PLATFORMS, PLATFORM_LABELS, getLivePlatforms } from "@/lib/social/platforms";
 import { getShowcaseAssets } from "@/lib/showcase-assets";
+import { headStoredObject } from "@/lib/storage";
 import { unstable_cache } from "next/cache";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -119,9 +120,49 @@ const tickerItems = [
 // an expiring storage signature, and browsers never depend on a storage
 // provider accepting their direct request. The route streams only these
 // three allowlisted objects with authenticated server-side storage access.
-function getShowcaseClips(): { src: string; label: string }[] {
-  return getShowcaseAssets().map(({ publicPath, label }) => ({ src: publicPath, label }));
-}
+/** Only returns clips whose underlying object actually exists in *this*
+ * environment's bucket.
+ *
+ * The fallback keys in lib/showcase-assets.ts are real renders, but they live
+ * in whichever bucket generated them. Confirmed live: all three resolve on
+ * staging and all three 404 on production, so production's homepage was
+ * advertising "Real output -- tap or hover to preview" over three tiles that
+ * could never play. A dead control is worse than an absent one, so an asset
+ * this environment cannot serve is simply not offered.
+ *
+ * This is deliberately NOT a way to hide a regression from CI: staging has
+ * all three objects, so staging still renders all three tiles and the
+ * anonymous-journey e2e spec still fails loudly if any of them stops
+ * playing. Set SHOWCASE_{SCRIPT,REPURPOSE,UGC}_STORAGE_KEY per environment
+ * to point at objects that environment can actually read. */
+const getAvailableShowcaseClips = unstable_cache(
+  async (): Promise<{ src: string; label: string }[]> => {
+    const assets = getShowcaseAssets();
+    const checked = await Promise.all(
+      assets.map(async (asset) => {
+        try {
+          const metadata = await headStoredObject(asset.storageKey);
+          const available = metadata !== null && (metadata.contentLength ?? 0) > 0;
+          if (!available) {
+            console.error(
+              `Showcase asset "${asset.name}" is not readable in this environment ` +
+                `(storage key resolved, object missing or empty). The homepage will omit ` +
+                `its preview tile. Set its SHOWCASE_*_STORAGE_KEY to an object this ` +
+                `environment can read.`
+            );
+          }
+          return available ? { src: asset.publicPath, label: asset.label } : null;
+        } catch (error) {
+          console.error(`Showcase asset "${asset.name}" availability check failed:`, error);
+          return null;
+        }
+      })
+    );
+    return checked.filter((clip): clip is { src: string; label: string } => clip !== null);
+  },
+  ["homepage-available-showcase-clips"],
+  { revalidate: 300 }
+);
 
 const differentiators = [
   {
@@ -236,7 +277,7 @@ const PLATFORM_DOT: Record<(typeof SOCIAL_PLATFORMS)[number], string> = {
 export default async function LandingPage() {
   const videosGenerated = await getVideosGeneratedCount();
   const livePlatforms = getLivePlatforms();
-  const showcaseClips = getShowcaseClips();
+  const showcaseClips = await getAvailableShowcaseClips();
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -379,23 +420,28 @@ export default async function LandingPage() {
           </Reveal>
         </section>
 
-        <section className="border-y border-border/60 bg-secondary/30 px-6 py-20">
-          <Reveal>
-            <div className="mx-auto max-w-2xl text-center">
-              <h2 className="text-3xl font-bold tracking-tight">Real output, not mockups</h2>
-              <p className="mt-4 text-muted-foreground">
-                Every clip below was generated end to end by Clipforge — nothing staged, nothing hand-edited.
-              </p>
-            </div>
-          </Reveal>
-          <RevealGroup className="mx-auto mt-14 grid max-w-4xl grid-cols-1 gap-10 sm:grid-cols-3">
-            {showcaseClips.map((clip) => (
-              <RevealItem key={clip.src} className="mx-auto w-full max-w-[220px]">
-                <PhoneMockup src={clip.src} label={clip.label} float={false} />
-              </RevealItem>
-            ))}
-          </RevealGroup>
-        </section>
+        {/* Hidden entirely rather than shown empty: the copy promises "every
+            clip below", so a heading with no clips under it is a worse,
+            actively misleading experience than omitting the section. */}
+        {showcaseClips.length > 0 && (
+          <section className="border-y border-border/60 bg-secondary/30 px-6 py-20">
+            <Reveal>
+              <div className="mx-auto max-w-2xl text-center">
+                <h2 className="text-3xl font-bold tracking-tight">Real output, not mockups</h2>
+                <p className="mt-4 text-muted-foreground">
+                  Every clip below was generated end to end by Clipforge — nothing staged, nothing hand-edited.
+                </p>
+              </div>
+            </Reveal>
+            <RevealGroup className="mx-auto mt-14 grid max-w-4xl grid-cols-1 gap-10 sm:grid-cols-3">
+              {showcaseClips.map((clip) => (
+                <RevealItem key={clip.src} className="mx-auto w-full max-w-[220px]">
+                  <PhoneMockup src={clip.src} label={clip.label} float={false} />
+                </RevealItem>
+              ))}
+            </RevealGroup>
+          </section>
+        )}
 
         <section id="features" className="mx-auto max-w-6xl px-6 py-20">
           <Reveal>
