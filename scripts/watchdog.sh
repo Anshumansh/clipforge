@@ -164,6 +164,48 @@ if [ "${WEBHOOK_FAILURES:-0}" -gt 0 ]; then
   PROBLEMS+=("$WEBHOOK_FAILURES Stripe webhook failure(s) logged in the last 5 minutes")
 fi
 
+# --- Stripe checkout paid but never applied: the check above only catches a
+# webhook delivery that *fails loudly* against our own endpoint. A webhook
+# registered against the wrong host entirely (real incident, 2026-08-26: the
+# only endpoint in Stripe pointed at staging, not production) succeeds from
+# Stripe's point of view and leaves nothing in our own logs or database to
+# detect -- the gap is only visible by asking Stripe what it actually paid
+# and comparing that against what our DB reflects. 10-minute window (2x this
+# loop's 5-minute cadence) so a session is never missed at a run boundary;
+# skips anything younger than 2 minutes to give normal webhook latency room
+# before flagging it.
+if [ -n "${STRIPE_SECRET_KEY:-}" ]; then
+  STRIPE_CHECKOUTS=$(curl -sS -u "$STRIPE_SECRET_KEY:" \
+    "https://api.stripe.com/v1/checkout/sessions?limit=20&created[gte]=$(( $(date +%s) - 600 ))" \
+    --max-time 10 2>/dev/null || echo "")
+  UNAPPLIED=$(echo "$STRIPE_CHECKOUTS" | python3 -c "
+import json, sys, time
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+cutoff = time.time() - 120
+for s in data.get('data', []):
+    if s.get('payment_status') == 'paid' and s.get('mode') == 'subscription' and s.get('created', cutoff) <= cutoff:
+        meta = s.get('metadata') or {}
+        uid, plan = meta.get('userId'), meta.get('plan')
+        if uid and plan:
+            print(f'{uid}|{plan}')
+" 2>/dev/null)
+  if [ -n "$UNAPPLIED" ]; then
+    while IFS='|' read -r uid plan; do
+      # Both fields are our own checkout route's metadata (app/api/stripe/checkout/route.ts),
+      # never client-controlled -- validated anyway before it reaches SQL, defense in depth.
+      [[ "$uid" =~ ^[a-zA-Z0-9]+$ ]] || continue
+      [[ "$plan" =~ ^[a-zA-Z0-9_-]+$ ]] || continue
+      DB_PLAN=$(docker run --rm postgres:18-alpine psql "$DATABASE_URL" -tA -c "SELECT plan FROM \"User\" WHERE id = '$uid';" 2>/dev/null | tr -d ' ')
+      if [ "$DB_PLAN" != "$plan" ]; then
+        PROBLEMS+=("Stripe shows a paid '$plan' checkout for user $uid but their DB plan is '${DB_PLAN:-unknown}' -- credit grant likely never applied (webhook misdelivery or endpoint misconfiguration)")
+      fi
+    done <<< "$UNAPPLIED"
+  fi
+fi
+
 # --- Cron script health (catches e.g. a script silently losing its exec bit
 # again on a future deploy — this exact bug shipped once already: backups,
 # scheduled social posts, and Trend Radar's scheduled refresh all ran via
