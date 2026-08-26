@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { getStripe } from "@/lib/stripe";
 import { getPlanConfig, getStripePriceId } from "@/lib/pricing/plan-config";
 import { getPublicAppOrigin } from "@/lib/public-app-url";
+import { rateLimit } from "@/lib/rate-limit";
 
 const schema = z.object({ plan: z.enum(["creator", "business"]) });
 
@@ -13,6 +14,9 @@ export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { ok } = rateLimit(`checkout:${userId}`, 5, 60 * 1000);
+  if (!ok) return NextResponse.json({ error: "Too many requests. Slow down and try again shortly." }, { status: 429 });
 
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid plan" }, { status: 400 });

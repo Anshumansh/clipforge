@@ -187,6 +187,22 @@ for entry in "/var/log/clipforge-backup.log:93600:backup" "/var/log/clipforge-so
   if echo "$LAST_LINE" | grep -qiE "permission denied|command not found|no such file"; then
     PROBLEMS+=("$label log's most recent run failed: $LAST_LINE")
   fi
+
+  # Backups are the one cron job where "ran without a recognized error
+  # string" isn't good enough -- a script using `set -euo pipefail` exits
+  # (and stops writing to the log) the instant any step fails, including
+  # failure modes this loop's blocklist above doesn't know about (a
+  # Backblaze auth rejection, a network timeout, a full disk on /tmp).
+  # Require this run's own positive success line instead of only screening
+  # for a few known negative ones, so an unrecognized failure still trips
+  # this instead of silently passing the freshness check. Only the tail is
+  # checked (not the whole cumulative log) -- one success ever logged would
+  # otherwise mask every subsequent failed run.
+  if [ "$label" = "backup" ] && [ -f "$path" ]; then
+    if ! tail -5 "$path" | grep -qF "Backed up to s3://"; then
+      PROBLEMS+=("$label log's most recent run never logged a successful upload: $LAST_LINE")
+    fi
+  fi
 done
 
 # --- Disk space (auto-prune if over 85%) ---
