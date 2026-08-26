@@ -193,11 +193,30 @@ jobs:
           cat /tmp/health.json 2>/dev/null || true
           exit 1
 
+      # `|| true` used to swallow the result entirely, which hid a real
+      # outage: during the 2026-08-25 incident this step "ran" while Resend
+      # rejected it with 401 invalid API key, so the one alert that exists
+      # for "deploy succeeded but production is unhealthy" silently reached
+      # nobody. An alerting path that fails quietly is worse than none --
+      # it buys false confidence. Still never fails the job (the deploy
+      # outcome must stay the signal), but a broken alert is now loud in
+      # the run summary via ::error:: and the annotations UI.
       - name: Alert on failed post-deploy health check
         if: failure() && steps.healthcheck.outcome == 'failure'
         run: |
-          curl -sS -X POST "https://api.resend.com/emails" \
+          if [ -z "${{ secrets.RESEND_API_KEY }}" ]; then
+            echo "::error::Health check failed AND no RESEND_API_KEY is configured -- the alert email could not be sent. Set the RESEND_API_KEY repository secret."
+            exit 0
+          fi
+          STATUS=$(curl -sS -o /tmp/resend-response.json -w "%{http_code}" -X POST "https://api.resend.com/emails" \
             -H "Authorization: Bearer ${{ secrets.RESEND_API_KEY }}" \
             -H "Content-Type: application/json" \
             -d "{\"from\":\"Clipforge <onboarding@resend.dev>\",\"to\":\"support@forgecut.app\",\"subject\":\"Clipforge: deploy succeeded but health check failed\",\"html\":\"<p>The deploy step completed successfully, but the post-deploy health check (5 attempts, 10s between retries) failed.</p><p>Review the job logs for curl error details.</p>\"}" \
-            --max-time 15 || true
+            --max-time 15 || echo "000")
+          if [ "$STATUS" = "200" ]; then
+            echo "Alert email accepted by Resend."
+            exit 0
+          fi
+          # Prints Resend's own error name/message, never the API key.
+          REASON=$(jq -r '[.name, .message] | map(select(. != null)) | join(": ")' /tmp/resend-response.json 2>/dev/null || echo "unparseable response")
+          echo "::error::Health check failed AND the alert email could not be delivered (Resend HTTP $STATUS -- $REASON). Nobody was paged; rotate or fix the RESEND_API_KEY repository secret."

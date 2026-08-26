@@ -64,4 +64,32 @@ describe("canonical PLAN_CONFIGS", () => {
     expect(getStripePriceId("creator")).toBe("price_creator");
     expect(getPlanConfigByPriceId("price_creator")?.planId).toBe("creator");
   });
+
+  // Regression coverage for a real staging misconfiguration:
+  // STRIPE_PRICE_BUSINESS was set to the literal string "price_44.99" (the
+  // plan's dollar amount, not an id). Being truthy, it passed every
+  // `!priceId` guard, reached Stripe, and failed there with a generic
+  // "No such price" that the checkout route surfaced as a transient
+  // "Checkout is temporarily unavailable, please try again in a moment"
+  // 503 -- so a permanent config error looked like a passing outage and a
+  // customer could retry forever. Treating it as unconfigured makes the
+  // failure honest and actionable instead.
+  it("ignores a malformed price id rather than forwarding it to Stripe", () => {
+    process.env.STRIPE_PRICE_BUSINESS = "price_44.99";
+    expect(getStripePriceId("business")).toBeUndefined();
+
+    process.env.STRIPE_PRICE_BUSINESS = "44.99";
+    expect(getStripePriceId("business")).toBeUndefined();
+
+    process.env.STRIPE_PRICE_BUSINESS = "   ";
+    expect(getStripePriceId("business")).toBeUndefined();
+
+    process.env.STRIPE_PRICE_BUSINESS = "price_1U5zQECjnIKidvFNfrDCJaCt";
+    expect(getStripePriceId("business")).toBe("price_1U5zQECjnIKidvFNfrDCJaCt");
+  });
+
+  it("trims surrounding whitespace from a pasted price id", () => {
+    process.env.STRIPE_PRICE_CREATOR = "  price_1U5zPZCjnIKidvFNODGTmNYm  ";
+    expect(getStripePriceId("creator")).toBe("price_1U5zPZCjnIKidvFNODGTmNYm");
+  });
 });

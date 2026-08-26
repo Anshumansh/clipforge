@@ -1,0 +1,313 @@
+name: Production DB diagnostic
+
+# On-demand only -- this SSHes into the production VPS and speaks raw
+# Postgres wire protocol against the real DATABASE_URL. It never logs the
+# connection string, password, or a raw server error message, only
+# boolean/enum classification codes (see the inline classifiers below), but
+# it's still a real production-network action and has no reason to run on
+# every push. Originally built and used live on ops/db-diagnostic to root-
+# cause the 2026-08-25 Neon quota outage; kept here as reusable tooling for
+# the next one.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Run value-blind database connectivity checks on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/clipforge
+
+            for SERVICE in app worker caddy; do
+              ID=$(docker compose ps -q "$SERVICE")
+              if [ -z "$ID" ]; then
+                echo "$SERVICE present=false"
+                continue
+              fi
+              docker inspect --format "$SERVICE status={{.State.Status}} restarts={{.RestartCount}}" "$ID"
+            done
+
+            docker compose exec -T app node <<'NODE'
+            const dns = require("node:dns").promises;
+            const net = require("node:net");
+            const tls = require("node:tls");
+            const crypto = require("node:crypto");
+            const { PrismaClient } = require("@prisma/client");
+
+            function classifyDatabaseError(error) {
+              const message = String(error?.message || "").toLowerCase();
+              const categories = [
+                ["authentication_failed", /authentication failed|password authentication failed|credentials.*not valid|invalid.*password/],
+                ["role_missing", /role .* does not exist|user .* does not exist/],
+                ["database_missing", /database .* does not exist|unknown database/],
+                ["connection_exhausted", /too many connections|max.*connections|remaining connection slots|connection limit/],
+                ["pool_timeout", /timed out fetching a new connection|connection pool timeout/],
+                ["network_unreachable", /can.t reach database server|connection refused|network is unreachable/],
+                ["tls_error", /certificate|self signed|tls|ssl/],
+                ["endpoint_suspended", /suspend|disabled|project.*not found|endpoint.*not found/],
+                ["connection_terminated", /connection terminated|server closed the connection|connection reset/],
+              ];
+              return categories.find(([, pattern]) => pattern.test(message))?.[0] || "unclassified";
+            }
+
+            async function tcpReachable(host, port) {
+              return new Promise((resolve) => {
+                const socket = net.createConnection({ host, port });
+                const finish = (result) => {
+                  socket.destroy();
+                  resolve(result);
+                };
+                socket.setTimeout(5000, () => finish({ ok: false, code: "TIMEOUT" }));
+                socket.once("connect", () => finish({ ok: true, code: "CONNECTED" }));
+                socket.once("error", (error) => finish({ ok: false, code: error.code || "UNKNOWN" }));
+              });
+            }
+
+            function startupPacket(user, database) {
+              const fields = Buffer.from(`user\0${user}\0database\0${database}\0client_encoding\0UTF8\0\0`);
+              const packet = Buffer.alloc(8 + fields.length);
+              packet.writeInt32BE(packet.length, 0);
+              packet.writeInt32BE(196608, 4);
+              fields.copy(packet, 8);
+              return packet;
+            }
+
+            function sqlStateFromErrorBody(body) {
+              let offset = 0;
+              while (offset < body.length && body[offset] !== 0) {
+                const field = String.fromCharCode(body[offset++]);
+                const end = body.indexOf(0, offset);
+                if (end < 0) break;
+                const value = body.subarray(offset, end).toString("utf8");
+                if (field === "C") return value;
+                offset = end + 1;
+              }
+              return "UNKNOWN";
+            }
+
+            function classifyPostgresErrorBody(body) {
+              const values = [];
+              let offset = 0;
+              while (offset < body.length && body[offset] !== 0) {
+                offset += 1;
+                const end = body.indexOf(0, offset);
+                if (end < 0) break;
+                values.push(body.subarray(offset, end).toString("utf8").toLowerCase());
+                offset = end + 1;
+              }
+              const message = values.join(" ");
+              const categories = [
+                ["quota_exceeded", /quota|allowance|usage limit|resource limit|exceeded/],
+                ["active_endpoint_limit", /active endpoint|concurrent.*endpoint/],
+                ["compute_suspended", /compute.*suspend|suspended.*compute|project.*suspend/],
+                ["compute_unavailable", /compute.*unavailable|could not.*compute|allocate.*compute/],
+                ["connection_limit", /too many connections|max_connections|connection limit/],
+                ["billing_required", /billing|payment|upgrade.*plan/],
+              ];
+              return categories.find(([, pattern]) => pattern.test(message))?.[0] || "unclassified";
+            }
+
+            async function postgresAuthenticate(host, port, user, database, password) {
+              return new Promise((resolve) => {
+                const socket = net.createConnection({ host, port });
+                let finished = false;
+                let secure;
+                let buffer = Buffer.alloc(0);
+                let clientFirstBare = "";
+                let expectedServerSignature = "";
+                const finish = (result) => {
+                  if (finished) return;
+                  finished = true;
+                  if (secure) secure.destroy();
+                  else socket.destroy();
+                  resolve(result);
+                };
+                const hmac = (key, data) => crypto.createHmac("sha256", key).update(data).digest();
+                const xor = (a, b) => Buffer.from(a.map((value, index) => value ^ b[index]));
+                const sendPasswordMessage = (payload) => {
+                  const data = Buffer.from(payload, "utf8");
+                  const message = Buffer.alloc(1 + 4 + data.length);
+                  message[0] = 112;
+                  message.writeInt32BE(4 + data.length, 1);
+                  data.copy(message, 5);
+                  secure.write(message);
+                };
+                const processMessages = () => {
+                  while (buffer.length >= 5) {
+                    const length = buffer.readInt32BE(1);
+                    const total = 1 + length;
+                    if (buffer.length < total) return;
+                    const type = String.fromCharCode(buffer[0]);
+                    const body = buffer.subarray(5, total);
+                    buffer = buffer.subarray(total);
+                    if (type === "E") {
+                      const state = sqlStateFromErrorBody(body);
+                      return finish({ ok: false, code: state === "28P01" ? "AUTH_FAILED_28P01" : `SERVER_ERROR_${state}_${classifyPostgresErrorBody(body)}` });
+                    }
+                    if (type !== "R" || body.length < 4) continue;
+                    const authCode = body.readInt32BE(0);
+                    if (authCode === 10) {
+                      const mechanism = "SCRAM-SHA-256";
+                      const nonce = crypto.randomBytes(18).toString("base64");
+                      clientFirstBare = `n=,r=${nonce}`;
+                      const first = `n,,${clientFirstBare}`;
+                      const mechanismBytes = Buffer.from(mechanism + "\0");
+                      const firstBytes = Buffer.from(first);
+                      const payload = Buffer.alloc(mechanismBytes.length + 4 + firstBytes.length);
+                      mechanismBytes.copy(payload, 0);
+                      payload.writeInt32BE(firstBytes.length, mechanismBytes.length);
+                      firstBytes.copy(payload, mechanismBytes.length + 4);
+                      sendPasswordMessage(payload);
+                    } else if (authCode === 11) {
+                      const serverFirst = body.subarray(4).toString("utf8");
+                      const attrs = Object.fromEntries(serverFirst.split(",").map((part) => [part[0], part.slice(2)]));
+                      if (!attrs.r || !attrs.s || !attrs.i || !attrs.r.startsWith(clientFirstBare.slice(5))) {
+                        return finish({ ok: false, code: "SCRAM_PROTOCOL_ERROR" });
+                      }
+                      const clientFinalWithoutProof = `c=biws,r=${attrs.r}`;
+                      const authMessage = `${clientFirstBare},${serverFirst},${clientFinalWithoutProof}`;
+                      const salted = crypto.pbkdf2Sync(password, Buffer.from(attrs.s, "base64"), Number(attrs.i), 32, "sha256");
+                      const clientKey = hmac(salted, "Client Key");
+                      const storedKey = crypto.createHash("sha256").update(clientKey).digest();
+                      const proof = xor(clientKey, hmac(storedKey, authMessage)).toString("base64");
+                      const serverKey = hmac(salted, "Server Key");
+                      expectedServerSignature = hmac(serverKey, authMessage).toString("base64");
+                      sendPasswordMessage(`${clientFinalWithoutProof},p=${proof}`);
+                    } else if (authCode === 12) {
+                      const finalMessage = body.subarray(4).toString("utf8");
+                      if (!finalMessage.includes(`v=${expectedServerSignature}`)) {
+                        return finish({ ok: false, code: "SCRAM_SIGNATURE_MISMATCH" });
+                      }
+                    } else if (authCode === 0) {
+                      return finish({ ok: true, code: "AUTH_OK" });
+                    } else {
+                      return finish({ ok: false, code: `UNSUPPORTED_AUTH_${authCode}` });
+                    }
+                  }
+                };
+                socket.setTimeout(10000, () => finish({ ok: false, code: "TIMEOUT" }));
+                socket.once("error", (error) => finish({ ok: false, code: error.code || "TCP_ERROR" }));
+                socket.once("connect", () => socket.write(Buffer.from([0, 0, 0, 8, 4, 210, 22, 47])));
+                socket.once("data", (chunk) => {
+                  if (chunk[0] !== 83) return finish({ ok: false, code: "SSL_NOT_SUPPORTED" });
+                  secure = tls.connect({ socket, servername: host, rejectUnauthorized: true });
+                  secure.once("secureConnect", () => secure.write(startupPacket(user, database)));
+                  secure.on("data", (chunk) => {
+                    buffer = Buffer.concat([buffer, chunk]);
+                    processMessages();
+                  });
+                  secure.once("error", (error) => finish({ ok: false, code: error.code || "TLS_ERROR" }));
+                });
+              });
+            }
+
+            async function postgresStartup(host, port, user, database) {
+              return new Promise((resolve) => {
+                const socket = net.createConnection({ host, port });
+                let finished = false;
+                const finish = (result) => {
+                  if (finished) return;
+                  finished = true;
+                  socket.destroy();
+                  resolve(result);
+                };
+                socket.setTimeout(7000, () => finish({ ok: false, code: "TIMEOUT" }));
+                socket.once("error", (error) => finish({ ok: false, code: error.code || "TCP_ERROR" }));
+                socket.once("connect", () => {
+                  // PostgreSQL SSLRequest (length=8, code=80877103). The server
+                  // replies with S before a normal TLS handshake begins.
+                  socket.write(Buffer.from([0, 0, 0, 8, 4, 210, 22, 47]));
+                });
+                socket.once("data", (chunk) => {
+                  if (chunk[0] !== 83) return finish({ ok: false, code: "SSL_NOT_SUPPORTED" });
+                  const secure = tls.connect({ socket, servername: host, rejectUnauthorized: true });
+                  secure.once("secureConnect", () => {
+                    secure.write(startupPacket(user, database));
+                    secure.once("data", (message) => {
+                      if (message.length < 9) return finish({ ok: false, code: "PARTIAL_RESPONSE" });
+                      const type = String.fromCharCode(message[0]);
+                      const length = message.readInt32BE(1);
+                      if (message.length < length + 1) return finish({ ok: false, code: "PARTIAL_RESPONSE" });
+                      const body = message.subarray(5, length + 1);
+                      if (type === "R") {
+                        return finish({ ok: true, code: `AUTH_REQUEST_${body.readInt32BE(0)}` });
+                      }
+                      if (type === "E") {
+                        return finish({ ok: false, code: `SERVER_ERROR_${sqlStateFromErrorBody(body)}` });
+                      }
+                      return finish({ ok: false, code: `UNEXPECTED_${type.charCodeAt(0)}` });
+                    });
+                  });
+                  secure.once("error", (error) => finish({ ok: false, code: error.code || "TLS_ERROR" }));
+                });
+              });
+            }
+
+            (async () => {
+              const raw = process.env.DATABASE_URL || "";
+              console.log(`database_url_present=${raw.length > 0}`);
+              let parsed;
+              try {
+                parsed = new URL(raw);
+                console.log("database_url_parseable=true");
+              } catch {
+                console.log("database_url_parseable=false");
+                process.exitCode = 2;
+                return;
+              }
+
+              try {
+                await dns.lookup(parsed.hostname);
+                console.log("database_dns_resolves=true");
+              } catch (error) {
+                console.log(`database_dns_resolves=false code=${error.code || "UNKNOWN"}`);
+              }
+
+              const tcp = await tcpReachable(parsed.hostname, Number(parsed.port || 5432));
+              console.log(`database_tcp_reachable=${tcp.ok} code=${tcp.code}`);
+              const pgStartup = await postgresStartup(
+                parsed.hostname,
+                Number(parsed.port || 5432),
+                decodeURIComponent(parsed.username),
+                decodeURIComponent(parsed.pathname.replace(/^\//, "")),
+              );
+              console.log(`database_postgres_startup=${pgStartup.ok} code=${pgStartup.code}`);
+              const pgAuth = await postgresAuthenticate(
+                parsed.hostname,
+                Number(parsed.port || 5432),
+                decodeURIComponent(parsed.username),
+                decodeURIComponent(parsed.pathname.replace(/^\//, "")),
+                decodeURIComponent(parsed.password),
+              );
+              console.log(`database_postgres_auth=${pgAuth.ok} code=${pgAuth.code}`);
+
+              const db = new PrismaClient({ log: [] });
+              try {
+                await db.$queryRawUnsafe("SELECT 1");
+                console.log("prisma_select_1=true");
+              } catch (error) {
+                console.log("prisma_select_1=false");
+                console.log(`prisma_error_name=${error.name || "Unknown"}`);
+                console.log(`prisma_error_code=${error.code || error.errorCode || "NONE"}`);
+                console.log(`prisma_error_category=${classifyDatabaseError(error)}`);
+              } finally {
+                await db.$disconnect().catch(() => {});
+              }
+            })().catch((error) => {
+              console.log(`diagnostic_error_name=${error.name || "Unknown"}`);
+              process.exitCode = 3;
+            });
+            NODE
+
+            for SERVICE in app worker; do
+              COUNT=$(docker compose logs --no-color --since=20m "$SERVICE" 2>&1 | grep -Eoc 'P[0-9]{4}|Can.t reach database server|database.*(timeout|unreachable)' || true)
+              echo "$SERVICE recent_database_error_markers=$COUNT"
+            done
