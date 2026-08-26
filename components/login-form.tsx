@@ -17,8 +17,6 @@ export function LoginForm() {
   const next = safeInternalPath(searchParams.get("next"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [totpCode, setTotpCode] = useState("");
-  const [needsMfa, setNeedsMfa] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -28,7 +26,7 @@ export function LoginForm() {
     setError(null);
     let res: Awaited<ReturnType<typeof signIn>>;
     try {
-      res = await signIn("credentials", { email, password, totpCode, redirect: false });
+      res = await signIn("credentials", { email, password, redirect: false });
     } catch {
       setLoading(false);
       setError("Could not reach the server. Check your connection and try again.");
@@ -36,12 +34,12 @@ export function LoginForm() {
     }
     setLoading(false);
 
-    if (res?.error === "MFA_REQUIRED") {
-      setNeedsMfa(true);
-      return;
-    }
-    if (res?.error === "MFA_INVALID") {
-      setError("That code didn't match. Check your authenticator app or use a backup code.");
+    // An account enrolled in two-factor (via /admin) still requires a TOTP
+    // code server-side (lib/auth.ts) even though this form no longer has a
+    // field for one -- surface that plainly instead of the misleading
+    // "Invalid email or password" a generic fallback would show here.
+    if (res?.error === "MFA_REQUIRED" || res?.error === "MFA_INVALID") {
+      setError("This account requires a two-factor code that isn't supported here. Contact support.");
       return;
     }
     if (res?.error) {
@@ -74,7 +72,6 @@ export function LoginForm() {
                 type="email"
                 autoComplete="email"
                 required
-                disabled={needsMfa}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
@@ -91,49 +88,14 @@ export function LoginForm() {
                 type="password"
                 autoComplete="current-password"
                 required
-                disabled={needsMfa}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
-            {needsMfa && (
-              <div className="space-y-1.5">
-                <Label htmlFor="totpCode">Authenticator code</Label>
-                <Input
-                  id="totpCode"
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  autoFocus
-                  placeholder="123456 or a backup code"
-                  required
-                  value={totpCode}
-                  onChange={(e) => setTotpCode(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  This account has two-factor authentication enabled. Enter the 6-digit code from your
-                  authenticator app, or one of your backup codes.
-                </p>
-              </div>
-            )}
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Logging in…" : needsMfa ? "Verify" : "Log in"}
+              {loading ? "Logging in…" : "Log in"}
             </Button>
-            {needsMfa && (
-              <Button
-                type="button"
-                variant="ghost"
-                className="w-full"
-                onClick={() => {
-                  setNeedsMfa(false);
-                  setTotpCode("");
-                  setError(null);
-                }}
-              >
-                Use a different account
-              </Button>
-            )}
           </form>
           <p className="mt-6 text-center text-sm text-muted-foreground">
             No account?{" "}
