@@ -31,6 +31,7 @@
     "@remotion/bundler": "4.0.503",
     "@remotion/cli": "4.0.503",
     "@remotion/renderer": "4.0.503",
+    "@sentry/nextjs": "^10.71.0",
     "@tensorflow-models/blazeface": "^0.1.0",
     "@tensorflow/tfjs-backend-wasm": "^4.22.0",
     "@tensorflow/tfjs-converter": "^4.22.0",
