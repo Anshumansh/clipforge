@@ -37,7 +37,11 @@ const CSP = [
   `img-src 'self' data: blob: https://i.ytimg.com ${STORAGE_HOST}`,
   `media-src 'self' blob: ${STORAGE_HOST}`,
   "font-src 'self'",
-  "connect-src 'self'",
+  // Sentry's ingest host (instrumentation-client.ts) -- without this, error
+  // reports fail silently: the browser blocks the request, Sentry.init()
+  // never throws, and nothing surfaces the misconfiguration except an empty
+  // Sentry dashboard.
+  "connect-src 'self' https://o4511979837325312.ingest.de.sentry.io",
   "frame-src 'none'",
   "frame-ancestors 'none'",
   "object-src 'none'",
